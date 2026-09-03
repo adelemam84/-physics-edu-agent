@@ -20,11 +20,16 @@ from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, stora
 async def lifespan(app: FastAPI):
     init_db(); yield
 
-app = FastAPI(title="Physics Educational AI Agent", version="0.12.0", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="0.13.0", lifespan=lifespan)
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None
     lesson_id: int | None = None
+    subject_id: int | None = None
+    grade_level_id: int | None = None
+    curriculum_version_id: int | None = None
+    term_id: int | None = None
+    unit_id: int | None = None
     question_type: str | None = None
     difficulty: str | None = None
     accepted_answer: str | None = None
@@ -34,6 +39,11 @@ class ManualQuestionCreate(BaseModel):
     text_verbatim: str
     question_type: str = "unknown"
     lesson_id: int | None = None
+    subject_id: int | None = None
+    grade_level_id: int | None = None
+    curriculum_version_id: int | None = None
+    term_id: int | None = None
+    unit_id: int | None = None
     difficulty: str = "unclassified"
 
 @app.get('/health')
@@ -47,8 +57,15 @@ def overview():
     with connect() as con:
         out={t:con.execute(f'SELECT COUNT(*) c FROM {t}').fetchone()['c'] for t in ('documents','questions','quizzes','students','attempts')}; out['approved_questions']=con.execute('SELECT COUNT(*) c FROM questions WHERE approved=TRUE').fetchone()['c']; out['review_documents']=con.execute("SELECT COUNT(*) c FROM documents WHERE status IN ('review_required','extraction_review_required')").fetchone()['c']; return out
 @app.get('/api/lessons')
-def lessons():
-    with connect() as con:return list(con.execute('SELECT * FROM lessons ORDER BY sort_order,id').fetchall())
+def lessons(subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None,term_id:int|None=None,unit_id:int|None=None):
+    sql='SELECT * FROM lessons WHERE 1=1';params=[]
+    if subject_id is not None:sql+=' AND subject_id=%s';params.append(subject_id)
+    if grade_level_id is not None:sql+=' AND grade_level_id=%s';params.append(grade_level_id)
+    if curriculum_version_id is not None:sql+=' AND curriculum_version_id=%s';params.append(curriculum_version_id)
+    if term_id is not None:sql+=' AND term_id=%s';params.append(term_id)
+    if unit_id is not None:sql+=' AND unit_id=%s';params.append(unit_id)
+    sql+=' ORDER BY sort_order,id'
+    with connect() as con:return list(con.execute(sql,params).fetchall())
 @app.get('/api/documents')
 def documents():
     with connect() as con:return list(con.execute("SELECT d.*,f.page_count,f.file_size_bytes,(SELECT COUNT(*) FROM questions q WHERE q.document_id=d.id) question_count FROM documents d LEFT JOIN document_files f ON f.document_id=d.id ORDER BY d.id DESC").fetchall())
@@ -63,7 +80,7 @@ def page_text(document_id:int,page:int):
     if not row:raise HTTPException(404,'Page not found')
     return {'page':page,'extracted_text':row['extracted_text'] or '','text_sha256':row['text_sha256']}
 @app.get('/api/questions')
-def questions(approved:bool|None=None,lesson_id:int|None=None,difficulty:str|None=None,question_type:str|None=None,workflow_state:str|None=None,chapter:str|None=None,limit:int=500):
+def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None,term_id:int|None=None,unit_id:int|None=None,difficulty:str|None=None,question_type:str|None=None,workflow_state:str|None=None,chapter:str|None=None,limit:int=500):
     sql="""SELECT q.*,d.filename source_filename,l.chapter,l.title lesson_title,
            EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) AS has_asset,
            CASE
@@ -79,6 +96,11 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,difficulty:str|Non
            END AS workflow_state
            FROM questions q JOIN documents d ON d.id=q.document_id
            LEFT JOIN lessons l ON l.id=q.lesson_id WHERE 1=1""";params=[]
+    if subject_id is not None:sql+=' AND q.subject_id=%s';params.append(subject_id)
+    if grade_level_id is not None:sql+=' AND q.grade_level_id=%s';params.append(grade_level_id)
+    if curriculum_version_id is not None:sql+=' AND q.curriculum_version_id=%s';params.append(curriculum_version_id)
+    if term_id is not None:sql+=' AND q.term_id=%s';params.append(term_id)
+    if unit_id is not None:sql+=' AND q.unit_id=%s';params.append(unit_id)
     if approved is not None:sql+=' AND q.approved=%s';params.append(approved)
     if lesson_id is not None:sql+=' AND q.lesson_id=%s';params.append(lesson_id)
     if difficulty is not None:
@@ -144,7 +166,7 @@ def question_readiness(question_id:int):
 
 @app.patch('/api/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,patch:QuestionPatch):
-    values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','question_type','difficulty','accepted_answer'}}
+    values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','question_type','difficulty','accepted_answer'}}
     if not values:raise HTTPException(400,'No changes')
     if 'difficulty' in values and values['difficulty'] not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
@@ -179,7 +201,7 @@ def create_manual_question(document_id:int,payload:ManualQuestionCreate):
         if not con.execute('SELECT 1 FROM document_pages WHERE document_id=%s AND page_number=%s',(document_id,payload.page)).fetchone():raise HTTPException(404,'Source page not found')
         dup=con.execute('SELECT id FROM questions WHERE document_id=%s AND coalesce(source_page,page)=%s AND text_verbatim=%s LIMIT 1',(document_id,payload.page,payload.text_verbatim)).fetchone()
         if dup:raise HTTPException(409,f"هذا السؤال مسجل بالفعل برقم {dup['id']}")
-        row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
+        row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.subject_id,payload.grade_level_id,payload.curriculum_version_id,payload.term_id,payload.unit_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
 @app.post('/api/documents/upload',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...),subject:str=Form('physics'),kind:str=Form('questions')):
     if not storage_configured():raise HTTPException(503,'Object storage is not configured')

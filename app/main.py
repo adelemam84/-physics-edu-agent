@@ -20,18 +20,21 @@ from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, stora
 async def lifespan(app: FastAPI):
     init_db(); yield
 
-app = FastAPI(title="Physics Educational AI Agent", version="0.10.0", lifespan=lifespan)
+app = FastAPI(title="Physics Educational AI Agent", version="0.11.0", lifespan=lifespan)
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None
     lesson_id: int | None = None
     question_type: str | None = None
+    difficulty: str | None = None
     accepted_answer: str | None = None
 
 class ManualQuestionCreate(BaseModel):
     page: int
     text_verbatim: str
     question_type: str = "unknown"
+    lesson_id: int | None = None
+    difficulty: str = "unclassified"
 
 @app.get('/health')
 def health(): return {'ok':True,'version':app.version,'content_policy':'pdf_only','storage':STORAGE_BACKEND,'object_storage':'ready' if storage_configured() else 'not_configured'}
@@ -68,7 +71,9 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,limit:int=500):
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
                   AND q.document_id IS NOT NULL
                   AND coalesce(q.source_page,q.page) IS NOT NULL
-                  AND q.question_type <> 'unknown' THEN 'reviewed'
+                  AND q.lesson_id IS NOT NULL
+                  AND q.question_type <> 'unknown'
+                  AND q.difficulty <> 'unclassified' THEN 'reviewed'
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
              ELSE 'draft'
            END AS workflow_state
@@ -81,32 +86,41 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,limit:int=500):
 @app.get('/api/questions/{question_id}/readiness',dependencies=[Depends(require_admin)])
 def question_readiness(question_id:int):
     with connect() as con:
-        row=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.question_type,q.approved,
+        row=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.lesson_id,q.question_type,q.difficulty,q.approved,
           EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
           EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid
           FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
     if not row: raise HTTPException(404,'Question not found')
-    ready=bool(row['document_id'] and row['page_number'] and row['source_page_exists'] and row['asset_valid'])
-    state='approved' if row['approved'] else ('reviewed' if ready and row['question_type']!='unknown' else ('cropped' if row['asset_valid'] else 'draft'))
+    source_ready=bool(row['document_id'] and row['page_number'] and row['source_page_exists'] and row['asset_valid'])
+    classified=bool(row['lesson_id'] and row['question_type']!='unknown' and row['difficulty']!='unclassified')
+    ready=source_ready and classified
+    state='approved' if row['approved'] else ('reviewed' if ready else ('cropped' if row['asset_valid'] else 'draft'))
     return {**row,'ready_for_approval':ready,'workflow_state':state}
 
 @app.patch('/api/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,patch:QuestionPatch):
-    values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','question_type','accepted_answer'}}
+    values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','question_type','difficulty','accepted_answer'}}
     if not values:raise HTTPException(400,'No changes')
+    if 'difficulty' in values and values['difficulty'] not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
         if values.get('approved') is True:
-            gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,
+            gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.lesson_id,q.question_type,q.difficulty,
               EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
               EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid
               FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
             if not gate: raise HTTPException(404,'Question not found')
+            effective_lesson=values.get('lesson_id',gate['lesson_id'])
+            effective_type=values.get('question_type',gate['question_type'])
+            effective_difficulty=values.get('difficulty',gate['difficulty'])
             missing=[]
             if not gate['document_id']: missing.append('document')
             if not gate['page_number']: missing.append('source_page')
             if not gate['source_page_exists']: missing.append('valid_source_page')
             if not gate['asset_valid']: missing.append('question_asset')
-            if missing: raise HTTPException(409,{'message':'لا يمكن اعتماد السؤال قبل اكتمال مصدره وقصاصته','missing':missing})
+            if not effective_lesson: missing.append('lesson')
+            if not effective_type or effective_type=='unknown': missing.append('question_type')
+            if not effective_difficulty or effective_difficulty=='unclassified': missing.append('difficulty')
+            if missing: raise HTTPException(409,{'message':'لا يمكن اعتماد السؤال قبل اكتمال المصدر والتصنيف','missing':missing})
         row=con.execute(f"UPDATE questions SET {', '.join(f'{k}=%s' for k in values)} WHERE id=%s RETURNING *",list(values.values())+[question_id]).fetchone()
         if not row:raise HTTPException(404,'Question not found')
         return row
@@ -115,11 +129,12 @@ def create_manual_question(document_id:int,payload:ManualQuestionCreate):
     text=payload.text_verbatim.strip()
     if payload.page<1 or not text:raise HTTPException(400,'Invalid page or empty question')
     if len(text)>50000:raise HTTPException(413,'Question text is too large')
+    if payload.difficulty not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
         if not con.execute('SELECT 1 FROM document_pages WHERE document_id=%s AND page_number=%s',(document_id,payload.page)).fetchone():raise HTTPException(404,'Source page not found')
         dup=con.execute('SELECT id FROM questions WHERE document_id=%s AND coalesce(source_page,page)=%s AND text_verbatim=%s LIMIT 1',(document_id,payload.page,payload.text_verbatim)).fetchone()
         if dup:raise HTTPException(409,f"هذا السؤال مسجل بالفعل برقم {dup['id']}")
-        row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type) VALUES (%s,%s,%s,%s,FALSE,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown')).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
+        row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
 @app.post('/api/documents/upload',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...),subject:str=Form('physics'),kind:str=Form('questions')):
     if not storage_configured():raise HTTPException(503,'Object storage is not configured')

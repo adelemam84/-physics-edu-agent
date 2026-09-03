@@ -20,7 +20,7 @@ from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, stora
 async def lifespan(app: FastAPI):
     init_db(); yield
 
-app = FastAPI(title="Physics Educational AI Agent", version="0.9.1", lifespan=lifespan)
+app = FastAPI(title="Physics Educational AI Agent", version="0.10.0", lifespan=lifespan)
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None
@@ -61,16 +61,52 @@ def page_text(document_id:int,page:int):
     return {'page':page,'extracted_text':row['extracted_text'] or '','text_sha256':row['text_sha256']}
 @app.get('/api/questions')
 def questions(approved:bool|None=None,lesson_id:int|None=None,limit:int=500):
-    sql='SELECT q.*,d.filename source_filename FROM questions q JOIN documents d ON d.id=q.document_id WHERE 1=1';params=[]
+    sql="""SELECT q.*,d.filename source_filename,
+           EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) AS has_asset,
+           CASE
+             WHEN q.approved=TRUE THEN 'approved'
+             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+                  AND q.document_id IS NOT NULL
+                  AND coalesce(q.source_page,q.page) IS NOT NULL
+                  AND q.question_type <> 'unknown' THEN 'reviewed'
+             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
+             ELSE 'draft'
+           END AS workflow_state
+           FROM questions q JOIN documents d ON d.id=q.document_id WHERE 1=1""";params=[]
     if approved is not None:sql+=' AND q.approved=%s';params.append(approved)
     if lesson_id is not None:sql+=' AND q.lesson_id=%s';params.append(lesson_id)
     sql+=' ORDER BY q.id DESC LIMIT %s';params.append(min(limit,1000))
     with connect() as con:return list(con.execute(sql,params).fetchall())
+
+@app.get('/api/questions/{question_id}/readiness',dependencies=[Depends(require_admin)])
+def question_readiness(question_id:int):
+    with connect() as con:
+        row=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.question_type,q.approved,
+          EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
+          EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid
+          FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
+    if not row: raise HTTPException(404,'Question not found')
+    ready=bool(row['document_id'] and row['page_number'] and row['source_page_exists'] and row['asset_valid'])
+    state='approved' if row['approved'] else ('reviewed' if ready and row['question_type']!='unknown' else ('cropped' if row['asset_valid'] else 'draft'))
+    return {**row,'ready_for_approval':ready,'workflow_state':state}
+
 @app.patch('/api/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,patch:QuestionPatch):
     values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','question_type','accepted_answer'}}
     if not values:raise HTTPException(400,'No changes')
     with connect() as con:
+        if values.get('approved') is True:
+            gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,
+              EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
+              EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid
+              FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
+            if not gate: raise HTTPException(404,'Question not found')
+            missing=[]
+            if not gate['document_id']: missing.append('document')
+            if not gate['page_number']: missing.append('source_page')
+            if not gate['source_page_exists']: missing.append('valid_source_page')
+            if not gate['asset_valid']: missing.append('question_asset')
+            if missing: raise HTTPException(409,{'message':'لا يمكن اعتماد السؤال قبل اكتمال مصدره وقصاصته','missing':missing})
         row=con.execute(f"UPDATE questions SET {', '.join(f'{k}=%s' for k in values)} WHERE id=%s RETURNING *",list(values.values())+[question_id]).fetchone()
         if not row:raise HTTPException(404,'Question not found')
         return row

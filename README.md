@@ -39,3 +39,7 @@ uvicorn app.main:app --reload
 ## Production
 
 يجب ضبط `DATABASE_URL` و`ADMIN_API_KEY` ومتغيرات Neon Object Storage في Vercel كـ Secrets.
+
+### Deployment source
+
+الفرع `main` في هذا المستودع هو المصدر الأساسي للنشر إلى مشروع Vercel `physics-edu-agent`. أي تعديل إنتاجي يجب أن يمر عبر GitHub بدل إعادة نشر حزمة قديمة يدويًا.

@@ -20,7 +20,7 @@ from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, stora
 async def lifespan(app: FastAPI):
     init_db(); yield
 
-app = FastAPI(title="Physics Educational AI Agent", version="0.11.0", lifespan=lifespan)
+app = FastAPI(title="Physics Educational AI Agent", version="0.12.0", lifespan=lifespan)
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None
@@ -63,8 +63,8 @@ def page_text(document_id:int,page:int):
     if not row:raise HTTPException(404,'Page not found')
     return {'page':page,'extracted_text':row['extracted_text'] or '','text_sha256':row['text_sha256']}
 @app.get('/api/questions')
-def questions(approved:bool|None=None,lesson_id:int|None=None,limit:int=500):
-    sql="""SELECT q.*,d.filename source_filename,
+def questions(approved:bool|None=None,lesson_id:int|None=None,difficulty:str|None=None,question_type:str|None=None,workflow_state:str|None=None,chapter:str|None=None,limit:int=500):
+    sql="""SELECT q.*,d.filename source_filename,l.chapter,l.title lesson_title,
            EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) AS has_asset,
            CASE
              WHEN q.approved=TRUE THEN 'approved'
@@ -77,11 +77,56 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,limit:int=500):
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
              ELSE 'draft'
            END AS workflow_state
-           FROM questions q JOIN documents d ON d.id=q.document_id WHERE 1=1""";params=[]
+           FROM questions q JOIN documents d ON d.id=q.document_id
+           LEFT JOIN lessons l ON l.id=q.lesson_id WHERE 1=1""";params=[]
     if approved is not None:sql+=' AND q.approved=%s';params.append(approved)
     if lesson_id is not None:sql+=' AND q.lesson_id=%s';params.append(lesson_id)
+    if difficulty is not None:
+        if difficulty not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
+        sql+=' AND q.difficulty=%s';params.append(difficulty)
+    if question_type is not None:
+        sql+=' AND q.question_type=%s';params.append(question_type)
+    if chapter is not None:
+        sql+=' AND l.chapter=%s';params.append(chapter)
+    if workflow_state is not None:
+        if workflow_state not in {'draft','cropped','reviewed','approved'}: raise HTTPException(400,'Invalid workflow_state')
+        state_sql="""CASE
+             WHEN q.approved=TRUE THEN 'approved'
+             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+                  AND q.document_id IS NOT NULL
+                  AND coalesce(q.source_page,q.page) IS NOT NULL
+                  AND q.lesson_id IS NOT NULL
+                  AND q.question_type <> 'unknown'
+                  AND q.difficulty <> 'unclassified' THEN 'reviewed'
+             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
+             ELSE 'draft' END"""
+        sql+=f' AND ({state_sql})=%s';params.append(workflow_state)
     sql+=' ORDER BY q.id DESC LIMIT %s';params.append(min(limit,1000))
     with connect() as con:return list(con.execute(sql,params).fetchall())
+
+@app.get('/api/question-stats',dependencies=[Depends(require_admin)])
+def question_stats():
+    with connect() as con:
+        totals=con.execute("""SELECT count(*) total,
+          count(*) FILTER(WHERE approved) approved,
+          count(*) FILTER(WHERE NOT approved) unapproved,
+          count(*) FILTER(WHERE difficulty='easy') easy,
+          count(*) FILTER(WHERE difficulty='medium') medium,
+          count(*) FILTER(WHERE difficulty='hard') hard,
+          count(*) FILTER(WHERE difficulty='unclassified') unclassified
+          FROM questions""").fetchone()
+        by_lesson=list(con.execute("""SELECT l.chapter,l.title, count(q.id) total,
+          count(q.id) FILTER(WHERE q.approved) approved
+          FROM lessons l LEFT JOIN questions q ON q.lesson_id=l.id
+          GROUP BY l.id,l.chapter,l.title,l.sort_order ORDER BY l.sort_order,l.id""").fetchall())
+        by_type=list(con.execute("""SELECT question_type,count(*) total FROM questions GROUP BY question_type ORDER BY total DESC""").fetchall())
+        by_state=list(con.execute("""SELECT state,count(*) total FROM (
+          SELECT CASE WHEN q.approved THEN 'approved'
+            WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+             AND q.lesson_id IS NOT NULL AND q.question_type<>'unknown' AND q.difficulty<>'unclassified' THEN 'reviewed'
+            WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
+            ELSE 'draft' END state FROM questions q) s GROUP BY state ORDER BY state""").fetchall())
+        return {'totals':totals,'by_lesson':by_lesson,'by_type':by_type,'by_state':by_state}
 
 @app.get('/api/questions/{question_id}/readiness',dependencies=[Depends(require_admin)])
 def question_readiness(question_id:int):

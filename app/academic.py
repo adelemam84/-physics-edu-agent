@@ -21,6 +21,15 @@ class UnitCreate(BaseModel):
     title:str
     sort_order:int=0
 
+class ConceptCreate(BaseModel):
+    lesson_id:int
+    title:str
+    sort_order:int=0
+
+class QuestionConceptsPatch(BaseModel):
+    concept_ids:list[int]=[]
+    primary_concept_id:int|None=None
+
 @app.get("/api/academic/catalog")
 def academic_catalog():
     with connect() as con:
@@ -76,3 +85,52 @@ def academic_coverage(subject_id:int|None=None,grade_level_id:int|None=None,curr
     sql+=" GROUP BY s.name_ar,g.name_ar,c.academic_year,t.name_ar,u.title,l.id,l.title,l.sort_order ORDER BY l.sort_order,l.id"
     with connect() as con:
         return list(con.execute(sql,params).fetchall())
+
+
+@app.get("/api/academic/concepts")
+def list_concepts(lesson_id:int|None=None):
+    sql="SELECT id,lesson_id,title,sort_order FROM concepts WHERE 1=1";params=[]
+    if lesson_id is not None:
+        sql+=" AND lesson_id=%s";params.append(lesson_id)
+    sql+=" ORDER BY lesson_id,sort_order,id"
+    with connect() as con:
+        return list(con.execute(sql,params).fetchall())
+
+@app.post("/api/academic/concepts",dependencies=[Depends(require_admin)])
+def create_concept(p:ConceptCreate):
+    title=p.title.strip()
+    if not title: raise HTTPException(400,"اسم المفهوم مطلوب")
+    with connect() as con:
+        if not con.execute("SELECT 1 FROM lessons WHERE id=%s",(p.lesson_id,)).fetchone():
+            raise HTTPException(404,"Lesson not found")
+        return con.execute("""INSERT INTO concepts(lesson_id,title,sort_order)
+          VALUES(%s,%s,%s) ON CONFLICT(lesson_id,title)
+          DO UPDATE SET sort_order=excluded.sort_order RETURNING *""",
+          (p.lesson_id,title,p.sort_order)).fetchone()
+
+@app.get("/api/questions/{question_id}/concepts",dependencies=[Depends(require_admin)])
+def question_concepts(question_id:int):
+    with connect() as con:
+        return list(con.execute("""SELECT c.id,c.lesson_id,c.title,qc.is_primary
+          FROM question_concepts qc JOIN concepts c ON c.id=qc.concept_id
+          WHERE qc.question_id=%s ORDER BY qc.is_primary DESC,c.sort_order,c.id""",
+          (question_id,)).fetchall())
+
+@app.put("/api/questions/{question_id}/concepts",dependencies=[Depends(require_admin)])
+def set_question_concepts(question_id:int,p:QuestionConceptsPatch):
+    ids=list(dict.fromkeys(p.concept_ids))
+    if p.primary_concept_id is not None and p.primary_concept_id not in ids:
+        ids.append(p.primary_concept_id)
+    with connect() as con:
+        q=con.execute("SELECT lesson_id FROM questions WHERE id=%s",(question_id,)).fetchone()
+        if not q: raise HTTPException(404,"Question not found")
+        if ids:
+            rows=list(con.execute("SELECT id,lesson_id FROM concepts WHERE id=ANY(%s)",(ids,)).fetchall())
+            if len(rows)!=len(ids): raise HTTPException(400,"Concept not found")
+            if any(r["lesson_id"]!=q["lesson_id"] for r in rows):
+                raise HTTPException(409,"كل المفاهيم يجب أن تتبع نفس درس السؤال")
+        con.execute("DELETE FROM question_concepts WHERE question_id=%s",(question_id,))
+        for cid in ids:
+            con.execute("INSERT INTO question_concepts(question_id,concept_id,is_primary) VALUES(%s,%s,%s)",
+                        (question_id,cid,cid==p.primary_concept_id))
+        return {"question_id":question_id,"concept_ids":ids,"primary_concept_id":p.primary_concept_id}

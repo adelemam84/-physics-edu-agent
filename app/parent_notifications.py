@@ -186,6 +186,7 @@ def queue_attempt_notifications(attempt_id: int):
 def queue_weekly_summaries():
     import json
     with connect() as con:
+        week_key = con.execute("SELECT to_char(date_trunc('week',now()),'YYYY-MM-DD') week_key").fetchone()["week_key"]
         rows = list(con.execute(
             """SELECT s.id student_id,s.name student_name,g.id guardian_id,
                       count(a.id) tests_count,
@@ -197,16 +198,34 @@ def queue_weekly_summaries():
                GROUP BY s.id,s.name,g.id ORDER BY s.name"""
         ).fetchall())
         created=[]
+        skipped_duplicates=0
         for r in rows:
-            weak=list(con.execute(
-                """SELECT l.title,count(*) wrong
+            if con.execute(
+                """SELECT 1 FROM parent_notifications
+                   WHERE guardian_id=%s AND notification_type='weekly_summary'
+                     AND payload->>'week_key'=%s LIMIT 1""",
+                (r["guardian_id"],week_key)
+            ).fetchone():
+                skipped_duplicates += 1
+                continue
+
+            lesson_perf=list(con.execute(
+                """SELECT l.title,
+                          count(*) total,
+                          count(*) FILTER(WHERE aa.is_correct=TRUE) correct,
+                          count(*) FILTER(WHERE aa.is_correct=FALSE) incorrect,
+                          round(100.0*count(*) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(*),0),1) percentage
                    FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id
                    JOIN questions q ON q.id=aa.question_id LEFT JOIN lessons l ON l.id=q.lesson_id
-                   WHERE a.student_id=%s AND aa.is_correct=FALSE
+                   WHERE a.student_id=%s
                      AND coalesce(a.completed_at,a.submitted_at)>=now()-interval '7 days'
-                   GROUP BY l.id,l.title ORDER BY wrong DESC,l.title NULLS LAST LIMIT 3""",
+                   GROUP BY l.id,l.title HAVING count(*)>0
+                   ORDER BY percentage DESC NULLS LAST, total DESC""",
                 (r["student_id"],)
             ).fetchall())
+            strongest = lesson_perf[0] if lesson_perf else None
+            weakest = lesson_perf[-1] if lesson_perf else None
+
             previous=con.execute(
                 """SELECT round(avg(CASE WHEN max_score>0 THEN (score/max_score)*100 ELSE NULL END),1) average_percentage
                    FROM attempts WHERE student_id=%s
@@ -214,17 +233,53 @@ def queue_weekly_summaries():
                      AND coalesce(completed_at,submitted_at)<now()-interval '7 days'""",
                 (r["student_id"],)
             ).fetchone()
+            older=con.execute(
+                """SELECT round(avg(CASE WHEN max_score>0 THEN (score/max_score)*100 ELSE NULL END),1) average_percentage
+                   FROM attempts WHERE student_id=%s
+                     AND coalesce(completed_at,submitted_at)>=now()-interval '21 days'
+                     AND coalesce(completed_at,submitted_at)<now()-interval '14 days'""",
+                (r["student_id"],)
+            ).fetchone()
+
             current_avg=float(r["average_percentage"] or 0)
-            previous_avg=float(previous["average_percentage"] or 0)
-            delta=round(current_avg-previous_avg,1) if previous["average_percentage"] is not None else None
+            previous_value=float(previous["average_percentage"]) if previous["average_percentage"] is not None else None
+            older_value=float(older["average_percentage"]) if older["average_percentage"] is not None else None
+            delta=round(current_avg-previous_value,1) if previous_value is not None else None
             trend="تحسن" if delta is not None and delta>=5 else ("تراجع" if delta is not None and delta<=-5 else "مستقر")
-            payload={"student_name":r["student_name"],"student_id":r["student_id"],
-                     "tests_count":int(r["tests_count"] or 0),
-                     "average_percentage":current_avg,
-                     "previous_week_average":previous_avg if previous["average_percentage"] is not None else None,
-                     "trend_delta":delta,
-                     "trend_label":trend,
-                     "weak_lessons":[x["title"] for x in weak if x["title"]]}
+            continuous_decline=bool(
+                previous_value is not None and older_value is not None
+                and current_avg < previous_value < older_value
+            )
+            needs_attention=continuous_decline or current_avg < LOW_SCORE_THRESHOLD
+            alert_text=(
+                "تراجع مستمر خلال 3 أسابيع ويحتاج متابعة"
+                if continuous_decline else
+                ("متوسط الأسبوع أقل من الحد المحدد ويحتاج متابعة" if current_avg < LOW_SCORE_THRESHOLD else "لا يوجد تنبيه")
+            )
+            strongest_text=(f'{strongest["title"]} ({strongest["percentage"]}%)' if strongest and strongest["title"] else "لا توجد بيانات كافية")
+            weakest_text=(f'{weakest["title"]} ({weakest["percentage"]}%)' if weakest and weakest["title"] else "لا توجد بيانات كافية")
+
+            payload={
+                "week_key":week_key,
+                "student_name":r["student_name"],
+                "student_id":r["student_id"],
+                "tests_count":int(r["tests_count"] or 0),
+                "average_percentage":current_avg,
+                "previous_week_average":previous_value,
+                "older_week_average":older_value,
+                "trend_delta":delta,
+                "trend_label":trend,
+                "strongest_lesson":strongest["title"] if strongest else None,
+                "strongest_lesson_percentage":float(strongest["percentage"]) if strongest and strongest["percentage"] is not None else None,
+                "weakest_lesson":weakest["title"] if weakest else None,
+                "weakest_lesson_percentage":float(weakest["percentage"]) if weakest and weakest["percentage"] is not None else None,
+                "strongest_lesson_text":strongest_text,
+                "weakest_lesson_text":weakest_text,
+                "weak_lessons":[x["title"] for x in reversed(lesson_perf[-3:]) if x["title"]] if lesson_perf else [],
+                "continuous_decline":continuous_decline,
+                "needs_attention":needs_attention,
+                "alert_text":alert_text
+            }
             item=con.execute(
                 """INSERT INTO parent_notifications(guardian_id,student_id,notification_type,template_name,payload,status)
                    VALUES (%s,%s,'weekly_summary',%s,%s::jsonb,'queued')
@@ -232,18 +287,26 @@ def queue_weekly_summaries():
                 (r["guardian_id"],r["student_id"],template_for("weekly_summary"),json.dumps(payload,ensure_ascii=False))
             ).fetchone()
             created.append(item)
-        return {"queued_count":len(created),"queued":created}
+        return {"queued_count":len(created),"skipped_duplicates":skipped_duplicates,"week_key":week_key,"queued":created}
 
 def template_components(kind: str, payload: dict) -> list:
     weak = "، ".join(payload.get("weak_lessons") or []) or "لا توجد"
     if kind == "low_score_alert":
         vals = [payload["student_name"], payload["quiz_title"], f'{payload["percentage"]}%']
     elif kind == "weekly_summary":
+        delta = payload.get("trend_delta")
+        comparison = (
+            f'{payload.get("trend_label","مستقر")} ({delta:+.1f} نقطة)'
+            if isinstance(delta,(int,float)) else "لا توجد مقارنة سابقة"
+        )
         vals = [
             payload.get("student_name",""),
             str(payload.get("tests_count",0)),
             f'{payload.get("average_percentage",0)}%',
-            weak,
+            comparison,
+            payload.get("strongest_lesson_text") or "لا توجد بيانات كافية",
+            payload.get("weakest_lesson_text") or "لا توجد بيانات كافية",
+            payload.get("alert_text") or "لا يوجد تنبيه",
         ]
     else:
         vals = [
@@ -322,7 +385,7 @@ def dispatch_notifications(limit: int = 20):
 def list_notifications(limit: int = 200):
     with connect() as con:
         return list(con.execute(
-            """SELECT n.id,n.notification_type,n.status,n.attempts_count,n.created_at,n.sent_at,n.error_message,
+            """SELECT n.id,n.notification_type,n.status,n.attempts_count,n.created_at,n.sent_at,n.error_message,n.payload,
                       s.name student_name,g.name guardian_name,g.whatsapp_phone
                FROM parent_notifications n
                JOIN students s ON s.id=n.student_id JOIN guardians g ON g.id=n.guardian_id
@@ -339,7 +402,7 @@ body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-wi
 <script>
 key.value=localStorage.pk||'';function h(){return {'X-Admin-Key':localStorage.pk||''}}function saveKey(){localStorage.pk=key.value;load()}
 async function jf(u,o={}){let r=await fetch(u,o),x=null;try{x=await r.json()}catch(e){}if(!r.ok)throw new Error(typeof x?.detail==='string'?x.detail:JSON.stringify(x?.detail||r.status));return x}
-async function load(){try{let [s,g,n,w]=await Promise.all([jf('/api/students',{headers:h()}),jf('/api/guardians',{headers:h()}),jf('/api/parent-notifications',{headers:h()}),jf('/api/whatsapp/status',{headers:h()})]);student.innerHTML=s.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');gs.innerHTML=g.length?g.map(x=>`<div class=item><b>${x.student_name}</b> — ${x.name} — ${x.whatsapp_phone} — ${x.whatsapp_opt_in?'✅ موافق':'⚠️ غير موافق'}</div>`).join(''):'لا يوجد أولياء أمور';ns.innerHTML=n.length?n.map(x=>`<div class=item>#${x.id} · ${x.student_name} → ${x.guardian_name} · ${x.notification_type} · <b>${x.status}</b> ${x.error_message?'<div class=bad>'+x.error_message+'</div>':''}</div>`).join(''):'لا توجد رسائل';wa.innerHTML=`<b class="${w.configured?'ok':'bad'}">${w.configured?'✅ إعداد الاتصال الأساسي مكتمل':'⚠️ إعداد الاتصال غير مكتمل'}</b><div class=muted>Graph version: ${w.graph_version_configured?'موجود':'غير موجود'} · Phone ID: ${w.phone_number_id_configured?'موجود':'غير موجود'} · Token: ${w.access_token_configured?'موجود':'غير موجود'}</div>`}catch(e){msg.textContent=e.message}}
+async function load(){try{let [s,g,n,w]=await Promise.all([jf('/api/students',{headers:h()}),jf('/api/guardians',{headers:h()}),jf('/api/parent-notifications',{headers:h()}),jf('/api/whatsapp/status',{headers:h()})]);student.innerHTML=s.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');gs.innerHTML=g.length?g.map(x=>`<div class=item><b>${x.student_name}</b> — ${x.name} — ${x.whatsapp_phone} — ${x.whatsapp_opt_in?'✅ موافق':'⚠️ غير موافق'}</div>`).join(''):'لا يوجد أولياء أمور';ns.innerHTML=n.length?n.map(x=>{let p=x.payload||{},extra=x.notification_type==='weekly_summary'?'<div class=muted>متوسط '+(p.average_percentage??0)+'% · '+(p.trend_label||'—')+' · أقوى: '+(p.strongest_lesson_text||'—')+' · أضعف: '+(p.weakest_lesson_text||'—')+'</div>'+(p.needs_attention?'<div class=bad>⚠️ '+(p.alert_text||'يحتاج متابعة')+'</div>':''):'';return `<div class=item>#${x.id} · ${x.student_name} → ${x.guardian_name} · ${x.notification_type} · <b>${x.status}</b>${extra} ${x.error_message?'<div class=bad>'+x.error_message+'</div>':''}</div>`}).join(''):'لا توجد رسائل';wa.innerHTML=`<b class="${w.configured?'ok':'bad'}">${w.configured?'✅ إعداد الاتصال الأساسي مكتمل':'⚠️ إعداد الاتصال غير مكتمل'}</b><div class=muted>Graph version: ${w.graph_version_configured?'موجود':'غير موجود'} · Phone ID: ${w.phone_number_id_configured?'موجود':'غير موجود'} · Token: ${w.access_token_configured?'موجود':'غير موجود'}</div>`}catch(e){msg.textContent=e.message}}
 async function addG(){try{await jf('/api/guardians',{method:'POST',headers:{...h(),'Content-Type':'application/json'},body:JSON.stringify({student_id:Number(student.value),name:gname.value,whatsapp_phone:phone.value,relationship:relation.value||null,whatsapp_opt_in:opt.checked})});msg.textContent='تم الحفظ';load()}catch(e){msg.textContent=e.message}}
 async function weekly(){try{let x=await jf('/api/parent-notifications/queue-weekly',{method:'POST',headers:h()});msg.textContent='تم تجهيز '+x.queued_count+' تقرير أسبوعي';load()}catch(e){msg.textContent=e.message}}async function dispatch(){try{let x=await jf('/api/parent-notifications/dispatch',{method:'POST',headers:h()});msg.textContent='تمت معالجة '+x.processed+' رسالة';load()}catch(e){msg.textContent=e.message}}load();
 </script></main></html>'''

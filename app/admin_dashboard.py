@@ -26,7 +26,8 @@ def admin_dashboard_data():
           ORDER BY coalesce(a.completed_at,a.submitted_at) DESC LIMIT 15""").fetchall())
         weak=list(con.execute("""SELECT s.id,s.name,
           count(a.id) attempts,
-          round(avg(CASE WHEN a.max_score>0 THEN (a.score/a.max_score)*100 END),1) average_percentage
+          round(avg(CASE WHEN a.max_score>0 THEN (a.score/a.max_score)*100 END),1) average_percentage,
+          (SELECT a2.id FROM attempts a2 WHERE a2.student_id=s.id ORDER BY coalesce(a2.completed_at,a2.submitted_at) DESC LIMIT 1) latest_attempt_id
           FROM students s JOIN attempts a ON a.student_id=s.id
           GROUP BY s.id,s.name HAVING avg(CASE WHEN a.max_score>0 THEN (a.score/a.max_score)*100 END)<60
           ORDER BY average_percentage ASC NULLS LAST LIMIT 10""").fetchall())
@@ -44,8 +45,8 @@ PAGE=r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content=
 key.value=localStorage.pk||'';const H=()=>({'X-Admin-Key':localStorage.pk||''});function saveKey(){localStorage.pk=key.value;load()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function load(){let r=await fetch('/api/admin/dashboard',{headers:H()});if(!r.ok){msg.textContent='تحقق من مفتاح الإدارة';return}let x=await r.json(),s=x.summary||{};cards.innerHTML=[['الطلاب',s.students||0],['أولياء الأمور',s.guardians||0],['الاختبارات',s.quizzes||0],['الاختبارات المنشورة',s.published_quizzes||0],['المحاولات',s.attempts||0],['الأسئلة المعتمدة',s.approved_questions||0],['متوسط النتائج',(s.avg_score??0)+'%'],['رسائل في الانتظار',s.queued_notifications||0],['رسائل فاشلة',s.failed_notifications||0]].map(([a,b])=>`<div class=card><div class=muted>${a}</div><h2>${b}</h2></div>`).join('');
-recent.innerHTML=x.recent_attempts.length?'<table><tr><th>الطالب</th><th>الاختبار</th><th>النتيجة</th></tr>'+x.recent_attempts.map(a=>`<tr><td>${esc(a.student_name)}</td><td>${esc(a.quiz_title||'—')}</td><td class=${Number(a.percentage)<50?'bad':Number(a.percentage)<70?'warn':'ok'}>${a.percentage}%</td></tr>`).join('')+'</table>':'لا توجد نتائج حتى الآن';
-weak.innerHTML=x.students_need_attention.length?x.students_need_attention.map(a=>`<div style="padding:8px;border-bottom:1px solid #eee"><b>${esc(a.name)}</b><br><span class=bad>متوسط ${a.average_percentage}%</span> · ${a.attempts} اختبار</div>`).join(''):'لا يوجد طلاب تحت حد المتابعة حاليًا';
+recent.innerHTML=x.recent_attempts.length?'<table><tr><th>الطالب</th><th>الاختبار</th><th>النتيجة</th><th></th></tr>'+x.recent_attempts.map(a=>`<tr><td>${esc(a.student_name)}</td><td>${esc(a.quiz_title||'—')}</td><td class=${Number(a.percentage)<50?'bad':Number(a.percentage)<70?'warn':'ok'}>${a.percentage}%</td><td><a href="/admin/results/${a.id}">التقرير</a></td></tr>`).join('')+'</table>':'لا توجد نتائج حتى الآن';
+weak.innerHTML=x.students_need_attention.length?x.students_need_attention.map(a=>`<div style="padding:8px;border-bottom:1px solid #eee"><b>${esc(a.name)}</b><br><span class=bad>متوسط ${a.average_percentage}%</span> · ${a.attempts} اختبار ${a.latest_attempt_id?'<br><a href="/admin/results/'+a.latest_attempt_id+'">فتح آخر تقرير</a>':''}</div>`).join(''):'لا يوجد طلاب تحت حد المتابعة حاليًا';
 notif.innerHTML=x.notification_status.length?x.notification_status.map(n=>`<span style="display:inline-block;padding:8px 12px;margin:4px;border:1px solid #ddd;border-radius:999px">${esc(n.status)}: <b>${n.total}</b></span>`).join(''):'لا توجد رسائل بعد'}load();
 </script></main></div></html>'''
 @app.get("/admin/dashboard",response_class=HTMLResponse)

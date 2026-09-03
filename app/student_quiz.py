@@ -94,6 +94,7 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
     return {"attempt_id":attempt_id,"student_name":student["name"],"quiz_title":quiz["title"],
             "score":float(score),"max_score":float(max_score),"percentage":pct,
             "correct":correct,"incorrect":len(rows)-correct,
+            "adaptive_recommended": pct < 85,
             "parent_notifications":notify}
 
 STUDENT = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبار الفيزياء</title><style>
@@ -103,7 +104,8 @@ body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-wi
 const quizId=Number(location.pathname.split('/').pop());let data=null;
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function load(){let r=await fetch('/api/student/quizzes/'+quizId),x=await r.json();if(!r.ok){msg.textContent=x.detail||'تعذر تحميل الاختبار';return}data=x;title.textContent=x.title;items.innerHTML=x.questions.map(q=>`<div class=q><b>سؤال ${q.position}</b>${q.has_asset?`<div><img class=asset src="/api/practice/questions/${q.id}/asset"></div>`:''}<div>${esc(q.text_verbatim)}</div><input class=answer id="a_${q.id}" placeholder="اكتب الإجابة"></div>`).join('')}
-async function submitQuiz(){if(!data)return;let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,answers})}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}result.style.display='block';result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div><p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p><p class=muted>تم حفظ النتيجة وتجهيز إشعار ولي الأمر المسجل والموافق على رسائل واتساب.</p>`;scrollTo({top:document.body.scrollHeight,behavior:'smooth'})}load();
+async function submitQuiz(){if(!data)return;let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,answers})}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}result.style.display='block';result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div><p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p><p class=muted>تم حفظ النتيجة وتجهيز إشعار ولي الأمر المسجل والموافق على رسائل واتساب.</p>${x.adaptive_recommended?'<button onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيظل النظام يتابع نقاط القوة والضعف من المحاولات التالية.</p>'}`;scrollTo({top:document.body.scrollHeight,behavior:'smooth'})}
+async function startAdaptive(){msg.textContent='جارٍ تجهيز التدريب العلاجي...';let r=await fetch('/api/student/adaptive-practice/create?student_code='+encodeURIComponent(code.value)+'&count=10',{method:'POST'}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}location.href=x.student_path}load();
 </script></main></html>'''
 
 @app.get("/student/quiz/{quiz_id}",response_class=HTMLResponse)

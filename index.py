@@ -7,3 +7,4 @@ from app import quiz_builder  # noqa: F401,E402
 from app import parent_notifications  # noqa: F401,E402
 from app import student_quiz  # noqa: F401,E402
 from app import student_admin  # noqa: F401,E402
+from app import admin_dashboard  # noqa: F401,E402

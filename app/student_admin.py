@@ -22,7 +22,7 @@ def list_students():
         return list(con.execute("""SELECT s.id,s.name,s.external_code,s.phone,s.email,s.created_at,
           count(distinct a.id) attempts,count(distinct g.id) guardians
           FROM students s LEFT JOIN attempts a ON a.student_id=s.id
-          LEFT JOIN student_guardians sg ON sg.student_id=s.id LEFT JOIN guardians g ON g.id=sg.guardian_id
+          LEFT JOIN guardians g ON g.student_id=s.id
           GROUP BY s.id ORDER BY s.id DESC""").fetchall())
 
 @app.post("/api/admin/students",dependencies=[Depends(require_admin)])

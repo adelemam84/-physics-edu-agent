@@ -182,6 +182,44 @@ def queue_attempt_notifications(attempt_id: int):
                 if row: created.append(row)
         return {"queued": created, "guardian_count": len(guardians), "payload": payload}
 
+@app.post("/api/parent-notifications/queue-weekly", dependencies=[Depends(require_admin)])
+def queue_weekly_summaries():
+    import json
+    with connect() as con:
+        rows = list(con.execute(
+            """SELECT s.id student_id,s.name student_name,g.id guardian_id,
+                      count(a.id) tests_count,
+                      round(avg(CASE WHEN a.max_score>0 THEN (a.score/a.max_score)*100 ELSE NULL END),1) average_percentage
+               FROM guardians g JOIN students s ON s.id=g.student_id
+               LEFT JOIN attempts a ON a.student_id=s.id
+                 AND coalesce(a.completed_at,a.submitted_at)>=now()-interval '7 days'
+               WHERE g.active=TRUE AND g.whatsapp_opt_in=TRUE
+               GROUP BY s.id,s.name,g.id ORDER BY s.name"""
+        ).fetchall())
+        created=[]
+        for r in rows:
+            weak=list(con.execute(
+                """SELECT l.title,count(*) wrong
+                   FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id
+                   JOIN questions q ON q.id=aa.question_id LEFT JOIN lessons l ON l.id=q.lesson_id
+                   WHERE a.student_id=%s AND aa.is_correct=FALSE
+                     AND coalesce(a.completed_at,a.submitted_at)>=now()-interval '7 days'
+                   GROUP BY l.id,l.title ORDER BY wrong DESC,l.title NULLS LAST LIMIT 3""",
+                (r["student_id"],)
+            ).fetchall())
+            payload={"student_name":r["student_name"],"student_id":r["student_id"],
+                     "tests_count":int(r["tests_count"] or 0),
+                     "average_percentage":float(r["average_percentage"] or 0),
+                     "weak_lessons":[x["title"] for x in weak if x["title"]]}
+            item=con.execute(
+                """INSERT INTO parent_notifications(guardian_id,student_id,notification_type,template_name,payload,status)
+                   VALUES (%s,%s,'weekly_summary',%s,%s::jsonb,'queued')
+                   RETURNING id,notification_type,status""",
+                (r["guardian_id"],r["student_id"],template_for("weekly_summary"),json.dumps(payload,ensure_ascii=False))
+            ).fetchone()
+            created.append(item)
+        return {"queued_count":len(created),"queued":created}
+
 def template_components(kind: str, payload: dict) -> list:
     weak = "، ".join(payload.get("weak_lessons") or []) or "لا توجد"
     if kind == "low_score_alert":
@@ -283,13 +321,13 @@ body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-wi
 <div class=box><h3>حالة WhatsApp Cloud API</h3><div id=wa></div></div>
 <div class=box><h3>إضافة ولي أمر</h3><div class=row><select id=student></select><input id=gname placeholder="اسم ولي الأمر"><input id=phone placeholder="2010xxxxxxxx"><input id=relation placeholder="صلة القرابة"><label><input id=opt type=checkbox> موافق على رسائل واتساب</label><button onclick=addG()>حفظ</button></div></div>
 <div class=box><h3>أولياء الأمور</h3><div id=gs></div></div>
-<div class=box><h3>طابور الرسائل</h3><button onclick=dispatch()>إرسال الرسائل الجاهزة</button><div id=ns></div></div>
+<div class=box><h3>طابور الرسائل</h3><button onclick=weekly()>إنشاء التقارير الأسبوعية</button><button onclick=dispatch()>إرسال الرسائل الجاهزة</button><div id=ns></div></div>
 <script>
 key.value=localStorage.pk||'';function h(){return {'X-Admin-Key':localStorage.pk||''}}function saveKey(){localStorage.pk=key.value;load()}
 async function jf(u,o={}){let r=await fetch(u,o),x=null;try{x=await r.json()}catch(e){}if(!r.ok)throw new Error(typeof x?.detail==='string'?x.detail:JSON.stringify(x?.detail||r.status));return x}
 async function load(){try{let [s,g,n,w]=await Promise.all([jf('/api/students',{headers:h()}),jf('/api/guardians',{headers:h()}),jf('/api/parent-notifications',{headers:h()}),jf('/api/whatsapp/status',{headers:h()})]);student.innerHTML=s.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');gs.innerHTML=g.length?g.map(x=>`<div class=item><b>${x.student_name}</b> — ${x.name} — ${x.whatsapp_phone} — ${x.whatsapp_opt_in?'✅ موافق':'⚠️ غير موافق'}</div>`).join(''):'لا يوجد أولياء أمور';ns.innerHTML=n.length?n.map(x=>`<div class=item>#${x.id} · ${x.student_name} → ${x.guardian_name} · ${x.notification_type} · <b>${x.status}</b> ${x.error_message?'<div class=bad>'+x.error_message+'</div>':''}</div>`).join(''):'لا توجد رسائل';wa.innerHTML=`<b class="${w.configured?'ok':'bad'}">${w.configured?'✅ إعداد الاتصال الأساسي مكتمل':'⚠️ إعداد الاتصال غير مكتمل'}</b><div class=muted>Graph version: ${w.graph_version_configured?'موجود':'غير موجود'} · Phone ID: ${w.phone_number_id_configured?'موجود':'غير موجود'} · Token: ${w.access_token_configured?'موجود':'غير موجود'}</div>`}catch(e){msg.textContent=e.message}}
 async function addG(){try{await jf('/api/guardians',{method:'POST',headers:{...h(),'Content-Type':'application/json'},body:JSON.stringify({student_id:Number(student.value),name:gname.value,whatsapp_phone:phone.value,relationship:relation.value||null,whatsapp_opt_in:opt.checked})});msg.textContent='تم الحفظ';load()}catch(e){msg.textContent=e.message}}
-async function dispatch(){try{let x=await jf('/api/parent-notifications/dispatch',{method:'POST',headers:h()});msg.textContent='تمت معالجة '+x.processed+' رسالة';load()}catch(e){msg.textContent=e.message}}load();
+async function weekly(){try{let x=await jf('/api/parent-notifications/queue-weekly',{method:'POST',headers:h()});msg.textContent='تم تجهيز '+x.queued_count+' تقرير أسبوعي';load()}catch(e){msg.textContent=e.message}}async function dispatch(){try{let x=await jf('/api/parent-notifications/dispatch',{method:'POST',headers:h()});msg.textContent='تمت معالجة '+x.processed+' رسالة';load()}catch(e){msg.textContent=e.message}}load();
 </script></main></html>'''
 
 @app.get("/admin/parents", response_class=HTMLResponse)

@@ -94,6 +94,7 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|Non
                   AND q.term_id IS NOT NULL
                   AND q.unit_id IS NOT NULL
                   AND q.lesson_id IS NOT NULL
+                  AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
                   AND q.question_type <> 'unknown'
                   AND q.difficulty <> 'unclassified' THEN 'reviewed'
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
@@ -123,6 +124,7 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|Non
                   AND q.document_id IS NOT NULL
                   AND coalesce(q.source_page,q.page) IS NOT NULL
                   AND q.lesson_id IS NOT NULL
+                  AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
                   AND q.question_type <> 'unknown'
                   AND q.difficulty <> 'unclassified' THEN 'reviewed'
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
@@ -150,7 +152,7 @@ def question_stats():
         by_state=list(con.execute("""SELECT state,count(*) total FROM (
           SELECT CASE WHEN q.approved THEN 'approved'
             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
-             AND q.lesson_id IS NOT NULL AND q.question_type<>'unknown' AND q.difficulty<>'unclassified' THEN 'reviewed'
+             AND q.lesson_id IS NOT NULL AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) AND q.question_type<>'unknown' AND q.difficulty<>'unclassified' THEN 'reviewed'
             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
             ELSE 'draft' END state FROM questions q) s GROUP BY state ORDER BY state""").fetchall())
         return {'totals':totals,'by_lesson':by_lesson,'by_type':by_type,'by_state':by_state}

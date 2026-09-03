@@ -134,3 +134,38 @@ def set_question_concepts(question_id:int,p:QuestionConceptsPatch):
             con.execute("INSERT INTO question_concepts(question_id,concept_id,is_primary) VALUES(%s,%s,%s)",
                         (question_id,cid,cid==p.primary_concept_id))
         return {"question_id":question_id,"concept_ids":ids,"primary_concept_id":p.primary_concept_id}
+
+
+class QuestionSkillsPatch(BaseModel):
+    skill_ids:list[int]=[]
+    primary_skill_id:int|None=None
+
+@app.get("/api/academic/skills")
+def list_skills():
+    with connect() as con:
+        return list(con.execute("SELECT id,code,name_ar,description,sort_order FROM skills WHERE active=TRUE ORDER BY sort_order,id").fetchall())
+
+@app.get("/api/questions/{question_id}/skills",dependencies=[Depends(require_admin)])
+def question_skills(question_id:int):
+    with connect() as con:
+        return list(con.execute("""SELECT s.id,s.code,s.name_ar,qs.is_primary
+          FROM question_skills qs JOIN skills s ON s.id=qs.skill_id
+          WHERE qs.question_id=%s ORDER BY qs.is_primary DESC,s.sort_order,s.id""",
+          (question_id,)).fetchall())
+
+@app.put("/api/questions/{question_id}/skills",dependencies=[Depends(require_admin)])
+def set_question_skills(question_id:int,p:QuestionSkillsPatch):
+    ids=list(dict.fromkeys(p.skill_ids))
+    if p.primary_skill_id is not None and p.primary_skill_id not in ids:
+        ids.append(p.primary_skill_id)
+    with connect() as con:
+        if not con.execute("SELECT 1 FROM questions WHERE id=%s",(question_id,)).fetchone():
+            raise HTTPException(404,"Question not found")
+        if ids:
+            found=[r["id"] for r in con.execute("SELECT id FROM skills WHERE id=ANY(%s) AND active=TRUE",(ids,)).fetchall()]
+            if len(found)!=len(ids): raise HTTPException(400,"Skill not found")
+        con.execute("DELETE FROM question_skills WHERE question_id=%s",(question_id,))
+        for sid in ids:
+            con.execute("INSERT INTO question_skills(question_id,skill_id,is_primary) VALUES(%s,%s,%s)",
+                        (question_id,sid,sid==p.primary_skill_id))
+        return {"question_id":question_id,"skill_ids":ids,"primary_skill_id":p.primary_skill_id}

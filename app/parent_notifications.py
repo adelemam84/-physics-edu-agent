@@ -207,9 +207,23 @@ def queue_weekly_summaries():
                    GROUP BY l.id,l.title ORDER BY wrong DESC,l.title NULLS LAST LIMIT 3""",
                 (r["student_id"],)
             ).fetchall())
+            previous=con.execute(
+                """SELECT round(avg(CASE WHEN max_score>0 THEN (score/max_score)*100 ELSE NULL END),1) average_percentage
+                   FROM attempts WHERE student_id=%s
+                     AND coalesce(completed_at,submitted_at)>=now()-interval '14 days'
+                     AND coalesce(completed_at,submitted_at)<now()-interval '7 days'""",
+                (r["student_id"],)
+            ).fetchone()
+            current_avg=float(r["average_percentage"] or 0)
+            previous_avg=float(previous["average_percentage"] or 0)
+            delta=round(current_avg-previous_avg,1) if previous["average_percentage"] is not None else None
+            trend="تحسن" if delta is not None and delta>=5 else ("تراجع" if delta is not None and delta<=-5 else "مستقر")
             payload={"student_name":r["student_name"],"student_id":r["student_id"],
                      "tests_count":int(r["tests_count"] or 0),
-                     "average_percentage":float(r["average_percentage"] or 0),
+                     "average_percentage":current_avg,
+                     "previous_week_average":previous_avg if previous["average_percentage"] is not None else None,
+                     "trend_delta":delta,
+                     "trend_label":trend,
                      "weak_lessons":[x["title"] for x in weak if x["title"]]}
             item=con.execute(
                 """INSERT INTO parent_notifications(guardian_id,student_id,notification_type,template_name,payload,status)

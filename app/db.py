@@ -45,3 +45,18 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_guardians_student_active_optin ON guardians(student_id,active,whatsapp_opt_in)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_position ON quiz_questions(quiz_id,position)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_questions_ready_academic ON questions(subject_id,grade_level_id,curriculum_version_id,term_id,approved) WHERE approved=TRUE")
+        # Data-integrity constraints. Guarded by pg_constraint checks so startup remains idempotent.
+        constraints = [
+          ("quiz_questions_points_positive","ALTER TABLE quiz_questions ADD CONSTRAINT quiz_questions_points_positive CHECK (points>0)"),
+          ("quiz_questions_position_nonnegative","ALTER TABLE quiz_questions ADD CONSTRAINT quiz_questions_position_nonnegative CHECK (position>=0)"),
+          ("quizzes_duration_positive","ALTER TABLE quizzes ADD CONSTRAINT quizzes_duration_positive CHECK (duration_minutes IS NULL OR duration_minutes>0)"),
+          ("attempts_score_range","ALTER TABLE attempts ADD CONSTRAINT attempts_score_range CHECK (score IS NULL OR (score>=0 AND score<=max_score))"),
+          ("attempts_max_score_nonnegative","ALTER TABLE attempts ADD CONSTRAINT attempts_max_score_nonnegative CHECK (max_score>=0)"),
+          ("attempt_answers_points_nonnegative","ALTER TABLE attempt_answers ADD CONSTRAINT attempt_answers_points_nonnegative CHECK (points_awarded>=0)"),
+          ("parent_notifications_attempts_count_range","ALTER TABLE parent_notifications ADD CONSTRAINT parent_notifications_attempts_count_range CHECK (attempts_count>=0 AND attempts_count<=5)"),
+          ("parent_notifications_delivery_status_check","ALTER TABLE parent_notifications ADD CONSTRAINT parent_notifications_delivery_status_check CHECK (delivery_status IS NULL OR delivery_status IN ('sent','delivered','read','failed'))"),
+        ]
+        for name, ddl in constraints:
+            if not con.execute("SELECT 1 FROM pg_constraint WHERE conname=%s",(name,)).fetchone():
+                con.execute(ddl)
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_parent_notifications_provider_message_id ON parent_notifications(provider_message_id) WHERE provider_message_id IS NOT NULL")

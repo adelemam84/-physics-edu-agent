@@ -241,10 +241,15 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:s
     with connect() as con:
         sub=con.execute("SELECT id,name_ar FROM subjects WHERE id=%s AND active=TRUE",(subject_id,)).fetchone()
         grade=con.execute("SELECT id,name_ar FROM grade_levels WHERE id=%s AND active=TRUE",(grade_level_id,)).fetchone()
-        curriculum=con.execute("SELECT id,name FROM curriculum_versions WHERE id=%s AND active=TRUE",(curriculum_version_id,)).fetchone()
+        curriculum=con.execute("SELECT id,academic_year,subject_id,grade_level_id FROM curriculum_versions WHERE id=%s AND active=TRUE",(curriculum_version_id,)).fetchone()
         term=con.execute("SELECT id,name_ar FROM academic_terms WHERE id=%s",(term_id,)).fetchone()
         if not all((sub,grade,curriculum,term)): raise HTTPException(400,'Academic classification is incomplete or invalid')
-        if unit_id and not con.execute("SELECT 1 FROM units WHERE id=%s AND subject_id=%s AND grade_level_id=%s AND curriculum_version_id=%s AND term_id=%s",(unit_id,subject_id,grade_level_id,curriculum_version_id,term_id)).fetchone():
+        if curriculum["subject_id"]!=subject_id or curriculum["grade_level_id"]!=grade_level_id:
+            raise HTTPException(400,'Curriculum does not match selected subject and grade')
+        term_ctx=con.execute("SELECT curriculum_version_id FROM academic_terms WHERE id=%s",(term_id,)).fetchone()
+        if not term_ctx or term_ctx["curriculum_version_id"]!=curriculum_version_id:
+            raise HTTPException(400,'Term does not match selected curriculum')
+        if unit_id and not con.execute("SELECT 1 FROM units WHERE id=%s AND term_id=%s",(unit_id,term_id)).fetchone():
             raise HTTPException(400,'Unit does not match selected academic context')
         if lesson_id and not con.execute("SELECT 1 FROM lessons WHERE id=%s AND subject_id=%s AND grade_level_id=%s AND curriculum_version_id=%s AND term_id=%s",(lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id)).fetchone():
             raise HTTPException(400,'Lesson does not match selected academic context')
@@ -257,7 +262,9 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:s
     if existing:raise HTTPException(409,f"هذا الملف مرفوع بالفعل كمستند رقم {existing['document_id']}: {existing['filename']}")
     try:
         with connect() as con:
-            doc_id=con.execute("INSERT INTO documents(filename,subject,kind,status) VALUES (%s,%s,%s,'processing') RETURNING id",(file.filename,subject,kind)).fetchone()['id'];pdf_key=f'documents/{doc_id}/{digest}.pdf';con.execute('INSERT INTO document_files(document_id,bucket_name,object_key,content_type,file_sha256,file_size_bytes,page_count) VALUES (%s,%s,%s,%s,%s,%s,%s)',(doc_id,BUCKET,pdf_key,'application/pdf',digest,len(raw),page_count))
+            doc_id=con.execute("""INSERT INTO documents(filename,subject,kind,status,subject_id,grade_level_id,curriculum_version_id,term_id)
+              VALUES (%s,%s,%s,'processing',%s,%s,%s,%s) RETURNING id""",
+              (file.filename,subject,kind,subject_id,grade_level_id,curriculum_version_id,term_id)).fetchone()['id'];pdf_key=f'documents/{doc_id}/{digest}.pdf';con.execute('INSERT INTO document_files(document_id,bucket_name,object_key,content_type,file_sha256,file_size_bytes,page_count) VALUES (%s,%s,%s,%s,%s,%s,%s)',(doc_id,BUCKET,pdf_key,'application/pdf',digest,len(raw),page_count))
     except UniqueViolation:raise HTTPException(409,'هذا الملف مرفوع بالفعل. تم منع إنشاء نسخة مكررة تلقائيًا.')
     with NamedTemporaryFile(suffix='.pdf',delete=False) as tmp:tmp.write(raw);path=Path(tmp.name)
     try:

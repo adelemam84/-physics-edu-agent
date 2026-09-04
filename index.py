@@ -27,3 +27,4 @@ from app import question_bank_quality  # noqa: F401,E402
 from app import question_bank_balance  # noqa: F401,E402
 from app import quiz_lifecycle  # noqa: F401,E402
 from app import student_lesson  # noqa: F401,E402
+from app import lesson_sources  # noqa: F401,E402

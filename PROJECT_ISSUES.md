@@ -13,7 +13,8 @@ This file records non-blocking or deferred issues discovered during implementati
 - There are currently no lesson rows / approved question-to-lesson mappings available for source-grounded lesson reading.
 - Impact: the student lesson page correctly falls back to “no source content linked” rather than generating unsupported scientific explanations.
 - Guard added: lesson reading accepts only approved explanatory kinds (`lesson`, `explanation`, `textbook`, `notes`) and approved/ready/processed documents.
-- Later treatment: build/administer PDF lesson-source ingestion, academic tagging, lesson/page mapping, extraction review, and approval workflow.
+- Progress: upload now accepts explanatory source kinds; reviewed lesson/page mapping APIs and approval gates are implemented.
+- Remaining prerequisite: ingest actual user-provided lesson/explanation PDFs and create the academic hierarchy/lesson rows, then review and approve their page ranges.
 
 ## Policy
 - Scientific lesson content and questions must remain grounded in user-provided/approved source PDFs.

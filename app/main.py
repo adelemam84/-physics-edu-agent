@@ -120,7 +120,8 @@ def page_text(document_id:int,page:int):
     return {'page':page,'extracted_text':row['extracted_text'] or '','text_sha256':row['text_sha256']}
 @app.get('/api/questions',dependencies=[Depends(require_admin)])
 def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None,term_id:int|None=None,unit_id:int|None=None,difficulty:str|None=None,question_type:str|None=None,workflow_state:str|None=None,chapter:str|None=None,limit:int=500):
-    sql="""SELECT q.*,d.filename source_filename,l.chapter,l.title lesson_title,
+    sql="""SELECT q.*,d.filename source_filename,ad.filename answer_source_filename,l.chapter,l.title lesson_title,
+           CASE WHEN q.answer_document_id IS NOT NULL AND q.answer_page IS NOT NULL THEN 'pdf_source' ELSE 'manual_review' END AS answer_source_type,
            EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) AS has_asset,
            CASE
              WHEN q.approved=TRUE THEN 'approved'
@@ -142,6 +143,7 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|Non
              ELSE 'draft'
            END AS workflow_state
            FROM questions q JOIN documents d ON d.id=q.document_id
+           LEFT JOIN documents ad ON ad.id=q.answer_document_id
            LEFT JOIN lessons l ON l.id=q.lesson_id WHERE 1=1""";params=[]
     if subject_id is not None:sql+=' AND q.subject_id=%s';params.append(subject_id)
     if grade_level_id is not None:sql+=' AND q.grade_level_id=%s';params.append(grade_level_id)
@@ -220,6 +222,18 @@ def question_readiness(question_id:int):
     ready=source_ready and classified
     state='approved' if row['approved'] else ('reviewed' if ready else ('cropped' if row['asset_valid'] else 'draft'))
     return {**row,'ready_for_approval':ready,'workflow_state':state}
+
+@app.get('/api/admin/questions/{question_id}/answer-provenance',dependencies=[Depends(require_admin)])
+def answer_provenance(question_id:int):
+    with connect() as con:
+        row=con.execute("""SELECT q.id,q.accepted_answer,q.answer_verbatim,q.answer_document_id,q.answer_page,
+          d.filename answer_source_filename,d.kind answer_source_kind
+          FROM questions q LEFT JOIN documents d ON d.id=q.answer_document_id WHERE q.id=%s""",(question_id,)).fetchone()
+        if not row: raise HTTPException(404,'Question not found')
+        out=dict(row)
+        out['answer_source_type']='pdf_source' if row['answer_document_id'] is not None and row['answer_page'] is not None else 'manual_review'
+        out['student_visible']=False
+        return out
 
 @app.patch('/api/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,patch:QuestionPatch):

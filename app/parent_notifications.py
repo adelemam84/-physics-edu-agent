@@ -354,10 +354,16 @@ def queue_weekly_summaries():
             created.append(item)
         return {"queued_count":len(created),"skipped_duplicates":skipped_duplicates,"week_key":week_key,"queued":created}
 
+def _safe_parent_text(value, limit: int = 120) -> str:
+    # Parent templates must stay concise and must never expose answers, phones,
+    # access codes, free-form student responses, or internal diagnostics.
+    text = " ".join(str(value or "").replace("\n", " ").replace("\r", " ").split())
+    return text[:limit]
+
 def template_components(kind: str, payload: dict) -> list:
-    weak = "، ".join(payload.get("weak_lessons") or []) or "لا توجد"
+    weak = "، ".join(_safe_parent_text(x,60) for x in (payload.get("weak_lessons") or [])[:3]) or "لا توجد"
     if kind == "low_score_alert":
-        vals = [payload["student_name"], payload["quiz_title"], f'{payload["percentage"]}%']
+        vals = [_safe_parent_text(payload["student_name"],80), _safe_parent_text(payload["quiz_title"],100), f'{payload["percentage"]}%']
     elif kind == "weekly_summary":
         delta = payload.get("trend_delta")
         comparison = (
@@ -365,17 +371,17 @@ def template_components(kind: str, payload: dict) -> list:
             if isinstance(delta,(int,float)) else "لا توجد مقارنة سابقة"
         )
         vals = [
-            payload.get("student_name",""),
+            _safe_parent_text(payload.get("student_name",""),80),
             str(payload.get("tests_count",0)),
             f'{payload.get("average_percentage",0)}%',
             comparison,
-            payload.get("strongest_lesson_text") or "لا توجد بيانات كافية",
-            payload.get("weakest_lesson_text") or "لا توجد بيانات كافية",
-            payload.get("alert_text") or "لا يوجد تنبيه",
+            _safe_parent_text(payload.get("strongest_lesson_text") or "لا توجد بيانات كافية",100),
+            _safe_parent_text(payload.get("weakest_lesson_text") or "لا توجد بيانات كافية",100),
+            _safe_parent_text(payload.get("alert_text") or "لا يوجد تنبيه",120),
         ]
     else:
         vals = [
-            payload["student_name"], payload["quiz_title"],
+            _safe_parent_text(payload["student_name"],80), _safe_parent_text(payload["quiz_title"],100),
             f'{payload["score"]}/{payload["max_score"]}',
             f'{payload["percentage"]}%',
             str(payload["correct"]), str(payload["incorrect"]), weak,

@@ -107,3 +107,65 @@ def student_mastery(student_code:str):
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         data=_student_mastery(con,st["id"])
     return {"student":st,**data}
+
+
+def _remedial_progress(con,student_id:int,limit:int=8):
+    cycles=list(con.execute("""SELECT a.id attempt_id,a.quiz_id,a.completed_at,q.title,
+      round(100.0*a.score/nullif(a.max_score,0),1) cycle_score
+      FROM attempts a JOIN quizzes q ON q.id=a.quiz_id
+      WHERE a.student_id=%s AND a.completed_at IS NOT NULL
+        AND EXISTS(SELECT 1 FROM quiz_audit_log al WHERE al.quiz_id=q.id AND al.action='adaptive_publish')
+      ORDER BY a.completed_at DESC,a.id DESC LIMIT %s""",(student_id,max(1,min(limit,30)))).fetchall())
+    out=[]
+    for cyc in cycles:
+        rows=list(con.execute("""SELECT c.id,c.title,l.title lesson_title,
+          count(aa.id) FILTER(WHERE hist.completed_at < %s) before_n,
+          count(aa.id) FILTER(WHERE hist.completed_at < %s AND aa.is_correct=TRUE) before_ok,
+          count(aa.id) FILTER(WHERE hist.completed_at <= %s) after_n,
+          count(aa.id) FILTER(WHERE hist.completed_at <= %s AND aa.is_correct=TRUE) after_ok,
+          count(taa.id) cycle_n,count(taa.id) FILTER(WHERE taa.is_correct=TRUE) cycle_ok
+          FROM quiz_questions qq
+          JOIN question_concepts qc ON qc.question_id=qq.question_id
+          JOIN concepts c ON c.id=qc.concept_id LEFT JOIN lessons l ON l.id=c.lesson_id
+          LEFT JOIN attempt_answers aa ON aa.question_id IN (
+            SELECT qc2.question_id FROM question_concepts qc2 WHERE qc2.concept_id=c.id)
+          LEFT JOIN attempts hist ON hist.id=aa.attempt_id AND hist.student_id=%s AND hist.completed_at IS NOT NULL
+          LEFT JOIN attempt_answers taa ON taa.attempt_id=%s AND taa.question_id IN (
+            SELECT qc3.question_id FROM question_concepts qc3 WHERE qc3.concept_id=c.id)
+          WHERE qq.quiz_id=%s
+          GROUP BY c.id,c.title,l.title ORDER BY c.title""",
+          (cyc["completed_at"],cyc["completed_at"],cyc["completed_at"],cyc["completed_at"],student_id,cyc["attempt_id"],cyc["quiz_id"])).fetchall())
+        concepts=[]
+        for r in rows:
+            x=dict(r)
+            bn=int(x["before_n"] or 0); bo=int(x["before_ok"] or 0); an=int(x["after_n"] or 0); ao=int(x["after_ok"] or 0)
+            before=round(100*bo/bn,1) if bn else None; after=round(100*ao/an,1) if an else None
+            def status(n,m):
+                if n<2 or m is None:return "insufficient_data"
+                if m<60:return "weak"
+                if m<80:return "developing"
+                return "strong"
+            bs=status(bn,before); ast=status(an,after)
+            x.update({"before_mastery":before,"after_mastery":after,"before_status":bs,"after_status":ast,
+                      "delta":round(after-before,1) if before is not None and after is not None else None,
+                      "improved":before is not None and after is not None and after>before,
+                      "needs_another_cycle":ast in ("weak","developing")})
+            concepts.append(x)
+        out.append({**dict(cyc),"concepts":concepts,
+          "improved_concepts":sum(1 for x in concepts if x["improved"]),
+          "strong_after":sum(1 for x in concepts if x["after_status"]=="strong"),
+          "needs_followup":any(x["needs_another_cycle"] for x in concepts)})
+    return out
+
+@app.get("/api/admin/students/{student_id}/remedial-progress",dependencies=[Depends(require_admin)])
+def admin_remedial_progress(student_id:int,limit:int=8):
+    with connect() as con:
+        if not con.execute("SELECT 1 FROM students WHERE id=%s",(student_id,)).fetchone(): raise HTTPException(404,"Student not found")
+        return {"student_id":student_id,"cycles":_remedial_progress(con,student_id,limit)}
+
+@app.get("/api/student/remedial-progress")
+def student_remedial_progress(student_code:str,limit:int=8):
+    with connect() as con:
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
+        if not st: raise HTTPException(404,"كود الطالب غير صحيح")
+        return {"student":st,"cycles":_remedial_progress(con,st["id"],limit)}

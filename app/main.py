@@ -6,13 +6,13 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 import fitz
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from psycopg.errors import UniqueViolation
 
 from .db import STORAGE_BACKEND, connect, init_db
-from .security import admin_configured, require_admin
+from .security import admin_configured, admin_session_valid, require_admin
 from .services.pdf_ingest import detect_verbatim_question_candidates, extract_pages
 from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, storage_configured
 
@@ -21,6 +21,13 @@ async def lifespan(app: FastAPI):
     init_db(); yield
 
 app = FastAPI(title="Science Education Platform", version="0.13.0", lifespan=lifespan)
+
+@app.middleware("http")
+async def protect_admin_pages(request: Request, call_next):
+    path=request.url.path
+    if path.startswith("/admin") and path!="/admin/login" and not admin_session_valid(request):
+        return RedirectResponse("/admin/login",status_code=307)
+    return await call_next(request)
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None

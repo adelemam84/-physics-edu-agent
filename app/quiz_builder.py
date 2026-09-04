@@ -79,6 +79,25 @@ def generate_quiz(p:QuizGenerate):
         # Fill missing core filters from the validated context so quizzes can never mix subjects/grades.
         p.subject_id=expected["subject_id"];p.grade_level_id=expected["grade_level_id"]
         p.curriculum_version_id=expected["curriculum_version_id"];p.term_id=expected["term_id"]
+        # IMPORTANT: the SQL/params above were assembled before context resolution. Rebuild
+        # the academic filters here from the validated context; otherwise omitted UI fields
+        # could still allow cross-subject questions into a quiz.
+        sql="""SELECT q.id FROM questions q LEFT JOIN lessons l ON l.id=q.lesson_id
+          WHERE q.approved=TRUE AND q.lesson_id IS NOT NULL AND q.question_type<>'unknown'
+          AND q.difficulty<>'unclassified'
+          AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+          AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+          AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
+          AND EXISTS(SELECT 1 FROM question_skills qsk WHERE qsk.question_id=q.id)
+          AND q.subject_id=%s AND q.grade_level_id=%s
+          AND q.curriculum_version_id=%s AND q.term_id=%s"""
+        params=[p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id]
+        if p.unit_id: sql+=' AND q.unit_id=%s';params.append(p.unit_id)
+        if p.lesson_id: sql+=' AND q.lesson_id=%s';params.append(p.lesson_id)
+        if p.chapter: sql+=' AND l.chapter=%s';params.append(p.chapter)
+        if p.difficulty: sql+=' AND q.difficulty=%s';params.append(p.difficulty)
+        if p.question_type: sql+=' AND q.question_type=%s';params.append(p.question_type)
+        if p.skill_id: sql+=' AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=%s)';params.append(p.skill_id)
         if any(v is not None for v in mix):
             vals=[p.easy_pct or 0,p.medium_pct or 0,p.hard_pct or 0]
             raw=[p.count*v/100 for v in vals]

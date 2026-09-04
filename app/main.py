@@ -219,6 +219,38 @@ def patch_question(question_id:int,patch:QuestionPatch):
     if not values:raise HTTPException(400,'No changes')
     if 'difficulty' in values and values['difficulty'] not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
+        current=con.execute("""SELECT id,document_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,lesson_id
+          FROM questions WHERE id=%s""",(question_id,)).fetchone()
+        if not current: raise HTTPException(404,'Question not found')
+        academic_keys={'subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','lesson_id'}
+        if academic_keys.intersection(values):
+            eff={k:values.get(k,current[k]) for k in academic_keys}
+            if eff['curriculum_version_id']:
+                cv=con.execute("SELECT subject_id,grade_level_id FROM curriculum_versions WHERE id=%s AND active=TRUE",(eff['curriculum_version_id'],)).fetchone()
+                if not cv or (eff['subject_id'] and cv['subject_id']!=eff['subject_id']) or (eff['grade_level_id'] and cv['grade_level_id']!=eff['grade_level_id']):
+                    raise HTTPException(400,'إصدار المنهج لا يطابق المادة والصف')
+            if eff['term_id']:
+                term=con.execute("SELECT curriculum_version_id FROM academic_terms WHERE id=%s",(eff['term_id'],)).fetchone()
+                if not term or (eff['curriculum_version_id'] and term['curriculum_version_id']!=eff['curriculum_version_id']):
+                    raise HTTPException(400,'الترم لا يطابق إصدار المنهج')
+            if eff['unit_id']:
+                unit=con.execute("SELECT term_id FROM units WHERE id=%s",(eff['unit_id'],)).fetchone()
+                if not unit or (eff['term_id'] and unit['term_id']!=eff['term_id']):
+                    raise HTTPException(400,'الوحدة لا تطابق الترم')
+            if eff['lesson_id']:
+                lesson=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id,unit_id
+                  FROM lessons WHERE id=%s""",(eff['lesson_id'],)).fetchone()
+                if not lesson: raise HTTPException(400,'الدرس غير موجود')
+                mismatched=[k for k in ('subject_id','grade_level_id','curriculum_version_id','term_id','unit_id')
+                            if eff[k] and lesson[k]!=eff[k]]
+                if mismatched: raise HTTPException(400,{'message':'الدرس لا يطابق السياق الأكاديمي المختار','fields':mismatched})
+            if current['document_id']:
+                doc=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id
+                  FROM documents WHERE id=%s""",(current['document_id'],)).fetchone()
+                if doc:
+                    mismatched=[k for k in ('subject_id','grade_level_id','curriculum_version_id','term_id')
+                                if doc[k] is not None and eff[k] is not None and doc[k]!=eff[k]]
+                    if mismatched: raise HTTPException(400,{'message':'تصنيف السؤال لا يطابق ملف المصدر','fields':mismatched})
         if values.get('approved') is True:
             gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,q.accepted_answer,
               EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
@@ -267,24 +299,6 @@ def create_manual_question(document_id:int,payload:ManualQuestionCreate):
         dup=con.execute('SELECT id FROM questions WHERE document_id=%s AND coalesce(source_page,page)=%s AND text_verbatim=%s LIMIT 1',(document_id,payload.page,payload.text_verbatim)).fetchone()
         if dup:raise HTTPException(409,f"هذا السؤال مسجل بالفعل برقم {dup['id']}")
         row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.subject_id,payload.grade_level_id,payload.curriculum_version_id,payload.term_id,payload.unit_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
-@app.patch('/api/documents/{document_id}/academic-context',dependencies=[Depends(require_admin)])
-def assign_document_academic_context(document_id:int,subject_id:int=Form(...),grade_level_id:int=Form(...),
-    curriculum_version_id:int=Form(...),term_id:int=Form(...)):
-    with connect() as con:
-        doc=con.execute("SELECT id FROM documents WHERE id=%s",(document_id,)).fetchone()
-        if not doc: raise HTTPException(404,'Document not found')
-        curriculum=con.execute("""SELECT id FROM curriculum_versions WHERE id=%s AND active=TRUE
-          AND subject_id=%s AND grade_level_id=%s""",(curriculum_version_id,subject_id,grade_level_id)).fetchone()
-        if not curriculum: raise HTTPException(400,'Curriculum does not match selected subject and grade')
-        term=con.execute("SELECT id FROM academic_terms WHERE id=%s AND curriculum_version_id=%s",(term_id,curriculum_version_id)).fetchone()
-        if not term: raise HTTPException(400,'Term does not match selected curriculum')
-        con.execute("""UPDATE documents SET subject_id=%s,grade_level_id=%s,curriculum_version_id=%s,term_id=%s
-          WHERE id=%s""",(subject_id,grade_level_id,curriculum_version_id,term_id,document_id))
-        con.execute("""UPDATE questions SET subject_id=COALESCE(subject_id,%s),grade_level_id=COALESCE(grade_level_id,%s),
-          curriculum_version_id=COALESCE(curriculum_version_id,%s),term_id=COALESCE(term_id,%s)
-          WHERE document_id=%s""",(subject_id,grade_level_id,curriculum_version_id,term_id,document_id))
-    return {'ok':True,'document_id':document_id}
-
 @app.post('/api/documents/upload',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:str=Form('questions'),
     subject_id:int=Form(...),grade_level_id:int=Form(...),curriculum_version_id:int=Form(...),term_id:int=Form(...),

@@ -10,69 +10,64 @@ def build_adaptive_practice(student_id:int,count:int=10):
         if not con.execute("SELECT 1 FROM students WHERE id=%s",(student_id,)).fetchone():
             raise HTTPException(404,"Student not found")
         context=con.execute("""SELECT q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id
-          FROM attempts a JOIN quizzes q ON q.id=a.quiz_id
-          WHERE a.student_id=%s AND a.completed_at IS NOT NULL
+          FROM attempts a JOIN quizzes q ON q.id=a.quiz_id WHERE a.student_id=%s AND a.completed_at IS NOT NULL
           ORDER BY a.completed_at DESC,a.id DESC LIMIT 1""",(student_id,)).fetchone()
+        ctx=[context["subject_id"],context["grade_level_id"],context["curriculum_version_id"],context["term_id"]] if context else [None]*4
+        weak_lessons=list(con.execute("""SELECT q.lesson_id,
+          100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0) mastery,count(aa.id) responses
+          FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id JOIN questions q ON q.id=aa.question_id
+          WHERE a.student_id=%s AND q.lesson_id IS NOT NULL
+          AND (%s IS NULL OR q.subject_id=%s) AND (%s IS NULL OR q.grade_level_id=%s)
+          AND (%s IS NULL OR q.curriculum_version_id=%s) AND (%s IS NULL OR q.term_id=%s)
+          GROUP BY q.lesson_id HAVING count(aa.id)>=2 ORDER BY mastery ASC,responses DESC LIMIT 5""",
+          (student_id,ctx[0],ctx[0],ctx[1],ctx[1],ctx[2],ctx[2],ctx[3],ctx[3])).fetchall())
         weak_concepts=list(con.execute("""SELECT qc.concept_id,
-          100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0) mastery
-          FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id
-          JOIN question_concepts qc ON qc.question_id=aa.question_id
-          WHERE a.student_id=%s
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.subject_id=%s))
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.grade_level_id=%s))
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.curriculum_version_id=%s))
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.term_id=%s))
-          GROUP BY qc.concept_id HAVING count(aa.id)>=2
-          ORDER BY mastery ASC LIMIT 5""",(student_id,
-          context["subject_id"] if context else None,context["subject_id"] if context else None,
-          context["grade_level_id"] if context else None,context["grade_level_id"] if context else None,
-          context["curriculum_version_id"] if context else None,context["curriculum_version_id"] if context else None,
-          context["term_id"] if context else None,context["term_id"] if context else None)).fetchall())
+          100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0) mastery,count(aa.id) responses
+          FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id JOIN questions q ON q.id=aa.question_id
+          JOIN question_concepts qc ON qc.question_id=aa.question_id WHERE a.student_id=%s
+          AND (%s IS NULL OR q.subject_id=%s) AND (%s IS NULL OR q.grade_level_id=%s)
+          AND (%s IS NULL OR q.curriculum_version_id=%s) AND (%s IS NULL OR q.term_id=%s)
+          GROUP BY qc.concept_id HAVING count(aa.id)>=2 ORDER BY mastery ASC,responses DESC LIMIT 8""",
+          (student_id,ctx[0],ctx[0],ctx[1],ctx[1],ctx[2],ctx[2],ctx[3],ctx[3])).fetchall())
         weak_skills=list(con.execute("""SELECT qs.skill_id,
-          100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0) mastery
-          FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id
-          JOIN question_skills qs ON qs.question_id=aa.question_id
-          WHERE a.student_id=%s
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.subject_id=%s))
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.grade_level_id=%s))
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.curriculum_version_id=%s))
-            AND (%s IS NULL OR EXISTS(SELECT 1 FROM questions z WHERE z.id=aa.question_id AND z.term_id=%s))
-          GROUP BY qs.skill_id HAVING count(aa.id)>=3
-          ORDER BY mastery ASC LIMIT 5""",(student_id,
-          context["subject_id"] if context else None,context["subject_id"] if context else None,
-          context["grade_level_id"] if context else None,context["grade_level_id"] if context else None,
-          context["curriculum_version_id"] if context else None,context["curriculum_version_id"] if context else None,
-          context["term_id"] if context else None,context["term_id"] if context else None)).fetchall())
+          100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0) mastery,count(aa.id) responses
+          FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id JOIN questions q ON q.id=aa.question_id
+          JOIN question_skills qs ON qs.question_id=aa.question_id WHERE a.student_id=%s
+          AND (%s IS NULL OR q.subject_id=%s) AND (%s IS NULL OR q.grade_level_id=%s)
+          AND (%s IS NULL OR q.curriculum_version_id=%s) AND (%s IS NULL OR q.term_id=%s)
+          GROUP BY qs.skill_id HAVING count(aa.id)>=3 ORDER BY mastery ASC,responses DESC LIMIT 8""",
+          (student_id,ctx[0],ctx[0],ctx[1],ctx[1],ctx[2],ctx[2],ctx[3],ctx[3])).fetchall())
+        lids=[x["lesson_id"] for x in weak_lessons if x["mastery"] is not None and float(x["mastery"])<70]
         cids=[x["concept_id"] for x in weak_concepts if x["mastery"] is not None and float(x["mastery"])<70]
         sids=[x["skill_id"] for x in weak_skills if x["mastery"] is not None and float(x["mastery"])<70]
-        if not cids and not sids:
+        if not lids and not cids and not sids:
             return {"student_id":student_id,"questions":[],"reason":"لا توجد نقاط ضعف مؤكدة كافية بعد"}
+        # Difficulty rises only after demonstrated mastery; weak areas start easy, developing areas medium.
+        weakest=min([float(x["mastery"]) for x in weak_lessons+weak_concepts+weak_skills if x["mastery"] is not None] or [0])
+        preferred="easy" if weakest<50 else "medium" if weakest<75 else "hard"
         rows=list(con.execute("""SELECT DISTINCT q.id,q.text_verbatim,q.difficulty,q.question_type,
           EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=q.id) has_asset,
           coalesce((SELECT count(*) FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id
-                    WHERE a.student_id=%s AND aa.question_id=q.id),0) seen_count
-          FROM questions q
-          WHERE q.approved=TRUE AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
-          AND (%s IS NULL OR q.subject_id=%s)
-          AND (%s IS NULL OR q.grade_level_id=%s)
-          AND (%s IS NULL OR q.curriculum_version_id=%s)
-          AND (%s IS NULL OR q.term_id=%s)
+                    WHERE a.student_id=%s AND aa.question_id=q.id),0) seen_count,
+          CASE WHEN q.lesson_id=ANY(%s) THEN 1 ELSE 0 END lesson_priority,
+          CASE WHEN EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id AND qc.concept_id=ANY(%s)) THEN 1 ELSE 0 END concept_priority,
+          CASE WHEN EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=ANY(%s)) THEN 1 ELSE 0 END skill_priority
+          FROM questions q WHERE q.approved=TRUE AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+          AND (%s IS NULL OR q.subject_id=%s) AND (%s IS NULL OR q.grade_level_id=%s)
+          AND (%s IS NULL OR q.curriculum_version_id=%s) AND (%s IS NULL OR q.term_id=%s)
           AND EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=q.id)
           AND EXISTS(SELECT 1 FROM question_concepts qc0 WHERE qc0.question_id=q.id)
           AND EXISTS(SELECT 1 FROM question_skills qs0 WHERE qs0.question_id=q.id)
-          AND (
-            EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id AND qc.concept_id=ANY(%s))
-            OR EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=ANY(%s))
-          )
-          ORDER BY seen_count ASC,random() LIMIT %s""",(student_id,
-          context["subject_id"] if context else None,context["subject_id"] if context else None,
-          context["grade_level_id"] if context else None,context["grade_level_id"] if context else None,
-          context["curriculum_version_id"] if context else None,context["curriculum_version_id"] if context else None,
-          context["term_id"] if context else None,context["term_id"] if context else None,
-          cids or [-1],sids or [-1],count)).fetchall())
-        return {"student_id":student_id,"weak_concept_ids":cids,"weak_skill_ids":sids,"questions":rows,
-                "academic_context":dict(context) if context else None,
-                "policy":"approved_source_questions_only; same_academic_context; unseen_first"}
+          AND (q.lesson_id=ANY(%s) OR EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id AND qc.concept_id=ANY(%s))
+            OR EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=ANY(%s)))
+          ORDER BY lesson_priority DESC,concept_priority DESC,skill_priority DESC,seen_count ASC,
+            CASE q.difficulty WHEN %s THEN 0 WHEN 'easy' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,random() LIMIT %s""",
+          (student_id,lids or [-1],cids or [-1],sids or [-1],
+           ctx[0],ctx[0],ctx[1],ctx[1],ctx[2],ctx[2],ctx[3],ctx[3],
+           lids or [-1],cids or [-1],sids or [-1],preferred,count)).fetchall())
+        return {"student_id":student_id,"weak_lesson_ids":lids,"weak_concept_ids":cids,"weak_skill_ids":sids,
+          "preferred_difficulty":preferred,"questions":rows,"academic_context":dict(context) if context else None,
+          "policy":"weak_lesson_then_concept_then_skill; unseen_first; progressive_difficulty; approved_source_questions_only"}
 
 @app.get("/api/admin/students/{student_id}/adaptive-practice",dependencies=[Depends(require_admin)])
 def adaptive_practice(student_id:int,count:int=10):

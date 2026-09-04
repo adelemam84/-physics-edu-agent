@@ -1,6 +1,8 @@
 from __future__ import annotations
+import csv
+import io
 import secrets
-from fastapi import Depends, HTTPException
+from fastapi import Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from .main import app
@@ -14,7 +16,7 @@ class StudentIn(BaseModel):
     external_code:str|None=None
 
 def new_code():
-    return "PHY-"+secrets.token_hex(3).upper()
+    return "SCI-"+secrets.token_hex(3).upper()
 
 @app.get("/api/admin/students",dependencies=[Depends(require_admin)])
 def list_students():
@@ -50,6 +52,48 @@ def regenerate(student_id:int):
             except Exception: pass
     raise HTTPException(500,"تعذر إنشاء كود فريد")
 
+@app.post("/api/admin/students/import-csv",dependencies=[Depends(require_admin)])
+async def import_students_csv(file:UploadFile=File(...)):
+    raw=await file.read()
+    if len(raw)>2_000_000: raise HTTPException(413,"ملف الطلاب أكبر من الحد المسموح")
+    try:text=raw.decode("utf-8-sig")
+    except UnicodeDecodeError: raise HTTPException(400,"احفظ الملف CSV بترميز UTF-8")
+    reader=csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames: raise HTTPException(400,"ملف CSV فارغ")
+    aliases={"name":["name","اسم","اسم الطالب"],"phone":["phone","الهاتف","رقم الهاتف"],"email":["email","البريد","البريد الإلكتروني"],"external_code":["external_code","code","الكود","كود الطالب"]}
+    norm={str(h).strip().lower():h for h in reader.fieldnames}
+    def col(key):
+        for a in aliases[key]:
+            if a.lower() in norm:return norm[a.lower()]
+        return None
+    name_col=col("name")
+    if not name_col: raise HTTPException(400,"يجب وجود عمود name أو اسم الطالب")
+    phone_col,email_col,code_col=col("phone"),col("email"),col("external_code")
+    created=[];skipped=[];errors=[]
+    with connect() as con:
+        for n,row in enumerate(reader,start=2):
+            name=(row.get(name_col) or "").strip()
+            if not name:
+                errors.append({"row":n,"error":"اسم الطالب فارغ"});continue
+            phone=(row.get(phone_col) or "").strip() if phone_col else None
+            email=(row.get(email_col) or "").strip() if email_col else None
+            requested=(row.get(code_col) or "").strip().upper() if code_col else ""
+            try:
+                if requested and con.execute("SELECT 1 FROM students WHERE external_code=%s",(requested,)).fetchone():
+                    skipped.append({"row":n,"name":name,"reason":"الكود موجود"});continue
+                code=requested
+                if not code:
+                    for _ in range(12):
+                        code=new_code()
+                        if not con.execute("SELECT 1 FROM students WHERE external_code=%s",(code,)).fetchone():break
+                item=con.execute("""INSERT INTO students(name,phone,email,external_code)
+                  VALUES(%s,%s,%s,%s) RETURNING id,name,external_code""",(name,phone or None,email or None,code)).fetchone()
+                created.append(item)
+            except Exception as e:
+                errors.append({"row":n,"name":name,"error":str(e)[:200]})
+    return {"created_count":len(created),"skipped_count":len(skipped),"error_count":len(errors),
+            "created":created,"skipped":skipped[:50],"errors":errors[:50]}
+
 @app.get("/api/admin/quizzes",dependencies=[Depends(require_admin)])
 def admin_quizzes():
     with connect() as con:
@@ -60,10 +104,12 @@ PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width
 body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:1100px;margin:auto;padding:18px}.box{background:white;padding:16px;border-radius:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.row{display:flex;gap:8px;flex-wrap:wrap}input,button{padding:10px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #eee;text-align:right}button{cursor:pointer}.ok{color:#067647}.muted{color:#667085;font-size:13px}</style><main>
 <h1>إدارة الطلاب والاختبارات</h1><div class="box row"><input id=key type=password placeholder=ADMIN_API_KEY><button onclick=save()>حفظ المفتاح</button><a href="/admin/quiz-builder">منشئ الاختبارات</a></div>
 <div class=box><h2>إضافة طالب</h2><div class=row><input id=name placeholder="اسم الطالب"><input id=phone placeholder="هاتف الطالب - اختياري"><input id=email placeholder="البريد - اختياري"><input id=code placeholder="كود مخصص - أو اتركه تلقائي"><button onclick=add()>إضافة وإنشاء الكود</button></div><p id=msg class=muted></p></div>
+<div class=box><h2>استيراد الطلاب دفعة واحدة</h2><p class=muted>ارفع CSV من Excel. الأعمدة المدعومة: name/اسم الطالب، phone، email، external_code (اختياري).</p><div class=row><input id=csvfile type=file accept=".csv,text/csv"><button onclick=importCsv()>استيراد CSV</button></div><p id=importMsg class=muted></p></div>
 <div class=box><h2>الطلاب</h2><div id=students></div></div><div class=box><h2>الاختبارات</h2><div id=quizzes></div></div>
 <script>key.value=localStorage.pk||'';const H=()=>({'X-Admin-Key':localStorage.pk||''});function save(){localStorage.pk=key.value;load()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function add(){let b={name:name.value,phone:phone.value||null,email:email.value||null,external_code:code.value||null};let r=await fetch('/api/admin/students',{method:'POST',headers:{...H(),'Content-Type':'application/json'},body:JSON.stringify(b)}),x=await r.json();msg.textContent=r.ok?'تم إنشاء الطالب — الكود: '+x.external_code:(x.detail||'حدث خطأ');if(r.ok){name.value=phone.value=email.value=code.value='';load()}}
+async function importCsv(){if(!csvfile.files.length){importMsg.textContent='اختر ملف CSV أولًا';return}let fd=new FormData();fd.append('file',csvfile.files[0]);let r=await fetch('/api/admin/students/import-csv',{method:'POST',headers:H(),body:fd}),x=await r.json();importMsg.textContent=r.ok?('تم إضافة '+x.created_count+' طالب · تخطي '+x.skipped_count+' · أخطاء '+x.error_count):(x.detail||'تعذر الاستيراد');if(r.ok)load()}
 async function regen(id){let r=await fetch('/api/admin/students/'+id+'/regenerate-code',{method:'POST',headers:H()}),x=await r.json();if(r.ok){alert('الكود الجديد: '+x.external_code);load()}}
 async function pub(id,v){let r=await fetch('/api/quizzes/'+id+'/publish?published='+v,{method:'PATCH',headers:H()}),x=await r.json();if(!r.ok)alert(typeof x.detail==='object'?(x.detail.message||JSON.stringify(x.detail)):x.detail);load()}
 async function copyLink(id){await navigator.clipboard.writeText(location.origin+'/student/quiz/'+id);alert('تم نسخ رابط الاختبار')}

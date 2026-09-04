@@ -38,12 +38,18 @@ def publish_quiz(quiz_id: int, published: bool = True):
         q = con.execute("SELECT id,title FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
         if not q: raise HTTPException(404,"Quiz not found")
         if published:
-            bad = con.execute("""SELECT count(*) n FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
+            bad = con.execute("""SELECT count(*) n FROM quiz_questions qq
+                                 JOIN quizzes z ON z.id=qq.quiz_id
+                                 JOIN questions x ON x.id=qq.question_id
                                  WHERE qq.quiz_id=%s AND (
                                    x.approved=FALSE OR x.accepted_answer IS NULL OR btrim(x.accepted_answer)=''
                                    OR x.lesson_id IS NULL OR x.subject_id IS NULL OR x.grade_level_id IS NULL
                                    OR x.curriculum_version_id IS NULL OR x.term_id IS NULL
                                    OR x.question_type='unknown' OR x.difficulty='unclassified'
+                                   OR x.subject_id IS DISTINCT FROM z.subject_id
+                                   OR x.grade_level_id IS DISTINCT FROM z.grade_level_id
+                                   OR x.curriculum_version_id IS DISTINCT FROM z.curriculum_version_id
+                                   OR x.term_id IS DISTINCT FROM z.term_id
                                    OR NOT EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id)
                                    OR NOT EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
                                    OR NOT EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
@@ -62,6 +68,10 @@ def student_quiz(quiz_id: int):
                     EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id) has_asset
                     FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
                     WHERE qq.quiz_id=%s AND x.approved=TRUE
+                      AND x.subject_id=(SELECT subject_id FROM quizzes WHERE id=%s)
+                      AND x.grade_level_id=(SELECT grade_level_id FROM quizzes WHERE id=%s)
+                      AND x.curriculum_version_id=(SELECT curriculum_version_id FROM quizzes WHERE id=%s)
+                      AND x.term_id=(SELECT term_id FROM quizzes WHERE id=%s)
                       AND x.accepted_answer IS NOT NULL AND btrim(x.accepted_answer)<>''
                       AND x.lesson_id IS NOT NULL AND x.subject_id IS NOT NULL AND x.grade_level_id IS NOT NULL
                       AND x.curriculum_version_id IS NOT NULL AND x.term_id IS NOT NULL
@@ -69,7 +79,7 @@ def student_quiz(quiz_id: int):
                       AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id)
                       AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
                       AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
-                    ORDER BY qq.position""",(quiz_id,)).fetchall())
+                    ORDER BY qq.position""",(quiz_id,quiz_id,quiz_id,quiz_id,quiz_id)).fetchall())
         total=con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
         if not total or len(items)!=total:
             raise HTTPException(409,"تم إيقاف الاختبار مؤقتًا لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")
@@ -87,6 +97,10 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
         rows=list(con.execute("""SELECT qq.question_id,qq.points,x.accepted_answer
               FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
               WHERE qq.quiz_id=%s AND x.approved=TRUE
+                AND x.subject_id=(SELECT subject_id FROM quizzes WHERE id=%s)
+                AND x.grade_level_id=(SELECT grade_level_id FROM quizzes WHERE id=%s)
+                AND x.curriculum_version_id=(SELECT curriculum_version_id FROM quizzes WHERE id=%s)
+                AND x.term_id=(SELECT term_id FROM quizzes WHERE id=%s)
                 AND x.accepted_answer IS NOT NULL AND btrim(x.accepted_answer)<>''
                 AND x.lesson_id IS NOT NULL AND x.subject_id IS NOT NULL AND x.grade_level_id IS NOT NULL
                 AND x.curriculum_version_id IS NOT NULL AND x.term_id IS NOT NULL
@@ -94,7 +108,7 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
                 AND EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=x.id)
                 AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
                 AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
-              ORDER BY qq.position""",(quiz_id,)).fetchall())
+              ORDER BY qq.position""",(quiz_id,quiz_id,quiz_id,quiz_id,quiz_id)).fetchall())
         total_questions=con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
         if not rows: raise HTTPException(409,"الاختبار لا يحتوي على أسئلة جاهزة")
         if len(rows)!=total_questions: raise HTTPException(409,"تم إيقاف الاختبار لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")

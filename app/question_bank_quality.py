@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from .db import connect
 from .main import app
@@ -21,6 +21,29 @@ BASE="""WITH qc AS (
  FROM questions q LEFT JOIN subjects s ON s.id=q.subject_id LEFT JOIN grade_levels g ON g.id=q.grade_level_id LEFT JOIN curriculum_versions cv ON cv.id=q.curriculum_version_id
 )"""
 
+ISSUE_SQL={
+ "missing_source":"NOT source_ok","missing_asset":"NOT asset_ok","missing_academic":"NOT academic_ok",
+ "missing_concept":"NOT concept_ok","missing_skill":"NOT skill_ok","missing_type":"NOT type_ok",
+ "missing_difficulty":"NOT difficulty_ok","missing_answer":"NOT answer_ok","missing_answer_source":"NOT answer_source_ok",
+ "any":"NOT (source_ok AND asset_ok AND academic_ok AND concept_ok AND skill_ok AND type_ok AND difficulty_ok AND answer_ok AND answer_source_ok)"
+}
+
+@app.get("/api/admin/question-bank-quality/items",dependencies=[Depends(require_admin)])
+def bank_quality_items(reason:str="any",subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None,limit:int=250):
+    if reason not in ISSUE_SQL: raise HTTPException(400,"Invalid quality reason")
+    where=[ISSUE_SQL[reason]];params=[]
+    if subject_id is not None: where.append("subject_id=%s");params.append(subject_id)
+    if grade_level_id is not None: where.append("grade_level_id=%s");params.append(grade_level_id)
+    if curriculum_version_id is not None: where.append("curriculum_version_id=%s");params.append(curriculum_version_id)
+    sql=BASE+" SELECT id FROM qc WHERE "+" AND ".join(where)+" ORDER BY id DESC LIMIT %s";params.append(min(max(limit,1),1000))
+    with connect() as con:
+        ids=[r["id"] for r in con.execute(sql,params).fetchall()]
+        if not ids:return {"reason":reason,"count":0,"items":[]}
+        rows=list(con.execute("""SELECT q.id,q.document_id,COALESCE(q.source_page,q.page) source_page,q.text_verbatim,
+          q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id
+          FROM questions q WHERE q.id=ANY(%s) ORDER BY q.id DESC""",(ids,)).fetchall())
+    return {"reason":reason,"count":len(rows),"items":rows}
+
 @app.get("/api/admin/question-bank-quality",dependencies=[Depends(require_admin)])
 def bank_quality():
     with connect() as con:
@@ -39,7 +62,7 @@ def bank_quality():
 
 PAGE=r'''<!doctype html><html lang="ar" dir="rtl"><meta name=viewport content="width=device-width,initial-scale=1"><title>جودة بنك الأسئلة</title><style>body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:1200px;margin:auto;padding:16px}.box{background:#fff;border-radius:16px;padding:15px;margin:10px 0;box-shadow:0 3px 14px #0001}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.card{border:1px solid #e7eaf0;border-radius:12px;padding:12px}.n{font-size:28px;font-weight:800}.ok{color:#067647}.bad{color:#b42318}.muted{color:#667085}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #eee;text-align:right}@media(max-width:760px){table{display:block;overflow-x:auto;white-space:nowrap}}</style><main><div class=box><a href="/admin/dashboard">لوحة التحكم</a> · <a href="/admin/workflow">مراجعة الأسئلة</a></div><div class=box><h1>جودة بنك الأسئلة</h1><div id=cards class=cards></div></div><div class=box><h2>أكثر أسباب عدم الجاهزية</h2><div id=reasons></div></div><div class=box><h2>حسب المادة والصف والمنهج</h2><div id=groups></div></div><script>
 const labels={missing_source:'المصدر/الصفحة',missing_asset:'القصاصة',missing_academic:'التصنيف الأكاديمي',missing_concept:'المفهوم',missing_skill:'المهارة',missing_type:'نوع السؤال',missing_difficulty:'الصعوبة',missing_answer:'الإجابة',missing_answer_source:'مصدر الإجابة'};
-async function load(){let r=await fetch('/api/admin/question-bank-quality');if(r.status===401){location.href='/admin/login';return}let x=await r.json();cards.innerHTML=[['إجمالي الأسئلة',x.total],['جاهزة',x.ready],['تحتاج استكمال',x.incomplete],['نسبة الجاهزية',x.ready_pct+'%']].map(v=>'<div class=card><div class=muted>'+v[0]+'</div><div class=n>'+v[1]+'</div></div>').join('');let rs=Object.entries(x.reasons).sort((a,b)=>b[1]-a[1]);reasons.innerHTML=rs.map(v=>'<div class=card style="margin:6px 0"><b>'+labels[v[0]]+'</b>: '+v[1]+'</div>').join('');groups.innerHTML='<table><tr><th>المادة</th><th>الصف</th><th>المنهج</th><th>الإجمالي</th><th>جاهز</th><th>ناقص</th><th>الجودة</th></tr>'+x.groups.map(g=>{let p=g.total?Math.round(g.ready*100/g.total):0;return '<tr><td>'+(g.subject_name||'غير مصنف')+'</td><td>'+(g.grade_name||'—')+'</td><td>'+(g.academic_year||'—')+'</td><td>'+g.total+'</td><td class=ok>'+g.ready+'</td><td class=bad>'+(g.total-g.ready)+'</td><td>'+p+'%</td></tr>'}).join('')+'</table>'}load()
+async function load(){let r=await fetch('/api/admin/question-bank-quality');if(r.status===401){location.href='/admin/login';return}let x=await r.json();cards.innerHTML=[['إجمالي الأسئلة',x.total],['جاهزة',x.ready],['تحتاج استكمال',x.incomplete],['نسبة الجاهزية',x.ready_pct+'%']].map(v=>'<div class=card><div class=muted>'+v[0]+'</div><div class=n>'+v[1]+'</div></div>').join('');let rs=Object.entries(x.reasons).sort((a,b)=>b[1]-a[1]);reasons.innerHTML=rs.map(v=>'<div class=card style="margin:6px 0"><b>'+labels[v[0]]+'</b>: '+v[1]+' · <a href="/admin/workflow?quality_issue='+encodeURIComponent(v[0])+'">معالجة هذه الأسئلة</a></div>').join('');groups.innerHTML='<table><tr><th>المادة</th><th>الصف</th><th>المنهج</th><th>الإجمالي</th><th>جاهز</th><th>ناقص</th><th>الجودة</th></tr>'+x.groups.map(g=>{let p=g.total?Math.round(g.ready*100/g.total):0;let u='/admin/workflow?quality_issue=any'+(g.subject_id?'&subject_id='+g.subject_id:'')+(g.grade_level_id?'&grade_level_id='+g.grade_level_id:'')+(g.curriculum_version_id?'&curriculum_version_id='+g.curriculum_version_id:'');return '<tr><td>'+(g.subject_name||'غير مصنف')+'</td><td>'+(g.grade_name||'—')+'</td><td>'+(g.academic_year||'—')+'</td><td>'+g.total+'</td><td class=ok>'+g.ready+'</td><td class=bad>'+(g.total-g.ready)+'</td><td>'+p+'% · <a href="'+u+'">معالجة الناقص</a></td></tr>'}).join('')+'</table>'}load()
 </script></main></html>'''
 
 @app.get("/admin/question-bank-quality",response_class=HTMLResponse)

@@ -102,6 +102,43 @@ def diagnostics():
                   n""").fetchone()["n"],
             },
             {
+                "id": "question_lesson_context_mismatch",
+                "name": "أسئلة لا تطابق السياق الأكاديمي للدرس",
+                "severity": "error",
+                "count": con.execute("""SELECT count(*) n FROM questions q JOIN lessons l ON l.id=q.lesson_id
+                    WHERE q.lesson_id IS NOT NULL AND (
+                      q.subject_id IS DISTINCT FROM l.subject_id OR q.grade_level_id IS DISTINCT FROM l.grade_level_id OR
+                      q.curriculum_version_id IS DISTINCT FROM l.curriculum_version_id OR q.term_id IS DISTINCT FROM l.term_id OR
+                      q.unit_id IS DISTINCT FROM l.unit_id)""").fetchone()["n"],
+            },
+            {
+                "id": "question_concept_lesson_mismatch",
+                "name": "مفاهيم مرتبطة بدرس مختلف عن درس السؤال",
+                "severity": "error",
+                "count": con.execute("""SELECT count(DISTINCT qc.question_id) n
+                    FROM question_concepts qc JOIN questions q ON q.id=qc.question_id JOIN concepts c ON c.id=qc.concept_id
+                    WHERE c.lesson_id IS DISTINCT FROM q.lesson_id""").fetchone()["n"],
+            },
+            {
+                "id": "quiz_question_context_mismatch",
+                "name": "أسئلة اختبار من سياق أكاديمي مختلف",
+                "severity": "error",
+                "count": con.execute("""SELECT count(DISTINCT qq.quiz_id) n
+                    FROM quiz_questions qq JOIN quizzes z ON z.id=qq.quiz_id JOIN questions q ON q.id=qq.question_id
+                    WHERE q.subject_id IS DISTINCT FROM z.subject_id OR q.grade_level_id IS DISTINCT FROM z.grade_level_id OR
+                          q.curriculum_version_id IS DISTINCT FROM z.curriculum_version_id OR q.term_id IS DISTINCT FROM z.term_id""").fetchone()["n"],
+            },
+            {
+                "id": "document_context_mismatch",
+                "name": "ملفات مصدر بسياق أكاديمي غير متسق",
+                "severity": "error",
+                "count": con.execute("""SELECT count(*) n FROM documents d
+                    JOIN curriculum_versions c ON c.id=d.curriculum_version_id
+                    JOIN academic_terms t ON t.id=d.term_id
+                    WHERE c.subject_id<>d.subject_id OR c.grade_level_id<>d.grade_level_id OR
+                          t.curriculum_version_id<>d.curriculum_version_id""").fetchone()["n"],
+            },
+            {
                 "id": "students_without_code",
                 "name": "طلاب بدون كود دخول",
                 "severity": "error",

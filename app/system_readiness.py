@@ -63,7 +63,7 @@ def system_readiness():
     if db["approved_questions"]==0: actions.append({"title":"استخراج ومراجعة واعتماد الأسئلة","path":"/admin/workflow","owner":"admin"})
     if db["students"]==0: actions.append({"title":"إضافة الطلاب وأكواد الدخول","path":"/admin/students","owner":"user"})
     if db["guardians_opted_in"]==0: actions.append({"title":"إضافة أولياء الأمور وتسجيل موافقة واتساب","path":"/admin/parents","owner":"user"})
-    if not wa_ready: actions.append({"title":"إضافة إعدادات WhatsApp وقوالب Meta إلى Vercel","path":"/admin/parents","owner":"user"})
+    if not wa_ready: actions.append({"title":"إكمال إعداد WhatsApp Cloud API وMeta Webhook","path":"/admin/parents","owner":"user"})
     return {"ready":all(x["ok"] for x in checks),"checks":checks,"counts":db,"whatsapp":wa,"next_actions":actions,
             "external_requirements":["ملفات PDF الأصلية للمناهج/الشرح وبنوك الأسئلة ومفاتيح الإجابة","بيانات الطلاب وأولياء الأمور الحقيقية","بيانات WhatsApp Cloud API وأسماء قوالب Meta المعتمدة"]}
 

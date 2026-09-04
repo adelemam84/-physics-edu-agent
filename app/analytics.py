@@ -169,3 +169,76 @@ def student_remedial_progress(student_code:str,limit:int=8):
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         return {"student":st,"cycles":_remedial_progress(con,st["id"],limit)}
+
+
+def _learning_recommendations(con,student_id:int):
+    mastery=_student_mastery(con,student_id)
+    remedial=_remedial_progress(con,student_id,1)
+    latest_lesson=con.execute("""SELECT l.id,l.title,l.sort_order,l.subject_id,l.grade_level_id,l.curriculum_version_id,l.term_id,l.unit_id
+      FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id JOIN questions q ON q.id=aa.question_id
+      JOIN lessons l ON l.id=q.lesson_id
+      WHERE a.student_id=%s AND a.completed_at IS NOT NULL
+      ORDER BY a.completed_at DESC,aa.id DESC LIMIT 1""",(student_id,)).fetchone()
+    recs=[]
+    if remedial and remedial[0]["needs_followup"]:
+        pending=[x for x in remedial[0]["concepts"] if x["needs_another_cycle"]]
+        if pending:
+            recs.append({"priority":1,"type":"remedial_followup","title":"أكمل التدريب العلاجي",
+              "reason":"بعض المفاهيم المستهدفة لم تصل بعد إلى مستوى الإتقان.",
+              "items":[{"id":x["id"],"title":x["title"],"mastery":x["after_mastery"],"status":x["after_status"]} for x in pending[:5]],
+              "action":"adaptive_practice"})
+    for x in mastery["priority"]["concepts"][:3]:
+        recs.append({"priority":2,"type":"concept_review","title":"راجع المفهوم: "+x["title"],
+          "reason":f'نسبة الإتقان الحالية {x["mastery"]}% من {x["responses"]} إجابات.',
+          "lesson_title":x.get("lesson_title"),"mastery":x["mastery"],"action":"adaptive_practice"})
+    for x in mastery["priority"]["skills"][:2]:
+        recs.append({"priority":3,"type":"skill_practice","title":"درّب المهارة: "+x["name_ar"],
+          "reason":f'نسبة الإتقان الحالية {x["mastery"]}% من {x["responses"]} إجابات.',
+          "mastery":x["mastery"],"action":"adaptive_practice"})
+    if not recs:
+        developing=[x for x in mastery["concepts"] if x["status"]=="developing"]
+        for x in developing[:2]:
+            recs.append({"priority":4,"type":"concept_strengthen","title":"ثبّت المفهوم: "+x["title"],
+              "reason":f'أنت قريب من الإتقان ({x["mastery"]}%). دورة قصيرة قد تنقله إلى مستوى قوي.',
+              "lesson_title":x.get("lesson_title"),"mastery":x["mastery"],"action":"adaptive_practice"})
+    readiness={"ready_for_next":False,"current_lesson":dict(latest_lesson) if latest_lesson else None,
+               "next_lesson":None,"reason":"لا توجد بيانات كافية بعد"}
+    if latest_lesson:
+        lm=next((x for x in mastery["lessons"] if x["id"]==latest_lesson["id"]),None)
+        lesson_concepts=[x for x in mastery["concepts"] if x.get("lesson_title")==latest_lesson["title"]]
+        blockers=[x for x in lesson_concepts if x["status"] in ("weak","developing")]
+        strong_enough=bool(lm and lm["status"]=="strong" and lm["confidence"] in ("medium","high"))
+        if strong_enough and not blockers:
+            nxt=con.execute("""SELECT id,title,chapter,unit_id,sort_order FROM lessons
+              WHERE subject_id=%s AND grade_level_id=%s AND curriculum_version_id=%s AND term_id=%s
+                AND sort_order>%s ORDER BY sort_order,id LIMIT 1""",
+              (latest_lesson["subject_id"],latest_lesson["grade_level_id"],latest_lesson["curriculum_version_id"],
+               latest_lesson["term_id"],latest_lesson["sort_order"])).fetchone()
+            readiness={"ready_for_next":True,"current_lesson":dict(latest_lesson),
+                       "next_lesson":dict(nxt) if nxt else None,
+                       "reason":"تم إتقان الدرس الحالي دون وجود مفاهيم ضعيفة أو قيد التطور."}
+            if nxt:
+                recs.append({"priority":5,"type":"next_lesson","title":"انتقل إلى الدرس التالي: "+nxt["title"],
+                  "reason":"الدرس الحالي مستوفٍ لمعيار الإتقان.","lesson_id":nxt["id"],"action":"study_next"})
+        else:
+            readiness={"ready_for_next":False,"current_lesson":dict(latest_lesson),"next_lesson":None,
+                       "reason":"أكمل معالجة نقاط الضعف أو المفاهيم قيد التطور قبل الانتقال." if blockers else "نحتاج أدلة أداء إضافية على الدرس الحالي."}
+    if not recs:
+        recs=[{"priority":9,"type":"evidence","title":"أكمل اختبارًا قصيرًا",
+          "reason":"نحتاج بيانات أداء إضافية قبل تحديد توصية أكثر دقة.","action":"available_quiz"}]
+    recs=sorted(recs,key=lambda x:x["priority"])[:6]
+    return {"recommendations":recs,"readiness":readiness,
+      "basis":{"mastery":True,"error_history":True,"remedial_progress":bool(remedial),"latest_lesson":bool(latest_lesson)}}
+
+@app.get("/api/admin/students/{student_id}/recommendations",dependencies=[Depends(require_admin)])
+def admin_student_recommendations(student_id:int):
+    with connect() as con:
+        if not con.execute("SELECT 1 FROM students WHERE id=%s",(student_id,)).fetchone(): raise HTTPException(404,"Student not found")
+        return {"student_id":student_id,**_learning_recommendations(con,student_id)}
+
+@app.get("/api/student/recommendations")
+def student_recommendations(student_code:str):
+    with connect() as con:
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
+        if not st: raise HTTPException(404,"كود الطالب غير صحيح")
+        return {"student":st,**_learning_recommendations(con,st["id"])}

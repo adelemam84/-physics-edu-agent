@@ -109,6 +109,45 @@ def diagnostics():
                     WHERE external_code IS NULL OR btrim(external_code)=''""").fetchone()["n"],
             },
             {
+                "id": "question_lesson_academic_mismatch",
+                "name": "أسئلة لا تطابق السياق الأكاديمي لدرسها",
+                "severity": "error",
+                "count": con.execute("""SELECT count(*) n FROM questions q JOIN lessons l ON l.id=q.lesson_id
+                    WHERE q.lesson_id IS NOT NULL AND (
+                      q.subject_id IS DISTINCT FROM l.subject_id OR q.grade_level_id IS DISTINCT FROM l.grade_level_id OR
+                      q.curriculum_version_id IS DISTINCT FROM l.curriculum_version_id OR q.term_id IS DISTINCT FROM l.term_id OR
+                      q.unit_id IS DISTINCT FROM l.unit_id)""").fetchone()["n"],
+            },
+            {
+                "id": "quiz_question_academic_mismatch",
+                "name": "اختبارات تحتوي أسئلة من سياق أكاديمي مختلف",
+                "severity": "error",
+                "count": con.execute("""SELECT count(*) n FROM quiz_questions qq
+                    JOIN quizzes z ON z.id=qq.quiz_id JOIN questions q ON q.id=qq.question_id
+                    WHERE q.subject_id IS DISTINCT FROM z.subject_id OR q.grade_level_id IS DISTINCT FROM z.grade_level_id OR
+                          q.curriculum_version_id IS DISTINCT FROM z.curriculum_version_id OR q.term_id IS DISTINCT FROM z.term_id""").fetchone()["n"],
+            },
+            {
+                "id": "lesson_unit_academic_mismatch",
+                "name": "دروس لا تطابق الوحدة أو المنهج",
+                "severity": "error",
+                "count": con.execute("""SELECT count(*) n FROM lessons l JOIN units u ON u.id=l.unit_id
+                    JOIN academic_terms t ON t.id=u.term_id JOIN curriculum_versions cv ON cv.id=t.curriculum_version_id
+                    WHERE l.unit_id IS NOT NULL AND (
+                      l.term_id IS DISTINCT FROM u.term_id OR l.curriculum_version_id IS DISTINCT FROM t.curriculum_version_id OR
+                      l.subject_id IS DISTINCT FROM cv.subject_id OR l.grade_level_id IS DISTINCT FROM cv.grade_level_id)""").fetchone()["n"],
+            },
+            {
+                "id": "document_academic_mismatch",
+                "name": "ملفات PDF بسياق أكاديمي غير متسق",
+                "severity": "error",
+                "count": con.execute("""SELECT count(*) n FROM documents d JOIN academic_terms t ON t.id=d.term_id
+                    JOIN curriculum_versions cv ON cv.id=t.curriculum_version_id
+                    WHERE d.term_id IS NOT NULL AND (
+                      d.curriculum_version_id IS DISTINCT FROM t.curriculum_version_id OR
+                      d.subject_id IS DISTINCT FROM cv.subject_id OR d.grade_level_id IS DISTINCT FROM cv.grade_level_id)""").fetchone()["n"],
+            },
+            {
                 "id": "guardians_without_optin",
                 "name": "أولياء أمور بدون موافقة واتساب",
                 "severity": "info",

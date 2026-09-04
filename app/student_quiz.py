@@ -165,23 +165,38 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
         extra=[qid for qid in submitted_ids if qid not in allowed]
         if extra:
             raise HTTPException(400,"تم إرسال إجابة لسؤال غير موجود في الاختبار")
-        recent=con.execute("""SELECT id FROM attempts WHERE student_id=%s AND quiz_id=%s
-          AND submitted_at>=now()-interval '10 seconds' ORDER BY id DESC LIMIT 1""",(student["id"],quiz_id)).fetchone()
-        if recent:
-            raise HTTPException(409,"تم استلام محاولة لهذا الاختبار منذ لحظات. انتظر قليلًا قبل إعادة الإرسال.")
         submitted={a.question_id:a.answer for a in p.answers}
         max_score=sum((Decimal(str(r["points"])) for r in rows),Decimal("0"))
-        attempt=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,completed_at,submitted_at)
-                               VALUES (%s,%s,0,%s,now(),now()) RETURNING id""",(student["id"],quiz_id,max_score)).fetchone()
+        attempt=None
+        if p.attempt_id is not None:
+            attempt=con.execute("""SELECT a.id,a.completed_at FROM attempts a
+              WHERE a.id=%s AND a.student_id=%s AND a.quiz_id=%s""",(p.attempt_id,student["id"],quiz_id)).fetchone()
+            if not attempt: raise HTTPException(404,"المحاولة غير موجودة")
+            if attempt["completed_at"] is not None: raise HTTPException(409,"تم تسليم هذه المحاولة بالفعل")
+        else:
+            recent=con.execute("""SELECT id FROM attempts WHERE student_id=%s AND quiz_id=%s
+              AND completed_at IS NOT NULL AND submitted_at>=now()-interval '10 seconds'
+              ORDER BY id DESC LIMIT 1""",(student["id"],quiz_id)).fetchone()
+            if recent: raise HTTPException(409,"تم استلام محاولة لهذا الاختبار منذ لحظات. انتظر قليلًا قبل إعادة الإرسال.")
+            attempt=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,started_at,completed_at,submitted_at)
+              VALUES (%s,%s,NULL,%s,now(),NULL,now()) RETURNING id,completed_at""",(student["id"],quiz_id,max_score)).fetchone()
+        saved={r["question_id"]:r["answer_text"] for r in con.execute(
+            "SELECT question_id,answer_text FROM attempt_answers WHERE attempt_id=%s",(attempt["id"],)).fetchall()}
+        saved.update(submitted)
         score=Decimal("0"); correct=0
         for qid,r in allowed.items():
-            ans=submitted.get(qid,"")
+            ans=saved.get(qid,"") or ""
             ok=is_correct(ans,r["accepted_answer"])
             pts=Decimal(str(r["points"])) if ok else Decimal("0")
             score+=pts; correct+=1 if ok else 0
             con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)
-                           VALUES (%s,%s,%s,%s,%s,%s)""",(attempt["id"],qid,ans,ok,pts,pts))
-        con.execute("UPDATE attempts SET score=%s WHERE id=%s",(score,attempt["id"]))
+              VALUES (%s,%s,%s,%s,%s,%s)
+              ON CONFLICT (attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL
+              DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=EXCLUDED.is_correct,
+                awarded_score=EXCLUDED.awarded_score,points_awarded=EXCLUDED.points_awarded""",
+              (attempt["id"],qid,ans,ok,pts,pts))
+        con.execute("""UPDATE attempts SET score=%s,max_score=%s,completed_at=now(),submitted_at=now()
+          WHERE id=%s""",(score,max_score,attempt["id"]))
         attempt_id=attempt["id"]
     notify={"queued":[],"guardian_count":0}
     try:
@@ -201,10 +216,13 @@ STUDENT = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" con
 body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:900px;margin:auto;padding:18px}.box,.q{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.asset{max-width:100%;border-radius:10px}.row{display:flex;gap:8px;flex-wrap:wrap}input,button{padding:11px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}input.answer{width:100%;box-sizing:border-box}.muted{color:#667085}.result{font-size:22px;font-weight:700}</style><main>
 <div class=box><h1 id=title>اختبار العلوم</h1><div class=row><input id=code placeholder="كود الطالب"><button onclick=submitQuiz()>إنهاء الاختبار وإظهار النتيجة</button></div><div id=msg class=muted></div></div><div id=items></div><div id=result class=box style="display:none"></div>
 <script>
-const quizId=Number(location.pathname.split('/').pop());let data=null;
+const quizId=Number(location.pathname.split('/').pop());let data=null,attemptId=null,saveTimer=null;
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-async function load(){let r=await fetch('/api/student/quizzes/'+quizId),x=await r.json();if(!r.ok){msg.textContent=x.detail||'تعذر تحميل الاختبار';return}data=x;title.textContent=x.title;items.innerHTML=x.questions.map(q=>`<div class=q><b>سؤال ${q.position}</b>${q.has_asset?`<div><img class=asset src="/api/practice/questions/${q.id}/asset"></div>`:''}<div>${esc(q.text_verbatim)}</div><input class=answer id="a_${q.id}" placeholder="اكتب الإجابة"></div>`).join('')}
-async function submitQuiz(){if(!data)return;let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,answers})}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}result.style.display='block';result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div><p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p><p class=muted>تم حفظ النتيجة وتجهيز إشعار ولي الأمر المسجل والموافق على رسائل واتساب.</p>${x.adaptive_recommended?'<button onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيظل النظام يتابع نقاط القوة والضعف من المحاولات التالية.</p>'}`;scrollTo({top:document.body.scrollHeight,behavior:'smooth'})}
+async function load(){let r=await fetch('/api/student/quizzes/'+quizId),x=await r.json();if(!r.ok){msg.textContent=x.detail||'تعذر تحميل الاختبار';return}data=x;title.textContent=x.title;items.innerHTML=x.questions.map(q=>`<div class=q><b>سؤال ${q.position}</b>${q.has_asset?`<div><img class=asset src="/api/practice/questions/${q.id}/asset"></div>`:''}<div>${esc(q.text_verbatim)}</div><input class=answer id="a_${q.id}" placeholder="اكتب الإجابة" oninput="queueSave(${q.id})"></div>`).join('');msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'}
+async function ensureAttempt(){if(attemptId)return attemptId;if(!code.value.trim())throw new Error('أدخل كود الطالب');let r=await fetch('/api/student/quizzes/'+quizId+'/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value})}),x=await r.json();if(!r.ok)throw new Error(typeof x.detail==='string'?x.detail:JSON.stringify(x.detail));attemptId=x.attempt_id;let sr=await fetch('/api/student/attempts/'+attemptId+'/saved?student_code='+encodeURIComponent(code.value)),sx=await sr.json();if(sr.ok){for(let a of sx.answers||[]){let el=document.getElementById('a_'+a.question_id);if(el)el.value=a.answer_text||''}}msg.textContent=x.resumed?'تم استكمال محاولتك السابقة.':'بدأت محاولة جديدة ويتم حفظ الإجابات تلقائيًا.';return attemptId}
+function queueSave(qid){clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveAnswer(qid),500)}
+async function saveAnswer(qid){try{let id=await ensureAttempt();let el=document.getElementById('a_'+qid);let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,question_id:qid,answer:el.value})});if(r.ok)msg.textContent='تم حفظ الإجابة تلقائيًا.'}catch(e){msg.textContent=e.message}}
+async function submitQuiz(){if(!data)return;try{await ensureAttempt()}catch(e){msg.textContent=e.message;return}let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,answers,attempt_id:attemptId})}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}result.style.display='block';result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div><p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p><p class=muted>تم حفظ النتيجة وتجهيز إشعار ولي الأمر المسجل والموافق على رسائل واتساب.</p>${x.adaptive_recommended?'<button onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيظل النظام يتابع نقاط القوة والضعف من المحاولات التالية.</p>'}`;scrollTo({top:document.body.scrollHeight,behavior:'smooth'})}
 async function startAdaptive(){msg.textContent='جارٍ تجهيز التدريب العلاجي...';let r=await fetch('/api/student/adaptive-practice/create?student_code='+encodeURIComponent(code.value)+'&count=10',{method:'POST'}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}location.href=x.student_path}load();
 </script></main></html>'''
 

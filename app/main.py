@@ -40,6 +40,9 @@ class QuestionPatch(BaseModel):
     question_type: str | None = None
     difficulty: str | None = None
     accepted_answer: str | None = None
+    answer_verbatim: str | None = None
+    answer_document_id: int | None = None
+    answer_page: int | None = None
 
 class DocumentContextPatch(BaseModel):
     subject_id:int
@@ -220,7 +223,7 @@ def question_readiness(question_id:int):
 
 @app.patch('/api/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,patch:QuestionPatch):
-    values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','question_type','difficulty','accepted_answer'}}
+    values={k:v for k,v in patch.model_dump(exclude_unset=True).items() if k in {'approved','lesson_id','subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','question_type','difficulty','accepted_answer','answer_verbatim','answer_document_id','answer_page'}}
     if not values:raise HTTPException(400,'No changes')
     if 'difficulty' in values and values['difficulty'] not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
@@ -228,6 +231,25 @@ def patch_question(question_id:int,patch:QuestionPatch):
           FROM questions WHERE id=%s""",(question_id,)).fetchone()
         if not current: raise HTTPException(404,'Question not found')
         academic_keys={'subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','lesson_id'}
+        answer_source_keys={'answer_document_id','answer_page','answer_verbatim'}
+        if answer_source_keys.intersection(values):
+            aid=values.get('answer_document_id')
+            apage=values.get('answer_page')
+            if (aid is None) != (apage is None):
+                raise HTTPException(400,'مصدر الإجابة يحتاج ملفًا ورقم صفحة معًا')
+            if aid is not None:
+                adoc=con.execute("""SELECT d.id,d.kind,d.subject_id,d.grade_level_id,d.curriculum_version_id,d.term_id
+                  FROM documents d WHERE d.id=%s""",(aid,)).fetchone()
+                if not adoc: raise HTTPException(400,'ملف مصدر الإجابة غير موجود')
+                if adoc['kind'] not in ('answers','reference'):
+                    raise HTTPException(400,'مصدر الإجابة يجب أن يكون مفتاح إجابة أو مرجعًا')
+                if not con.execute("SELECT 1 FROM document_pages WHERE document_id=%s AND page_number=%s",(aid,apage)).fetchone():
+                    raise HTTPException(400,'صفحة مصدر الإجابة غير موجودة')
+                eff_ctx={k:values.get(k,current[k]) for k in ('subject_id','grade_level_id','curriculum_version_id','term_id')}
+                bad=[k for k in eff_ctx if adoc[k] is not None and eff_ctx[k] is not None and adoc[k]!=eff_ctx[k]]
+                if bad: raise HTTPException(400,{'message':'مصدر الإجابة لا يطابق سياق السؤال','fields':bad})
+            if values.get('answer_verbatim') is not None and not str(values.get('answer_verbatim') or '').strip():
+                values['answer_verbatim']=None
         if academic_keys.intersection(values):
             eff={k:values.get(k,current[k]) for k in academic_keys}
             if eff['curriculum_version_id']:
@@ -278,6 +300,11 @@ def patch_question(question_id:int,patch:QuestionPatch):
             effective_type=values.get('question_type',gate['question_type'])
             effective_difficulty=values.get('difficulty',gate['difficulty'])
             effective_answer=values.get('accepted_answer',gate['accepted_answer'])
+            effective_answer_doc=values.get('answer_document_id')
+            effective_answer_page=values.get('answer_page')
+            if effective_answer_doc is None and 'answer_document_id' not in values:
+                src=con.execute("SELECT answer_document_id,answer_page FROM questions WHERE id=%s",(question_id,)).fetchone()
+                effective_answer_doc=src['answer_document_id'];effective_answer_page=src['answer_page']
             missing=[]
             if not gate['document_id']: missing.append('document')
             if not gate['page_number']: missing.append('source_page')
@@ -296,6 +323,8 @@ def patch_question(question_id:int,patch:QuestionPatch):
             if not effective_type or effective_type=='unknown': missing.append('question_type')
             if not effective_difficulty or effective_difficulty=='unclassified': missing.append('difficulty')
             if not effective_answer or not str(effective_answer).strip(): missing.append('accepted_answer')
+            # Manual reviewer answers remain allowed, but sourced answers must be complete.
+            if effective_answer_doc is not None and not effective_answer_page: missing.append('answer_source_page')
             if missing: raise HTTPException(409,{'message':'لا يمكن اعتماد السؤال قبل اكتمال المصدر والتصنيف','missing':missing})
         row=con.execute(f"UPDATE questions SET {', '.join(f'{k}=%s' for k in values)} WHERE id=%s RETURNING *",list(values.values())+[question_id]).fetchone()
         if not row:raise HTTPException(404,'Question not found')

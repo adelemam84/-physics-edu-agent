@@ -56,7 +56,7 @@ def legacy_publish_quiz(quiz_id: int, published: bool = True):
 @app.get("/api/student/quizzes/{quiz_id}")
 def student_quiz(quiz_id: int):
     with connect() as con:
-        q=con.execute("""SELECT id,title,duration_minutes FROM quizzes
+        q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
         items=list(con.execute("""SELECT qq.position,qq.points,x.id,x.text_verbatim,x.question_type,
@@ -87,9 +87,19 @@ def start_quiz_attempt(quiz_id:int,p:StartAttempt):
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
-        quiz=con.execute("""SELECT id,title,duration_minutes FROM quizzes
+        quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
+        stats=con.execute("""SELECT count(*) FILTER(WHERE completed_at IS NOT NULL) completed,
+          max(completed_at) FILTER(WHERE completed_at IS NOT NULL) last_completed FROM attempts
+          WHERE student_id=%s AND quiz_id=%s""",(st["id"],quiz_id)).fetchone()
+        completed=int(stats["completed"] or 0)
+        if completed>=int(quiz["max_attempts"]): raise HTTPException(409,{"message":"استنفدت عدد المحاولات المسموح بها","max_attempts":quiz["max_attempts"]})
+        if stats["last_completed"] is not None and int(quiz["retry_wait_minutes"] or 0)>0:
+            allowed=con.execute("SELECT now() >= %s + (%s * interval '1 minute') v",(stats["last_completed"],quiz["retry_wait_minutes"])).fetchone()["v"]
+            if not allowed:
+                retry_at=con.execute("SELECT %s + (%s * interval '1 minute') v",(stats["last_completed"],quiz["retry_wait_minutes"])).fetchone()["v"]
+                raise HTTPException(409,{"message":"يجب الانتظار قبل بدء محاولة جديدة","retry_at":retry_at})
         open_attempt=con.execute("""SELECT id,started_at FROM attempts
           WHERE student_id=%s AND quiz_id=%s AND completed_at IS NULL
           ORDER BY id DESC LIMIT 1""",(st["id"],quiz_id)).fetchone()
@@ -98,7 +108,7 @@ def start_quiz_attempt(quiz_id:int,p:StartAttempt):
               ELSE %s + (%s * interval '1 minute') END v""",
               (quiz["duration_minutes"],open_attempt["started_at"],quiz["duration_minutes"])).fetchone()["v"]
             return {"attempt_id":open_attempt["id"],"started_at":open_attempt["started_at"],
-                    "expires_at":expires_at,"resumed":True,"duration_minutes":quiz["duration_minutes"]}
+                    "expires_at":expires_at,"resumed":True,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
         max_score=con.execute("SELECT coalesce(sum(points),0) v FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["v"]
         a=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,started_at,submitted_at)
           VALUES(%s,%s,NULL,%s,now(),now()) RETURNING id,started_at""",(st["id"],quiz_id,max_score)).fetchone()
@@ -106,7 +116,7 @@ def start_quiz_attempt(quiz_id:int,p:StartAttempt):
           ELSE %s + (%s * interval '1 minute') END v""",
           (quiz["duration_minutes"],a["started_at"],quiz["duration_minutes"])).fetchone()["v"]
         return {"attempt_id":a["id"],"started_at":a["started_at"],"expires_at":expires_at,
-                "resumed":False,"duration_minutes":quiz["duration_minutes"]}
+                "resumed":False,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
 
 @app.put("/api/student/attempts/{attempt_id}/answer")
 def save_quiz_answer(attempt_id:int,p:SaveAnswer):
@@ -148,7 +158,7 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
     with connect() as con:
         student=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not student: raise HTTPException(404,"كود الطالب غير صحيح")
-        quiz=con.execute("""SELECT id,title,duration_minutes FROM quizzes
+        quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
         rows=list(con.execute("""SELECT qq.question_id,qq.points,x.accepted_answer
@@ -223,11 +233,17 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
         # because a downstream parent-notification queue has a temporary problem.
         notify={"queued":[],"guardian_count":0,"queue_error":str(exc)[:500]}
     pct=round(float(score/max_score*100),1) if max_score else 0.0
+    with connect() as con:
+        policy=con.execute("SELECT score_policy FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()["score_policy"]
+        history=list(con.execute("""SELECT score,max_score FROM attempts
+          WHERE student_id=%s AND quiz_id=%s AND completed_at IS NOT NULL ORDER BY completed_at,id""",(student["id"],quiz_id)).fetchall())
+    percentages=[float(r["score"]/r["max_score"]*100) if r["max_score"] else 0.0 for r in history]
+    recorded=max(percentages) if policy=="highest" and percentages else (percentages[-1] if percentages else pct)
     return {"attempt_id":attempt_id,"student_name":student["name"],"quiz_title":quiz["title"],
             "score":float(score),"max_score":float(max_score),"percentage":pct,
             "correct":correct,"incorrect":len(rows)-correct,
             "adaptive_recommended": pct < 85,
-            "parent_notifications":notify,"time_expired":expired}
+            "parent_notifications":notify,"time_expired":expired,"score_policy":policy,"recorded_percentage":round(recorded,2),"attempts_used":len(history)}
 
 STUDENT = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبار العلوم</title><style>
 body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:900px;margin:auto;padding:18px}.box,.q{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.asset{max-width:100%;border-radius:10px}.row{display:flex;gap:8px;flex-wrap:wrap}input,button{padding:11px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}input.answer{width:100%;box-sizing:border-box}.muted{color:#667085}.result{font-size:22px;font-weight:700}</style><main>

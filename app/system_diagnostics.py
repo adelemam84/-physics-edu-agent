@@ -61,9 +61,9 @@ def diagnostics():
                 "name": "ملفات مكررة حسب SHA-256",
                 "severity": "warning",
                 "count": con.execute("""SELECT count(*) n FROM (
-                    SELECT sha256 FROM document_files
-                    WHERE sha256 IS NOT NULL
-                    GROUP BY sha256 HAVING count(*)>1
+                    SELECT file_sha256 FROM document_files
+                    WHERE file_sha256 IS NOT NULL
+                    GROUP BY file_sha256 HAVING count(*)>1
                 ) x""").fetchone()["n"],
             },
             {

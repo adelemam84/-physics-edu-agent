@@ -59,10 +59,20 @@ def student_quiz(quiz_id: int):
         q=con.execute("SELECT id,title,duration_minutes FROM quizzes WHERE id=%s AND published=TRUE",(quiz_id,)).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
         items=list(con.execute("""SELECT qq.position,qq.points,x.id,x.text_verbatim,x.question_type,
-                    (a.question_id IS NOT NULL) has_asset
+                    EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id) has_asset
                     FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
-                    LEFT JOIN question_assets a ON a.question_id=x.id
-                    WHERE qq.quiz_id=%s AND x.approved=TRUE ORDER BY qq.position""",(quiz_id,)).fetchall())
+                    WHERE qq.quiz_id=%s AND x.approved=TRUE
+                      AND x.accepted_answer IS NOT NULL AND btrim(x.accepted_answer)<>''
+                      AND x.lesson_id IS NOT NULL AND x.subject_id IS NOT NULL AND x.grade_level_id IS NOT NULL
+                      AND x.curriculum_version_id IS NOT NULL AND x.term_id IS NOT NULL
+                      AND x.question_type<>'unknown' AND x.difficulty<>'unclassified'
+                      AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id)
+                      AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
+                      AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
+                    ORDER BY qq.position""",(quiz_id,)).fetchall())
+        total=con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
+        if not total or len(items)!=total:
+            raise HTTPException(409,"تم إيقاف الاختبار مؤقتًا لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")
         return {**q,"questions":items}
 
 @app.post("/api/student/quizzes/{quiz_id}/submit")

@@ -52,6 +52,33 @@ def generate_quiz(p:QuizGenerate):
     if p.question_type: sql+=' AND q.question_type=%s';params.append(p.question_type)
     if p.skill_id: sql+=' AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=%s)';params.append(p.skill_id)
     with connect() as con:
+        # Resolve and validate one coherent academic context before selecting questions.
+        ctx=None
+        if p.lesson_id:
+            ctx=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id,unit_id
+              FROM lessons WHERE id=%s""",(p.lesson_id,)).fetchone()
+            if not ctx: raise HTTPException(400,'الدرس غير موجود')
+        elif p.unit_id:
+            ctx=con.execute("""SELECT c.subject_id,c.grade_level_id,t.curriculum_version_id,u.term_id,u.id unit_id
+              FROM units u JOIN academic_terms t ON t.id=u.term_id
+              JOIN curriculum_versions c ON c.id=t.curriculum_version_id WHERE u.id=%s""",(p.unit_id,)).fetchone()
+            if not ctx: raise HTTPException(400,'الوحدة غير موجودة')
+        elif p.curriculum_version_id and p.term_id:
+            ctx=con.execute("""SELECT c.subject_id,c.grade_level_id,c.id curriculum_version_id,t.id term_id,NULL::bigint unit_id
+              FROM curriculum_versions c JOIN academic_terms t ON t.curriculum_version_id=c.id
+              WHERE c.id=%s AND t.id=%s AND c.active=TRUE""",(p.curriculum_version_id,p.term_id)).fetchone()
+            if not ctx: raise HTTPException(400,'المنهج أو الترم غير متطابق')
+        if not ctx:
+            raise HTTPException(400,'حدد المادة والصف وإصدار المنهج والترم على الأقل قبل إنشاء الاختبار')
+        expected={"subject_id":ctx["subject_id"],"grade_level_id":ctx["grade_level_id"],
+                  "curriculum_version_id":ctx["curriculum_version_id"],"term_id":ctx["term_id"]}
+        supplied={"subject_id":p.subject_id,"grade_level_id":p.grade_level_id,
+                  "curriculum_version_id":p.curriculum_version_id,"term_id":p.term_id}
+        bad=[k for k,v in supplied.items() if v is not None and v!=expected[k]]
+        if bad: raise HTTPException(400,{"message":"السياق الأكاديمي المختار غير متسق","fields":bad})
+        # Fill missing core filters from the validated context so quizzes can never mix subjects/grades.
+        p.subject_id=expected["subject_id"];p.grade_level_id=expected["grade_level_id"]
+        p.curriculum_version_id=expected["curriculum_version_id"];p.term_id=expected["term_id"]
         if any(v is not None for v in mix):
             vals=[p.easy_pct or 0,p.medium_pct or 0,p.hard_pct or 0]
             raw=[p.count*v/100 for v in vals]

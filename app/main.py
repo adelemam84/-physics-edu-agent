@@ -97,7 +97,8 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|Non
                   AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
                   AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
                   AND q.question_type <> 'unknown'
-                  AND q.difficulty <> 'unclassified' THEN 'reviewed'
+                  AND q.difficulty <> 'unclassified'
+                  AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>'' THEN 'reviewed'
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
              ELSE 'draft'
            END AS workflow_state
@@ -128,7 +129,8 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|Non
                   AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
                   AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
                   AND q.question_type <> 'unknown'
-                  AND q.difficulty <> 'unclassified' THEN 'reviewed'
+                  AND q.difficulty <> 'unclassified'
+                  AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>'' THEN 'reviewed'
              WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
              ELSE 'draft' END"""
         sql+=f' AND ({state_sql})=%s';params.append(workflow_state)
@@ -154,7 +156,7 @@ def question_stats():
         by_state=list(con.execute("""SELECT state,count(*) total FROM (
           SELECT CASE WHEN q.approved THEN 'approved'
             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
-             AND q.lesson_id IS NOT NULL AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) AND q.question_type<>'unknown' AND q.difficulty<>'unclassified' THEN 'reviewed'
+             AND q.lesson_id IS NOT NULL AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) AND q.question_type<>'unknown' AND q.difficulty<>'unclassified' AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>'' THEN 'reviewed'
             WHEN EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) THEN 'cropped'
             ELSE 'draft' END state FROM questions q) s GROUP BY state ORDER BY state""").fetchall())
         return {'totals':totals,'by_lesson':by_lesson,'by_type':by_type,'by_state':by_state}
@@ -162,7 +164,7 @@ def question_stats():
 @app.get('/api/questions/{question_id}/readiness',dependencies=[Depends(require_admin)])
 def question_readiness(question_id:int):
     with connect() as con:
-        row=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,q.approved,
+        row=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,q.accepted_answer,q.approved,
           EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
           EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid,
           EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
@@ -170,7 +172,7 @@ def question_readiness(question_id:int):
           FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
     if not row: raise HTTPException(404,'Question not found')
     source_ready=bool(row['document_id'] and row['page_number'] and row['source_page_exists'] and row['asset_valid'])
-    classified=bool(row['subject_id'] and row['grade_level_id'] and row['curriculum_version_id'] and row['term_id'] and row['unit_id'] and row['lesson_id'] and row['has_concept'] and row['has_skill'] and row['question_type']!='unknown' and row['difficulty']!='unclassified')
+    classified=bool(row['subject_id'] and row['grade_level_id'] and row['curriculum_version_id'] and row['term_id'] and row['unit_id'] and row['lesson_id'] and row['has_concept'] and row['has_skill'] and row['question_type']!='unknown' and row['difficulty']!='unclassified' and row['accepted_answer'] and str(row['accepted_answer']).strip())
     ready=source_ready and classified
     state='approved' if row['approved'] else ('reviewed' if ready else ('cropped' if row['asset_valid'] else 'draft'))
     return {**row,'ready_for_approval':ready,'workflow_state':state}
@@ -182,7 +184,7 @@ def patch_question(question_id:int,patch:QuestionPatch):
     if 'difficulty' in values and values['difficulty'] not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
         if values.get('approved') is True:
-            gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,
+            gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,q.accepted_answer,
               EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
               EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid,
               EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
@@ -197,6 +199,7 @@ def patch_question(question_id:int,patch:QuestionPatch):
             effective_lesson=values.get('lesson_id',gate['lesson_id'])
             effective_type=values.get('question_type',gate['question_type'])
             effective_difficulty=values.get('difficulty',gate['difficulty'])
+            effective_answer=values.get('accepted_answer',gate['accepted_answer'])
             missing=[]
             if not gate['document_id']: missing.append('document')
             if not gate['page_number']: missing.append('source_page')
@@ -212,6 +215,7 @@ def patch_question(question_id:int,patch:QuestionPatch):
             if not gate['has_skill']: missing.append('skill')
             if not effective_type or effective_type=='unknown': missing.append('question_type')
             if not effective_difficulty or effective_difficulty=='unclassified': missing.append('difficulty')
+            if not effective_answer or not str(effective_answer).strip(): missing.append('accepted_answer')
             if missing: raise HTTPException(409,{'message':'لا يمكن اعتماد السؤال قبل اكتمال المصدر والتصنيف','missing':missing})
         row=con.execute(f"UPDATE questions SET {', '.join(f'{k}=%s' for k in values)} WHERE id=%s RETURNING *",list(values.values())+[question_id]).fetchone()
         if not row:raise HTTPException(404,'Question not found')

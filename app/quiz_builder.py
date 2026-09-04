@@ -247,6 +247,23 @@ def generate_quiz(p:QuizGenerate):
                 'coverage':{'concepts':int(coverage['concepts'] or 0),'skills':int(coverage['skills'] or 0)},
                 'balanced_blueprint':bool(p.use_balanced_blueprint)}
 
+@app.patch('/api/quizzes/{quiz_id}/attempt-policy',dependencies=[Depends(require_admin)])
+def update_attempt_policy(quiz_id:int,p:AttemptPolicy):
+    if not 1<=p.max_attempts<=20: raise HTTPException(400,'عدد المحاولات من 1 إلى 20')
+    if not 0<=p.retry_wait_minutes<=10080: raise HTTPException(400,'فترة الانتظار غير صحيحة')
+    if p.score_policy not in ('highest','latest'): raise HTTPException(400,'سياسة الدرجة غير صحيحة')
+    with connect() as con:
+        old=con.execute("SELECT lifecycle_status,max_attempts,retry_wait_minutes,score_policy FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
+        if not old: raise HTTPException(404,'Quiz not found')
+        q=con.execute("""UPDATE quizzes SET max_attempts=%s,retry_wait_minutes=%s,score_policy=%s
+          WHERE id=%s RETURNING id,title,max_attempts,retry_wait_minutes,score_policy""",
+          (p.max_attempts,p.retry_wait_minutes,p.score_policy,quiz_id)).fetchone()
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,details)
+          VALUES(%s,'attempt_policy_update',%s,%s,%s::jsonb)""",
+          (quiz_id,old['lifecycle_status'],old['lifecycle_status'],
+           __import__('json').dumps({'max_attempts':p.max_attempts,'retry_wait_minutes':p.retry_wait_minutes,'score_policy':p.score_policy})))
+    return q
+
 @app.get('/api/quizzes/{quiz_id}/quality-check',dependencies=[Depends(require_admin)])
 def quiz_quality_check(quiz_id:int):
     with connect() as con:

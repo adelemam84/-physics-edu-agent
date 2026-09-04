@@ -126,8 +126,10 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
     notify={"queued":[],"guardian_count":0}
     try:
         notify=queue_attempt_notifications(attempt_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        # The student's result is already safely committed. Do not fail the submission
+        # because a downstream parent-notification queue has a temporary problem.
+        notify={"queued":[],"guardian_count":0,"queue_error":str(exc)[:500]}
     pct=round(float(score/max_score*100),1) if max_score else 0.0
     return {"attempt_id":attempt_id,"student_name":student["name"],"quiz_title":quiz["title"],
             "score":float(score),"max_score":float(max_score),"percentage":pct,

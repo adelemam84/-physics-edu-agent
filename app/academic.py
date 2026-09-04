@@ -55,6 +55,10 @@ def create_curriculum(p:CurriculumCreate):
     year=p.academic_year.strip()
     if not year: raise HTTPException(400,"السنة الدراسية مطلوبة")
     with connect() as con:
+        if not con.execute("SELECT 1 FROM subjects WHERE id=%s AND active=TRUE",(p.subject_id,)).fetchone():
+            raise HTTPException(400,"المادة غير موجودة أو غير مفعلة")
+        if not con.execute("SELECT 1 FROM grade_levels WHERE id=%s AND active=TRUE",(p.grade_level_id,)).fetchone():
+            raise HTTPException(400,"الصف غير موجود أو غير مفعل")
         return con.execute("""INSERT INTO curriculum_versions(subject_id,grade_level_id,academic_year,version_label)
           VALUES(%s,%s,%s,%s)
           ON CONFLICT(subject_id,grade_level_id,academic_year,version_label)
@@ -64,6 +68,9 @@ def create_curriculum(p:CurriculumCreate):
 def create_term(p:TermCreate):
     if p.term_number not in (1,2): raise HTTPException(400,"رقم الترم يجب أن يكون 1 أو 2")
     with connect() as con:
+        if not con.execute("SELECT 1 FROM curriculum_versions WHERE id=%s AND active=TRUE",(p.curriculum_version_id,)).fetchone():
+            raise HTTPException(400,"إصدار المنهج غير موجود أو غير مفعل")
+        if not p.name_ar.strip(): raise HTTPException(400,"اسم الترم مطلوب")
         return con.execute("""INSERT INTO academic_terms(curriculum_version_id,term_number,name_ar,sort_order)
           VALUES(%s,%s,%s,%s) ON CONFLICT(curriculum_version_id,term_number)
           DO UPDATE SET name_ar=excluded.name_ar,sort_order=excluded.sort_order RETURNING *""",
@@ -73,6 +80,9 @@ def create_term(p:TermCreate):
 def create_unit(p:UnitCreate):
     if not p.title.strip(): raise HTTPException(400,"اسم الوحدة مطلوب")
     with connect() as con:
+        if not con.execute("""SELECT 1 FROM academic_terms t JOIN curriculum_versions c ON c.id=t.curriculum_version_id
+          WHERE t.id=%s AND c.active=TRUE""",(p.term_id,)).fetchone():
+            raise HTTPException(400,"الترم غير موجود أو المنهج غير مفعل")
         return con.execute("INSERT INTO units(term_id,title,sort_order) VALUES(%s,%s,%s) RETURNING *",(p.term_id,p.title.strip(),p.sort_order)).fetchone()
 
 @app.post("/api/academic/lessons",dependencies=[Depends(require_admin)])

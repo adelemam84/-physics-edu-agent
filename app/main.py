@@ -392,9 +392,16 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:s
 @app.post('/api/documents/{document_id}/reextract-questions',dependencies=[Depends(require_admin)])
 def reextract_document_questions(document_id:int):
     with connect() as con:
-        doc=con.execute("""SELECT id,kind,subject_id,grade_level_id,curriculum_version_id,term_id
-          FROM documents WHERE id=%s""",(document_id,)).fetchone()
-        if not doc: raise HTTPException(404,"Document not found")
+        doc=con.execute("""SELECT d.id,d.kind,d.subject_id,d.grade_level_id,d.curriculum_version_id,d.term_id
+          FROM documents d
+          JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id AND cv.active=TRUE
+          JOIN academic_terms t ON t.id=d.term_id
+          WHERE d.id=%s AND cv.subject_id=d.subject_id AND cv.grade_level_id=d.grade_level_id
+            AND t.curriculum_version_id=d.curriculum_version_id""",(document_id,)).fetchone()
+        if not doc:
+            exists=con.execute("SELECT 1 FROM documents WHERE id=%s",(document_id,)).fetchone()
+            if not exists: raise HTTPException(404,"Document not found")
+            raise HTTPException(409,"سياق ملف المصدر غير متسق أكاديميًا؛ أصلح التصنيف قبل إعادة الاستخراج")
         if doc["kind"]!="questions": raise HTTPException(400,"هذا الملف ليس بنك أسئلة")
         missing=[k for k in ("subject_id","grade_level_id","curriculum_version_id","term_id") if not doc[k]]
         if missing: raise HTTPException(409,{"message":"اربط الملف بالمنهج أولًا","missing":missing})
@@ -415,15 +422,17 @@ def reextract_document_questions(document_id:int):
                     duplicates+=1
                     continue
                 con.execute("""INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,
-                  subject_id,grade_level_id,curriculum_version_id,term_id)
-                  VALUES(%s,%s,%s,%s,FALSE,%s,%s,%s,%s)""",
+                  subject_id,grade_level_id,curriculum_version_id,term_id,question_type,difficulty)
+                  VALUES(%s,%s,%s,%s,FALSE,%s,%s,%s,%s,'unknown','unclassified')""",
                   (document_id,p["page_number"],p["page_number"],candidate,
                    doc["subject_id"],doc["grade_level_id"],doc["curriculum_version_id"],doc["term_id"]))
                 added+=1
         status="review_required" if added or con.execute("SELECT 1 FROM questions WHERE document_id=%s LIMIT 1",(document_id,)).fetchone() else "extraction_review_required"
         con.execute("UPDATE documents SET status=%s WHERE id=%s",(status,document_id))
         return {"document_id":document_id,"added":added,"duplicates_skipped":duplicates,
-                "empty_pages":empty_pages,"status":status}
+                "empty_pages":empty_pages,"status":status,"approval_state":"review_required",
+                "source_context":{"subject_id":doc["subject_id"],"grade_level_id":doc["grade_level_id"],
+                  "curriculum_version_id":doc["curriculum_version_id"],"term_id":doc["term_id"]}}
 
 @app.get('/api/documents/{document_id}/page/{page}/preview',dependencies=[Depends(require_admin)])
 def page_preview(document_id:int,page:int):

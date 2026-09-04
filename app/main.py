@@ -317,6 +317,42 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:s
         return {'document_id':doc_id,'candidate_questions_added':added,'status':status,'page_count':page_count,'sha256':digest,
                 'academic_context':{'subject_id':subject_id,'grade_level_id':grade_level_id,'curriculum_version_id':curriculum_version_id,'term_id':term_id,'unit_id':unit_id,'lesson_id':lesson_id}}
     finally:path.unlink(missing_ok=True)
+@app.post('/api/documents/{document_id}/reextract-questions',dependencies=[Depends(require_admin)])
+def reextract_document_questions(document_id:int):
+    with connect() as con:
+        doc=con.execute("""SELECT id,kind,subject_id,grade_level_id,curriculum_version_id,term_id
+          FROM documents WHERE id=%s""",(document_id,)).fetchone()
+        if not doc: raise HTTPException(404,"Document not found")
+        if doc["kind"]!="questions": raise HTTPException(400,"هذا الملف ليس بنك أسئلة")
+        missing=[k for k in ("subject_id","grade_level_id","curriculum_version_id","term_id") if not doc[k]]
+        if missing: raise HTTPException(409,{"message":"اربط الملف بالمنهج أولًا","missing":missing})
+        pages=list(con.execute("""SELECT page_number,extracted_text FROM document_pages
+          WHERE document_id=%s ORDER BY page_number""",(document_id,)).fetchall())
+        if not pages: raise HTTPException(409,"لا توجد صفحات مفهرسة لهذا الملف")
+        added=0;duplicates=0;empty_pages=0
+        for p in pages:
+            text=p["extracted_text"] or ""
+            if not text.strip():
+                empty_pages+=1
+                continue
+            for candidate in detect_verbatim_question_candidates(text):
+                dup=con.execute("""SELECT 1 FROM questions WHERE document_id=%s
+                  AND coalesce(source_page,page)=%s AND text_verbatim=%s LIMIT 1""",
+                  (document_id,p["page_number"],candidate)).fetchone()
+                if dup:
+                    duplicates+=1
+                    continue
+                con.execute("""INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,
+                  subject_id,grade_level_id,curriculum_version_id,term_id)
+                  VALUES(%s,%s,%s,%s,FALSE,%s,%s,%s,%s)""",
+                  (document_id,p["page_number"],p["page_number"],candidate,
+                   doc["subject_id"],doc["grade_level_id"],doc["curriculum_version_id"],doc["term_id"]))
+                added+=1
+        status="review_required" if added or con.execute("SELECT 1 FROM questions WHERE document_id=%s LIMIT 1",(document_id,)).fetchone() else "extraction_review_required"
+        con.execute("UPDATE documents SET status=%s WHERE id=%s",(status,document_id))
+        return {"document_id":document_id,"added":added,"duplicates_skipped":duplicates,
+                "empty_pages":empty_pages,"status":status}
+
 @app.get('/api/documents/{document_id}/page/{page}/preview',dependencies=[Depends(require_admin)])
 def page_preview(document_id:int,page:int):
     with connect() as con:row=con.execute('SELECT p.preview_object_key,f.object_key FROM document_pages p JOIN document_files f ON f.document_id=p.document_id WHERE p.document_id=%s AND p.page_number=%s',(document_id,page)).fetchone()

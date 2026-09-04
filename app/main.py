@@ -7,7 +7,7 @@ from tempfile import NamedTemporaryFile
 
 import fitz
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from psycopg.errors import UniqueViolation
 
@@ -307,5 +307,5 @@ async function saveManual(){if(!selectedDoc||!pages.length)return;let text=manua
 async function loadQuestions(){qs=await fetch('/api/questions?limit=500',{headers:h()}).then(r=>r.json());list.innerHTML=qs.length?qs.map(q=>`<div class=q onclick="pickQ(${q.id})">#${q.id} · ${q.source_filename} · صفحة ${q.source_page||q.page}<br>${q.text_verbatim.slice(0,140)}</div>`).join(''):'لا توجد أسئلة مرشحة حاليًا'}function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}function pickQ(id){sel=qs.find(x=>x.id==id);let p=sel.source_page||sel.page;review.innerHTML=`<h3>${sel.source_filename} — صفحة ${p}</h3><img id=qimg class=preview><div id=qimgMsg class=muted></div><pre class=raw>${esc(sel.text_verbatim)}</pre><input id=ans placeholder="الإجابة المعتمدة" value="${esc(sel.accepted_answer||'')}"><button onclick="patchQ(true)">اعتماد</button><button onclick="patchQ(false)">إلغاء الاعتماد</button><button onclick=openPdf()>فتح PDF</button>`;authBlob(`/api/documents/${sel.document_id}/page/${p}/preview`).then(u=>{qimg.src=u;qimg.dataset.blob=u}).catch(e=>qimgMsg.textContent='تعذر عرض الصفحة: '+e.message)}async function patchQ(v){await fetch('/api/questions/'+sel.id,{method:'PATCH',headers:{...h(),'Content-Type':'application/json'},body:JSON.stringify({approved:v,accepted_answer:ans.value||null})});loadQuestions()}async function openPdf(){let r=await fetch(`/api/documents/${sel.document_id}/pdf-url`,{headers:h()}),x=await r.json();if(r.ok)window.open(x.url,'_blank')}async function upload(){let f=pdf.files[0];if(!f){msg.textContent='اختر ملف PDF أولًا';return}if(!upSubject.value||!upGrade.value||!upCurriculum.value||!upTerm.value){msg.textContent='اختر المادة والصف والمنهج والترم قبل الرفع';return}uploadBtn.disabled=true;try{let d=new FormData();d.append('file',f);d.append('kind',upKind.value);d.append('subject_id',upSubject.value);d.append('grade_level_id',upGrade.value);d.append('curriculum_version_id',upCurriculum.value);d.append('term_id',upTerm.value);if(upUnit.value)d.append('unit_id',upUnit.value);if(upLesson.value)d.append('lesson_id',upLesson.value);let sn=upSubject.options[upSubject.selectedIndex].text;d.append('subject',sn);let r=await fetch('/api/documents/upload',{method:'POST',headers:h(),body:d}),x=await r.json();msg.textContent=r.ok?`تم الرفع: ${x.candidate_questions_added} سؤال مرشح`:(x.detail||'خطأ');if(r.ok){selectedDoc=x.document_id;await loadAll()}}finally{uploadBtn.disabled=false}}loadAcademic();loadAll();</script></html>'''
 @app.get('/',response_class=HTMLResponse)
 def dashboard():return DASH
-@app.get('/admin',response_class=HTMLResponse)
-def admin():return ADMIN
+@app.get('/admin')
+def admin(): return RedirectResponse('/admin/dashboard',status_code=307)

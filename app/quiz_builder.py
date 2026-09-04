@@ -241,6 +241,8 @@ def generate_quiz(p:QuizGenerate):
         coverage=con.execute("""SELECT count(DISTINCT qc.concept_id) concepts,count(DISTINCT qs.skill_id) skills
           FROM quiz_questions qq LEFT JOIN question_concepts qc ON qc.question_id=qq.question_id
           LEFT JOIN question_skills qs ON qs.question_id=qq.question_id WHERE qq.quiz_id=%s""",(quiz['id'],)).fetchone()
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,details)
+          VALUES(%s,'create',NULL,'draft',%s::jsonb)""",(quiz['id'],'{"source":"quiz_builder"}'))
         return {**quiz,'question_count':len(rows),'question_ids':[r['id'] for r in rows],
                 'coverage':{'concepts':int(coverage['concepts'] or 0),'skills':int(coverage['skills'] or 0)},
                 'balanced_blueprint':bool(p.use_balanced_blueprint)}
@@ -294,16 +296,55 @@ def publish_quiz(quiz_id:int):
         for x in failed:x['suggestion']=suggestions.get(x['id'],'حسّن هذا المعيار ثم أعد فحص الجودة.')
         raise HTTPException(409,{'message':'تم منع النشر لأن الاختبار لم يجتز بوابة الجودة','score':quality.get('score',0),'failed':failed})
     with connect() as con:
-        q=con.execute("UPDATE quizzes SET published=TRUE WHERE id=%s RETURNING id,title,published",(quiz_id,)).fetchone()
+        old=con.execute("SELECT lifecycle_status FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
+        q=con.execute("""UPDATE quizzes SET published=TRUE,lifecycle_status='published',quality_score=%s,
+          ready_at=COALESCE(ready_at,now()),published_at=now(),archived_at=NULL WHERE id=%s RETURNING id,title,published,lifecycle_status""",(quality['score'],quiz_id)).fetchone()
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
+          VALUES(%s,'publish',%s,'published',%s,%s::jsonb)""",(quiz_id,old['lifecycle_status'] if old else None,quality['score'],'{"publication_gate":"passed"}'))
         if not q: raise HTTPException(404,'Quiz not found')
     return {**q,'quality_score':quality['score'],'publication_gate':'passed'}
 
 @app.post('/api/quizzes/{quiz_id}/unpublish',dependencies=[Depends(require_admin)])
 def unpublish_quiz(quiz_id:int):
     with connect() as con:
-        q=con.execute("UPDATE quizzes SET published=FALSE WHERE id=%s RETURNING id,title,published",(quiz_id,)).fetchone()
+        old=con.execute("SELECT lifecycle_status FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
+        q=con.execute("UPDATE quizzes SET published=FALSE,lifecycle_status='ready' WHERE id=%s RETURNING id,title,published,lifecycle_status",(quiz_id,)).fetchone()
+        if q: con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score)
+          SELECT %s,'unpublish',%s,'ready',quality_score FROM quizzes WHERE id=%s""",(quiz_id,old['lifecycle_status'] if old else None,quiz_id))
         if not q: raise HTTPException(404,'Quiz not found')
     return q
+
+@app.post('/api/quizzes/{quiz_id}/review',dependencies=[Depends(require_admin)])
+def review_quiz(quiz_id:int):
+    quality=quiz_quality_check(quiz_id)
+    target='ready' if quality.get('ready') else 'quality_review'
+    with connect() as con:
+        old=con.execute("SELECT lifecycle_status FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
+        if not old: raise HTTPException(404,'Quiz not found')
+        q=con.execute("""UPDATE quizzes SET lifecycle_status=%s,quality_score=%s,
+          ready_at=CASE WHEN %s='ready' THEN COALESCE(ready_at,now()) ELSE NULL END
+          WHERE id=%s RETURNING id,title,lifecycle_status,quality_score""",(target,quality.get('score'),target,quiz_id)).fetchone()
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
+          VALUES(%s,'quality_review',%s,%s,%s,%s::jsonb)""",(quiz_id,old['lifecycle_status'],target,quality.get('score'),'{"automatic":true}'))
+    return {**q,'quality':quality}
+
+@app.post('/api/quizzes/{quiz_id}/archive',dependencies=[Depends(require_admin)])
+def archive_quiz(quiz_id:int):
+    with connect() as con:
+        old=con.execute("SELECT lifecycle_status FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
+        if not old: raise HTTPException(404,'Quiz not found')
+        q=con.execute("""UPDATE quizzes SET published=FALSE,lifecycle_status='archived',archived_at=now()
+          WHERE id=%s RETURNING id,title,published,lifecycle_status,archived_at""",(quiz_id,)).fetchone()
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score)
+          SELECT %s,'archive',%s,'archived',quality_score FROM quizzes WHERE id=%s""",(quiz_id,old['lifecycle_status'],quiz_id))
+    return q
+
+@app.get('/api/quizzes/{quiz_id}/audit',dependencies=[Depends(require_admin)])
+def quiz_audit(quiz_id:int):
+    with connect() as con:
+        if not con.execute("SELECT 1 FROM quizzes WHERE id=%s",(quiz_id,)).fetchone(): raise HTTPException(404,'Quiz not found')
+        return list(con.execute("""SELECT id,action,from_status,to_status,quality_score,actor,details,created_at
+          FROM quiz_audit_log WHERE quiz_id=%s ORDER BY created_at DESC,id DESC""",(quiz_id,)).fetchall())
 
 @app.get('/api/quizzes/{quiz_id}',dependencies=[Depends(require_admin)])
 def quiz_detail(quiz_id:int):

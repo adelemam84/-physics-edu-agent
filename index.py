@@ -24,3 +24,4 @@ from app import whatsapp_webhook  # noqa: F401,E402
 from app import whatsapp_monitor  # noqa: F401,E402
 from app import alert_center  # noqa: F401,E402
 from app import question_bank_quality  # noqa: F401,E402
+from app import question_bank_balance  # noqa: F401,E402

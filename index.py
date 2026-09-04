@@ -21,3 +21,4 @@ from app import admin_auth  # noqa: F401,E402
 from app import system_diagnostics  # noqa: F401,E402
 from app import document_recovery  # noqa: F401,E402
 from app import whatsapp_webhook  # noqa: F401,E402
+from app import whatsapp_monitor  # noqa: F401,E402

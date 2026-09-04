@@ -71,6 +71,16 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
               WHERE qq.quiz_id=%s AND x.approved=TRUE ORDER BY qq.position""",(quiz_id,)).fetchall())
         if not rows: raise HTTPException(409,"الاختبار لا يحتوي على أسئلة جاهزة")
         allowed={r["question_id"]:r for r in rows}
+        submitted_ids=[a.question_id for a in p.answers]
+        if len(submitted_ids)!=len(set(submitted_ids)):
+            raise HTTPException(400,"لا يمكن إرسال إجابتين لنفس السؤال")
+        extra=[qid for qid in submitted_ids if qid not in allowed]
+        if extra:
+            raise HTTPException(400,"تم إرسال إجابة لسؤال غير موجود في الاختبار")
+        recent=con.execute("""SELECT id FROM attempts WHERE student_id=%s AND quiz_id=%s
+          AND submitted_at>=now()-interval '10 seconds' ORDER BY id DESC LIMIT 1""",(student["id"],quiz_id)).fetchone()
+        if recent:
+            raise HTTPException(409,"تم استلام محاولة لهذا الاختبار منذ لحظات. انتظر قليلًا قبل إعادة الإرسال.")
         submitted={a.question_id:a.answer for a in p.answers}
         max_score=sum((Decimal(str(r["points"])) for r in rows),Decimal("0"))
         attempt=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,completed_at,submitted_at)
@@ -97,9 +107,9 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
             "adaptive_recommended": pct < 85,
             "parent_notifications":notify}
 
-STUDENT = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبار الفيزياء</title><style>
+STUDENT = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبار العلوم</title><style>
 body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:900px;margin:auto;padding:18px}.box,.q{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.asset{max-width:100%;border-radius:10px}.row{display:flex;gap:8px;flex-wrap:wrap}input,button{padding:11px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}input.answer{width:100%;box-sizing:border-box}.muted{color:#667085}.result{font-size:22px;font-weight:700}</style><main>
-<div class=box><h1 id=title>اختبار الفيزياء</h1><div class=row><input id=code placeholder="كود الطالب"><button onclick=submitQuiz()>إنهاء الاختبار وإظهار النتيجة</button></div><div id=msg class=muted></div></div><div id=items></div><div id=result class=box style="display:none"></div>
+<div class=box><h1 id=title>اختبار العلوم</h1><div class=row><input id=code placeholder="كود الطالب"><button onclick=submitQuiz()>إنهاء الاختبار وإظهار النتيجة</button></div><div id=msg class=muted></div></div><div id=items></div><div id=result class=box style="display:none"></div>
 <script>
 const quizId=Number(location.pathname.split('/').pop());let data=null;
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}

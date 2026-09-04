@@ -20,3 +20,11 @@ This file records non-blocking or deferred issues discovered during implementati
 - Scientific lesson content and questions must remain grounded in user-provided/approved source PDFs.
 - Do not silently substitute model knowledge when source material is missing.
 - Record newly discovered non-blocking problems here and continue implementation when safe.
+
+
+### EDU-002 — Duplicate lesson-source schema/workflow discovered
+- Status: deferred / compatibility hardening
+- Observed: repository already contains `app/lesson_sources.py` built around a legacy table named `lesson_source_ranges`, while the new production migration adds `lesson_source_mappings`.
+- Risk: registering or using the legacy module unchanged would target a different schema and can fail or create two competing workflows.
+- Immediate decision: do not register the legacy module yet; keep the new table isolated until the workflow is consolidated.
+- Later treatment: migrate/replace the legacy module to `lesson_source_mappings`, then remove or compatibility-map `lesson_source_ranges` only after checking production data and references.

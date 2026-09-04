@@ -228,10 +228,22 @@ def create_manual_question(document_id:int,payload:ManualQuestionCreate):
         if dup:raise HTTPException(409,f"هذا السؤال مسجل بالفعل برقم {dup['id']}")
         row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.subject_id,payload.grade_level_id,payload.curriculum_version_id,payload.term_id,payload.unit_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
 @app.post('/api/documents/upload',dependencies=[Depends(require_admin)])
-async def upload_document(file:UploadFile=File(...),subject:str=Form('physics'),kind:str=Form('questions')):
+async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:str=Form('questions'),
+    subject_id:int=Form(...),grade_level_id:int=Form(...),curriculum_version_id:int=Form(...),term_id:int=Form(...),
+    unit_id:int|None=Form(None),lesson_id:int|None=Form(None)):
     if not storage_configured():raise HTTPException(503,'Object storage is not configured')
     if not file.filename or not file.filename.lower().endswith('.pdf'):raise HTTPException(400,'Only PDF files are accepted')
     if kind not in {'questions','answers','reference'}:raise HTTPException(400,'Invalid document kind')
+    with connect() as con:
+        sub=con.execute("SELECT id,name_ar FROM subjects WHERE id=%s AND active=TRUE",(subject_id,)).fetchone()
+        grade=con.execute("SELECT id,name_ar FROM grade_levels WHERE id=%s AND active=TRUE",(grade_level_id,)).fetchone()
+        curriculum=con.execute("SELECT id,name FROM curriculum_versions WHERE id=%s AND active=TRUE",(curriculum_version_id,)).fetchone()
+        term=con.execute("SELECT id,name_ar FROM academic_terms WHERE id=%s",(term_id,)).fetchone()
+        if not all((sub,grade,curriculum,term)): raise HTTPException(400,'Academic classification is incomplete or invalid')
+        if unit_id and not con.execute("SELECT 1 FROM units WHERE id=%s AND subject_id=%s AND grade_level_id=%s AND curriculum_version_id=%s AND term_id=%s",(unit_id,subject_id,grade_level_id,curriculum_version_id,term_id)).fetchone():
+            raise HTTPException(400,'Unit does not match selected academic context')
+        if lesson_id and not con.execute("SELECT 1 FROM lessons WHERE id=%s AND subject_id=%s AND grade_level_id=%s AND curriculum_version_id=%s AND term_id=%s",(lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id)).fetchone():
+            raise HTTPException(400,'Lesson does not match selected academic context')
     raw=await file.read()
     if not raw or len(raw)>75*1024*1024:raise HTTPException(413,'Invalid PDF size')
     try:pdf=fitz.open(stream=raw,filetype='pdf');page_count=pdf.page_count;pdf.close()
@@ -253,9 +265,10 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form('physics'),
         with connect() as con:
             for page_no,text in page_rows:
                 th=hashlib.sha256(text.encode()).hexdigest() if text else None;con.execute('INSERT INTO document_pages(document_id,page_number,extracted_text,text_sha256,preview_object_key) VALUES (%s,%s,%s,%s,NULL)',(doc_id,page_no,text,th));cands=detect_verbatim_question_candidates(text) if kind=='questions' else []
-                for c in cands:con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved) VALUES (%s,%s,%s,%s,FALSE)',(doc_id,page_no,page_no,c));added+=1
+                for c in cands:con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,lesson_id) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s)',(doc_id,page_no,page_no,c,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,lesson_id));added+=1
             status='review_required' if added else ('extraction_review_required' if kind=='questions' else 'uploaded');con.execute('UPDATE documents SET status=%s WHERE id=%s',(status,doc_id))
-        return {'document_id':doc_id,'candidate_questions_added':added,'status':status,'page_count':page_count,'sha256':digest}
+        return {'document_id':doc_id,'candidate_questions_added':added,'status':status,'page_count':page_count,'sha256':digest,
+                'academic_context':{'subject_id':subject_id,'grade_level_id':grade_level_id,'curriculum_version_id':curriculum_version_id,'term_id':term_id,'unit_id':unit_id,'lesson_id':lesson_id}}
     finally:path.unlink(missing_ok=True)
 @app.get('/api/documents/{document_id}/page/{page}/preview',dependencies=[Depends(require_admin)])
 def page_preview(document_id:int,page:int):

@@ -38,6 +38,8 @@ def system_readiness():
       "result_template":bool(os.getenv("WHATSAPP_RESULT_TEMPLATE","").strip()),
       "low_template":bool(os.getenv("WHATSAPP_LOW_SCORE_TEMPLATE","").strip()),
       "weekly_template":bool(os.getenv("WHATSAPP_WEEKLY_TEMPLATE","").strip()),
+      "webhook_verify_token":bool(os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN","").strip()),
+      "meta_app_secret":bool(os.getenv("META_APP_SECRET","").strip()),
     }
     wa_ready=all(wa.values())
     checks=[
@@ -52,7 +54,7 @@ def system_readiness():
       {"name":"بيانات الطلاب","ok":db["students"]>0,"detail":f'{db["students"]} طالب'},
       {"name":"أولياء الأمور","ok":db["guardians_opted_in"]>0,"detail":f'{db["guardians_opted_in"]} موافقة واتساب'},
       {"name":"WhatsApp Cloud API","ok":wa_ready,
-       "detail":"مكتمل" if wa_ready else "ناقص Token/Phone ID/Graph Version أو أسماء القوالب"},
+       "detail":"مكتمل" if wa_ready else "ناقص إعداد من إعدادات الاتصال/القوالب/Webhook"},
     ]
     actions=[]
     if db["curricula"]==0: actions.append({"title":"إنشاء المناهج والترمين","path":"/admin/academic","owner":"user"})

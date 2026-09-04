@@ -30,7 +30,7 @@ def student_lesson(lesson_id:int,student_code:str):
         source_pages=list(con.execute("""SELECT DISTINCT d.id document_id,d.filename,dp.page_number,dp.extracted_text
           FROM questions q JOIN documents d ON d.id=q.document_id
           JOIN document_pages dp ON dp.document_id=q.document_id AND dp.page_number=coalesce(q.source_page,q.page)
-          WHERE q.lesson_id=%s AND q.approved=TRUE AND d.status IN ('processed','ready','approved')
+          WHERE q.lesson_id=%s AND q.approved=TRUE AND d.kind IN ('lesson','explanation','textbook','notes') AND d.status IN ('processed','ready','approved')
             AND dp.extracted_text IS NOT NULL AND btrim(dp.extracted_text)<>''
           ORDER BY d.filename,dp.page_number LIMIT 20""",(lesson_id,)).fetchall())
         questions=list(con.execute("""SELECT q.id,q.text_verbatim,q.question_type,q.difficulty,
@@ -47,7 +47,7 @@ def student_lesson(lesson_id:int,student_code:str):
           WHERE a.student_id=%s AND a.completed_at IS NOT NULL AND q.lesson_id=%s""",(st["id"],lesson_id)).fetchone()
     mastery=round(100*int(prior["correct"] or 0)/int(prior["responses"]),1) if int(prior["responses"] or 0) else None
     return {"student":st,"lesson":lesson,"concepts":concepts,"source_pages":source_pages,"diagnostic_questions":questions,
-      "prior_mastery":mastery,"source_policy":"approved_source_questions_only",
+      "prior_mastery":mastery,"source_policy":"approved_lesson_sources_and_approved_source_questions_only",
       "content_note":"محتوى القراءة أدناه من نص صفحات PDF المصدرية المرتبطة بأسئلة هذا الدرس والمعتمدة في النظام؛ لا تتم إضافة معلومات علمية من خارج المصدر."}
 
 @app.post("/api/student/lessons/{lesson_id}/diagnostic")

@@ -419,7 +419,7 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:s
     unit_id:int|None=Form(None),lesson_id:int|None=Form(None)):
     if not storage_configured():raise HTTPException(503,'Object storage is not configured')
     if not file.filename or not file.filename.lower().endswith('.pdf'):raise HTTPException(400,'Only PDF files are accepted')
-    if kind not in {'questions','answers','reference'}:raise HTTPException(400,'Invalid document kind')
+    if kind not in {'questions','answers','reference','lesson','explanation','textbook','notes'}:raise HTTPException(400,'Invalid document kind')
     with connect() as con:
         sub=con.execute("SELECT id,name_ar FROM subjects WHERE id=%s AND active=TRUE",(subject_id,)).fetchone()
         grade=con.execute("SELECT id,name_ar FROM grade_levels WHERE id=%s AND active=TRUE",(grade_level_id,)).fetchone()
@@ -459,7 +459,7 @@ async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:s
             for page_no,text in page_rows:
                 th=hashlib.sha256(text.encode()).hexdigest() if text else None;con.execute('INSERT INTO document_pages(document_id,page_number,extracted_text,text_sha256,preview_object_key) VALUES (%s,%s,%s,%s,NULL)',(doc_id,page_no,text,th));cands=detect_verbatim_question_candidates(text) if kind=='questions' else []
                 for c in cands:con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,lesson_id) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s)',(doc_id,page_no,page_no,c,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,lesson_id));added+=1
-            status='review_required' if added else ('extraction_review_required' if kind=='questions' else 'uploaded');con.execute('UPDATE documents SET status=%s WHERE id=%s',(status,doc_id))
+            status='review_required' if added else ('extraction_review_required' if kind=='questions' else ('source_review_required' if kind in {'lesson','explanation','textbook','notes'} else 'uploaded'));con.execute('UPDATE documents SET status=%s WHERE id=%s',(status,doc_id))
         return {'document_id':doc_id,'candidate_questions_added':added,'status':status,'page_count':page_count,'sha256':digest,
                 'academic_context':{'subject_id':subject_id,'grade_level_id':grade_level_id,'curriculum_version_id':curriculum_version_id,'term_id':term_id,'unit_id':unit_id,'lesson_id':lesson_id}}
     finally:path.unlink(missing_ok=True)

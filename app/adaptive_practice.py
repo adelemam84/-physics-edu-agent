@@ -108,11 +108,14 @@ def create_student_adaptive_quiz(student_code:str,count:int=10):
                     "student_path":f'/student/quiz/{recent["id"]}',"policy":data.get("policy"),"reused":True}
         first=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id
           FROM questions WHERE id=%s""",(questions[0]["id"],)).fetchone()
-        quiz=con.execute("""INSERT INTO quizzes(title,published,subject_id,grade_level_id,curriculum_version_id,term_id)
-          VALUES(%s,TRUE,%s,%s,%s,%s) RETURNING id,title,published""",
+        quiz=con.execute("""INSERT INTO quizzes(title,published,lifecycle_status,quality_score,subject_id,grade_level_id,curriculum_version_id,term_id,max_attempts,retry_wait_minutes,score_policy,published_at)
+          VALUES(%s,TRUE,'published',100,%s,%s,%s,%s,1,0,'latest',now()) RETURNING id,title,published,lifecycle_status""",
           (title,first["subject_id"],first["grade_level_id"],first["curriculum_version_id"],first["term_id"])).fetchone()
         for i,q in enumerate(questions,1):
             con.execute("INSERT INTO quiz_questions(quiz_id,question_id,position) VALUES(%s,%s,%s)",
                         (quiz["id"],q["id"],i))
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
+          VALUES(%s,'adaptive_publish',NULL,'published',100,%s::jsonb)""",
+          (quiz["id"],'{"system_generated":true,"purpose":"adaptive_practice","source_policy":"approved_source_questions_only"}'))
     return {"quiz_id":quiz["id"],"title":quiz["title"],"question_count":len(questions),
             "student_path":f'/student/quiz/{quiz["id"]}',"policy":data.get("policy"),"reused":False}

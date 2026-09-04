@@ -27,6 +27,12 @@ def student_lesson(lesson_id:int,student_code:str):
           WHERE l.id=%s""",(lesson_id,)).fetchone()
         if not lesson: raise HTTPException(404,"الدرس غير موجود")
         concepts=list(con.execute("""SELECT id,title FROM concepts WHERE lesson_id=%s ORDER BY sort_order,id""",(lesson_id,)).fetchall())
+        source_pages=list(con.execute("""SELECT DISTINCT d.id document_id,d.filename,dp.page_number,dp.extracted_text
+          FROM questions q JOIN documents d ON d.id=q.document_id
+          JOIN document_pages dp ON dp.document_id=q.document_id AND dp.page_number=coalesce(q.source_page,q.page)
+          WHERE q.lesson_id=%s AND q.approved=TRUE AND d.status IN ('processed','ready','approved')
+            AND dp.extracted_text IS NOT NULL AND btrim(dp.extracted_text)<>''
+          ORDER BY d.filename,dp.page_number LIMIT 20""",(lesson_id,)).fetchall())
         questions=list(con.execute("""SELECT q.id,q.text_verbatim,q.question_type,q.difficulty,
           EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) has_asset
           FROM questions q WHERE q.lesson_id=%s AND q.approved=TRUE
@@ -40,9 +46,9 @@ def student_lesson(lesson_id:int,student_code:str):
           FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id JOIN questions q ON q.id=aa.question_id
           WHERE a.student_id=%s AND a.completed_at IS NOT NULL AND q.lesson_id=%s""",(st["id"],lesson_id)).fetchone()
     mastery=round(100*int(prior["correct"] or 0)/int(prior["responses"]),1) if int(prior["responses"] or 0) else None
-    return {"student":st,"lesson":lesson,"concepts":concepts,"diagnostic_questions":questions,
+    return {"student":st,"lesson":lesson,"concepts":concepts,"source_pages":source_pages,"diagnostic_questions":questions,
       "prior_mastery":mastery,"source_policy":"approved_source_questions_only",
-      "content_note":"لا يتم إنشاء شرح علمي من خارج المصادر. تعرض الصفحة بنية الدرس والمفاهيم والأسئلة المعتمدة من بنك المصادر فقط."}
+      "content_note":"محتوى القراءة أدناه من نص صفحات PDF المصدرية المرتبطة بأسئلة هذا الدرس والمعتمدة في النظام؛ لا تتم إضافة معلومات علمية من خارج المصدر."}
 
 @app.post("/api/student/lessons/{lesson_id}/diagnostic")
 def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit):
@@ -76,7 +82,7 @@ body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-wi
 <script>
 const lessonId=Number(location.pathname.split('/').pop());let data=null;let code=sessionStorage.getItem('student_code')||'';
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-async function load(){if(!code){code=prompt('أدخل كود الطالب')||'';if(!code)return}let r=await fetch('/api/student/lessons/'+lessonId+'?student_code='+encodeURIComponent(code)),x=await r.json();if(!r.ok){body.innerHTML='<div class=box>'+esc(x.detail||'تعذر تحميل الدرس')+'</div>';return}data=x;sessionStorage.setItem('student_code',code);title.textContent=x.lesson.title;meta.textContent=(x.lesson.subject_name||'')+' · '+(x.lesson.grade_name||'')+' · '+(x.lesson.unit_title||'');body.innerHTML='<div class=box><h2>مفاهيم الدرس من الهيكل المعتمد</h2><div class=grid>'+x.concepts.map(c=>'<div class=card>'+esc(c.title)+'</div>').join('')+'</div><p class=muted>'+esc(x.content_note)+'</p></div><div class=box><h2>اختبار تمهيدي من الأسئلة المعتمدة</h2>'+(x.prior_mastery==null?'':'<p class=muted>إتقانك السابق في هذا الدرس: '+x.prior_mastery+'%</p>')+x.diagnostic_questions.map((q,i)=>'<div class=q><b>سؤال '+(i+1)+'</b>'+(q.has_asset?'<div><img class=asset src="/api/practice/questions/'+q.id+'/asset"></div>':'')+'<div>'+esc(q.text_verbatim)+'</div><input class=answer id="a_'+q.id+'" placeholder="اكتب الإجابة"></div>').join('')+(x.diagnostic_questions.length?'<button onclick="submitDiag()">تصحيح الاختبار التمهيدي</button>':'<p class=muted>لا توجد أسئلة معتمدة كافية لهذا الدرس بعد.</p>')+'<div id=res></div></div>'}
+async function load(){if(!code){code=prompt('أدخل كود الطالب')||'';if(!code)return}let r=await fetch('/api/student/lessons/'+lessonId+'?student_code='+encodeURIComponent(code)),x=await r.json();if(!r.ok){body.innerHTML='<div class=box>'+esc(x.detail||'تعذر تحميل الدرس')+'</div>';return}data=x;sessionStorage.setItem('student_code',code);title.textContent=x.lesson.title;meta.textContent=(x.lesson.subject_name||'')+' · '+(x.lesson.grade_name||'')+' · '+(x.lesson.unit_title||'');body.innerHTML='<div class=box><h2>مفاهيم الدرس من الهيكل المعتمد</h2><div class=grid>'+x.concepts.map(c=>'<div class=card>'+esc(c.title)+'</div>').join('')+'</div><p class=muted>'+esc(x.content_note)+'</p></div><div class=box><h2>محتوى الدرس من المصدر</h2>'+(x.source_pages.length?x.source_pages.map(p=>'<div class=card><div class=muted>'+esc(p.filename)+' · صفحة '+p.page_number+'</div><div style="white-space:pre-wrap;line-height:1.9">'+esc(p.extracted_text)+'</div></div>').join(''):'<p class=muted>لم يتم ربط صفحات شرح مصدرية بهذا الدرس حتى الآن. لن يعرض النظام شرحًا مولدًا بدلًا منها.</p>')+'</div><div class=box><h2>اختبار تمهيدي من الأسئلة المعتمدة</h2>'+(x.prior_mastery==null?'':'<p class=muted>إتقانك السابق في هذا الدرس: '+x.prior_mastery+'%</p>')+x.diagnostic_questions.map((q,i)=>'<div class=q><b>سؤال '+(i+1)+'</b>'+(q.has_asset?'<div><img class=asset src="/api/practice/questions/'+q.id+'/asset"></div>':'')+'<div>'+esc(q.text_verbatim)+'</div><input class=answer id="a_'+q.id+'" placeholder="اكتب الإجابة"></div>').join('')+(x.diagnostic_questions.length?'<button onclick="submitDiag()">تصحيح الاختبار التمهيدي</button>':'<p class=muted>لا توجد أسئلة معتمدة كافية لهذا الدرس بعد.</p>')+'<div id=res></div></div>'}
 async function submitDiag(){let answers=data.diagnostic_questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/lessons/'+lessonId+'/diagnostic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code,answers})}),x=await r.json();if(!r.ok){res.textContent=x.detail||'تعذر التصحيح';return}res.innerHTML='<div class="card '+(x.percentage>=80?'good':'bad')+'"><b>النتيجة '+x.percentage+'%</b><div>'+(x.percentage>=80?'أداء قوي في الاختبار التمهيدي.':'تحتاج مراجعة وتدريب على مفاهيم الدرس قبل الانتقال الكامل.')+'</div></div>'}
 load()
 </script></main></html>'''

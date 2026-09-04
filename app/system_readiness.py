@@ -56,7 +56,7 @@ def system_readiness():
     ]
     actions=[]
     if db["curricula"]==0: actions.append({"title":"إنشاء المناهج والترمين","path":"/admin/academic","owner":"user"})
-    if db["documents"]==0: actions.append({"title":"رفع ملفات PDF الأصلية","path":"/admin/workflow","owner":"user"})
+    if db["documents"]==0: actions.append({"title":"رفع ملفات PDF الأصلية","path":"/admin/document-recovery","owner":"user"})
     elif db["unassigned_documents"]>0: actions.append({"title":f'إعادة تصنيف {db["unassigned_documents"]} ملف PDF قديم داخل المنهج الصحيح',"path":"/admin/workflow","owner":"user"})
     if db["approved_questions"]==0: actions.append({"title":"استخراج ومراجعة واعتماد الأسئلة","path":"/admin/workflow","owner":"admin"})
     if db["students"]==0: actions.append({"title":"إضافة الطلاب وأكواد الدخول","path":"/admin/students","owner":"user"})

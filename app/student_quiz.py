@@ -39,10 +39,18 @@ def publish_quiz(quiz_id: int, published: bool = True):
         if not q: raise HTTPException(404,"Quiz not found")
         if published:
             bad = con.execute("""SELECT count(*) n FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
-                                 WHERE qq.quiz_id=%s AND (x.approved=FALSE OR x.accepted_answer IS NULL OR btrim(x.accepted_answer)='')""",(quiz_id,)).fetchone()["n"]
+                                 WHERE qq.quiz_id=%s AND (
+                                   x.approved=FALSE OR x.accepted_answer IS NULL OR btrim(x.accepted_answer)=''
+                                   OR x.lesson_id IS NULL OR x.subject_id IS NULL OR x.grade_level_id IS NULL
+                                   OR x.curriculum_version_id IS NULL OR x.term_id IS NULL
+                                   OR x.question_type='unknown' OR x.difficulty='unclassified'
+                                   OR NOT EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id)
+                                   OR NOT EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
+                                   OR NOT EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
+                                 )""",(quiz_id,)).fetchone()["n"]
             total = con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
             if not total: raise HTTPException(409,"الاختبار لا يحتوي على أسئلة")
-            if bad: raise HTTPException(409,{"message":"لا يمكن نشر الاختبار قبل اعتماد كل الأسئلة وتسجيل الإجابة المعتمدة","invalid_questions":bad})
+            if bad: raise HTTPException(409,{"message":"لا يمكن نشر الاختبار: توجد أسئلة غير مكتملة الاعتماد أو التصنيف أو المصدر","invalid_questions":bad})
         return con.execute("UPDATE quizzes SET published=%s WHERE id=%s RETURNING id,title,published",(published,quiz_id)).fetchone()
 
 @app.get("/api/student/quizzes/{quiz_id}")
@@ -68,8 +76,18 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
         rows=list(con.execute("""SELECT qq.question_id,qq.points,x.accepted_answer
               FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
-              WHERE qq.quiz_id=%s AND x.approved=TRUE ORDER BY qq.position""",(quiz_id,)).fetchall())
+              WHERE qq.quiz_id=%s AND x.approved=TRUE
+                AND x.accepted_answer IS NOT NULL AND btrim(x.accepted_answer)<>''
+                AND x.lesson_id IS NOT NULL AND x.subject_id IS NOT NULL AND x.grade_level_id IS NOT NULL
+                AND x.curriculum_version_id IS NOT NULL AND x.term_id IS NOT NULL
+                AND x.question_type<>'unknown' AND x.difficulty<>'unclassified'
+                AND EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=x.id)
+                AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
+                AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
+              ORDER BY qq.position""",(quiz_id,)).fetchall())
+        total_questions=con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
         if not rows: raise HTTPException(409,"الاختبار لا يحتوي على أسئلة جاهزة")
+        if len(rows)!=total_questions: raise HTTPException(409,"تم إيقاف الاختبار لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")
         allowed={r["question_id"]:r for r in rows}
         submitted_ids=[a.question_id for a in p.answers]
         if len(submitted_ids)!=len(set(submitted_ids)):

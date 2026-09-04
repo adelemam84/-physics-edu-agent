@@ -1,6 +1,8 @@
 import hashlib
 import hmac
 import os
+import secrets
+import time
 
 from fastapi import Header, HTTPException, Request
 
@@ -26,7 +28,11 @@ def make_admin_session_token() -> str:
     expected = _expected_key()
     if not expected:
         raise HTTPException(status_code=503, detail="ADMIN_API_KEY is not configured")
-    return hmac.new(_session_secret(expected), b"authenticated", hashlib.sha256).hexdigest()
+    issued = int(time.time())
+    nonce = secrets.token_urlsafe(18)
+    body = f"{issued}.{nonce}"
+    sig = hmac.new(_session_secret(expected), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{body}.{sig}"
 
 
 def validate_admin_key(value: str | None) -> bool:
@@ -41,7 +47,17 @@ def admin_session_valid(request: Request) -> bool:
     token = request.cookies.get(COOKIE_NAME, "")
     if not token:
         return False
-    return hmac.compare_digest(token, make_admin_session_token())
+    try:
+        issued_s, nonce, sig = token.split(".", 2)
+        issued = int(issued_s)
+    except (TypeError, ValueError):
+        return False
+    now = int(time.time())
+    if issued > now + 60 or now - issued > SESSION_MAX_AGE:
+        return False
+    body = f"{issued}.{nonce}"
+    expected_sig = hmac.new(_session_secret(expected), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig, expected_sig)
 
 
 def require_admin(request: Request, x_admin_key: str | None = Header(default=None)):

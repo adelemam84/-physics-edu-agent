@@ -223,6 +223,37 @@ def question_readiness(question_id:int):
     state='approved' if row['approved'] else ('reviewed' if ready else ('cropped' if row['asset_valid'] else 'draft'))
     return {**row,'ready_for_approval':ready,'workflow_state':state}
 
+@app.get('/api/admin/questions/{question_id}/quality-check',dependencies=[Depends(require_admin)])
+def question_quality_check(question_id:int):
+    with connect() as con:
+        q=con.execute("""SELECT q.*,
+          EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) has_asset,
+          EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
+          EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) has_skill,
+          EXISTS(SELECT 1 FROM lessons l WHERE l.id=q.lesson_id AND l.subject_id=q.subject_id
+            AND l.grade_level_id=q.grade_level_id AND l.curriculum_version_id=q.curriculum_version_id
+            AND l.term_id=q.term_id AND l.unit_id=q.unit_id) academic_consistent,
+          NOT EXISTS(SELECT 1 FROM question_concepts qc JOIN concepts c ON c.id=qc.concept_id
+            WHERE qc.question_id=q.id AND c.lesson_id IS DISTINCT FROM q.lesson_id) concept_consistent
+          FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
+        if not q: raise HTTPException(404,'Question not found')
+        checks=[
+          ('source',q['document_id'] is not None and (q['source_page'] or q['page']) is not None,'المصدر والصفحة'),
+          ('asset',bool(q['has_asset']),'القصاصة'),
+          ('academic',all(q[k] is not None for k in ('subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','lesson_id')) and bool(q['academic_consistent']),'التصنيف الأكاديمي'),
+          ('concept',bool(q['has_concept']) and bool(q['concept_consistent']),'المفهوم'),
+          ('skill',bool(q['has_skill']),'المهارة'),
+          ('type',q['question_type'] not in (None,'unknown'),'نوع السؤال'),
+          ('difficulty',q['difficulty'] not in (None,'unclassified'),'مستوى الصعوبة'),
+          ('answer',bool(q['accepted_answer'] and str(q['accepted_answer']).strip()),'الإجابة المعتمدة'),
+          ('answer_source',q['answer_document_id'] is None or q['answer_page'] is not None,'مصدر الإجابة'),
+        ]
+        items=[{'id':k,'label':label,'ok':bool(ok)} for k,ok,label in checks]
+        passed=sum(1 for x in items if x['ok']); total=len(items)
+        return {'question_id':question_id,'ready':passed==total,'score':passed,'total':total,
+                'percent':round(passed*100/total),'checks':items,
+                'approval_allowed':passed==total,'student_visible':False}
+
 @app.get('/api/admin/questions/{question_id}/answer-provenance',dependencies=[Depends(require_admin)])
 def answer_provenance(question_id:int):
     with connect() as con:

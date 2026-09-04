@@ -3,7 +3,7 @@ import csv
 import io
 import secrets
 from fastapi import Depends, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, Response
 from pydantic import BaseModel
 from .main import app
 from .db import connect
@@ -55,6 +55,12 @@ def regenerate(student_id:int):
 @app.get("/api/admin/students/import-template.csv",dependencies=[Depends(require_admin)])
 def students_import_template():
     body="name,phone,email,external_code\nطالب مثال,01000000000,,\n"
+    return Response("\ufeff"+body,media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":"attachment; filename=students_import_template.csv"})
+
+@app.get("/api/admin/students/import-template.csv",dependencies=[Depends(require_admin)])
+def students_import_template():
+    body="name,phone,email,external_code\nStudent Example,,,\n"
     return Response("\ufeff"+body,media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition":"attachment; filename=students_import_template.csv"})
 
@@ -115,6 +121,7 @@ body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-wi
 <script>key.value=localStorage.pk||'';const H=()=>({'X-Admin-Key':localStorage.pk||''});function save(){localStorage.pk=key.value;load()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function add(){let b={name:name.value,phone:phone.value||null,email:email.value||null,external_code:code.value||null};let r=await fetch('/api/admin/students',{method:'POST',headers:{...H(),'Content-Type':'application/json'},body:JSON.stringify(b)}),x=await r.json();msg.textContent=r.ok?'تم إنشاء الطالب — الكود: '+x.external_code:(x.detail||'حدث خطأ');if(r.ok){name.value=phone.value=email.value=code.value='';load()}}
+async function downloadCsv(url,name){let r=await fetch(url,{headers:H()});if(!r.ok){importMsg.textContent='تعذر تحميل النموذج';return}let b=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function downloadCsv(url,name){let r=await fetch(url,{headers:H()});if(!r.ok){importMsg.textContent='تعذر تحميل النموذج';return}let b=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function importCsv(){if(!csvfile.files.length){importMsg.textContent='اختر ملف CSV أولًا';return}let fd=new FormData();fd.append('file',csvfile.files[0]);let r=await fetch('/api/admin/students/import-csv',{method:'POST',headers:H(),body:fd}),x=await r.json();importMsg.textContent=r.ok?('تم إضافة '+x.created_count+' طالب · تخطي '+x.skipped_count+' · أخطاء '+x.error_count):(x.detail||'تعذر الاستيراد');if(r.ok)load()}
 async function regen(id){let r=await fetch('/api/admin/students/'+id+'/regenerate-code',{method:'POST',headers:H()}),x=await r.json();if(r.ok){alert('الكود الجديد: '+x.external_code);load()}}

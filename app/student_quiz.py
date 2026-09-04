@@ -18,6 +18,15 @@ class AnswerIn(BaseModel):
 class SubmitAttempt(BaseModel):
     student_code: str
     answers: list[AnswerIn]
+    attempt_id: int | None = None
+
+class StartAttempt(BaseModel):
+    student_code: str
+
+class SaveAnswer(BaseModel):
+    student_code: str
+    question_id: int
+    answer: str
 
 def norm(v: str | None) -> str:
     if v is None:
@@ -33,36 +42,22 @@ def is_correct(answer: str, accepted: str | None) -> bool:
     return norm(answer) in choices
 
 @app.patch("/api/quizzes/{quiz_id}/publish", dependencies=[Depends(require_admin)])
-def publish_quiz(quiz_id: int, published: bool = True):
+def legacy_publish_quiz(quiz_id: int, published: bool = True):
+    # Legacy endpoint must never bypass the centralized publication-quality gate.
+    if published:
+        raise HTTPException(410,{"message":"استخدم بوابة النشر الجديدة POST /api/quizzes/{quiz_id}/publish"})
     with connect() as con:
-        q = con.execute("SELECT id,title FROM quizzes WHERE id=%s",(quiz_id,)).fetchone()
+        q=con.execute("""UPDATE quizzes SET published=FALSE,
+          lifecycle_status=CASE WHEN lifecycle_status='published' THEN 'ready' ELSE lifecycle_status END
+          WHERE id=%s RETURNING id,title,published,lifecycle_status""",(quiz_id,)).fetchone()
         if not q: raise HTTPException(404,"Quiz not found")
-        if published:
-            bad = con.execute("""SELECT count(*) n FROM quiz_questions qq
-                                 JOIN quizzes z ON z.id=qq.quiz_id
-                                 JOIN questions x ON x.id=qq.question_id
-                                 WHERE qq.quiz_id=%s AND (
-                                   x.approved=FALSE OR x.accepted_answer IS NULL OR btrim(x.accepted_answer)=''
-                                   OR x.lesson_id IS NULL OR x.subject_id IS NULL OR x.grade_level_id IS NULL
-                                   OR x.curriculum_version_id IS NULL OR x.term_id IS NULL
-                                   OR x.question_type='unknown' OR x.difficulty='unclassified'
-                                   OR x.subject_id IS DISTINCT FROM z.subject_id
-                                   OR x.grade_level_id IS DISTINCT FROM z.grade_level_id
-                                   OR x.curriculum_version_id IS DISTINCT FROM z.curriculum_version_id
-                                   OR x.term_id IS DISTINCT FROM z.term_id
-                                   OR NOT EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id)
-                                   OR NOT EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
-                                   OR NOT EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
-                                 )""",(quiz_id,)).fetchone()["n"]
-            total = con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
-            if not total: raise HTTPException(409,"الاختبار لا يحتوي على أسئلة")
-            if bad: raise HTTPException(409,{"message":"لا يمكن نشر الاختبار: توجد أسئلة غير مكتملة الاعتماد أو التصنيف أو المصدر","invalid_questions":bad})
-        return con.execute("UPDATE quizzes SET published=%s WHERE id=%s RETURNING id,title,published",(published,quiz_id)).fetchone()
+        return q
 
 @app.get("/api/student/quizzes/{quiz_id}")
 def student_quiz(quiz_id: int):
     with connect() as con:
-        q=con.execute("SELECT id,title,duration_minutes FROM quizzes WHERE id=%s AND published=TRUE",(quiz_id,)).fetchone()
+        q=con.execute("""SELECT id,title,duration_minutes FROM quizzes
+          WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
         items=list(con.execute("""SELECT qq.position,qq.points,x.id,x.text_verbatim,x.question_type,
                     EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id) has_asset
@@ -85,6 +80,56 @@ def student_quiz(quiz_id: int):
             raise HTTPException(409,"تم إيقاف الاختبار مؤقتًا لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")
         return {**q,"questions":items}
 
+@app.post("/api/student/quizzes/{quiz_id}/start")
+def start_quiz_attempt(quiz_id:int,p:StartAttempt):
+    code=p.student_code.strip()
+    if not code: raise HTTPException(400,"أدخل كود الطالب")
+    with connect() as con:
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
+        if not st: raise HTTPException(404,"كود الطالب غير صحيح")
+        quiz=con.execute("""SELECT id,title,duration_minutes FROM quizzes
+          WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
+        if not quiz: raise HTTPException(404,"الاختبار غير متاح")
+        open_attempt=con.execute("""SELECT id,started_at FROM attempts
+          WHERE student_id=%s AND quiz_id=%s AND completed_at IS NULL
+          ORDER BY id DESC LIMIT 1""",(st["id"],quiz_id)).fetchone()
+        if open_attempt:
+            return {"attempt_id":open_attempt["id"],"started_at":open_attempt["started_at"],
+                    "resumed":True,"duration_minutes":quiz["duration_minutes"]}
+        max_score=con.execute("SELECT coalesce(sum(points),0) v FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["v"]
+        a=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,started_at,submitted_at)
+          VALUES(%s,%s,NULL,%s,now(),now()) RETURNING id,started_at""",(st["id"],quiz_id,max_score)).fetchone()
+        return {"attempt_id":a["id"],"started_at":a["started_at"],"resumed":False,"duration_minutes":quiz["duration_minutes"]}
+
+@app.put("/api/student/attempts/{attempt_id}/answer")
+def save_quiz_answer(attempt_id:int,p:SaveAnswer):
+    code=p.student_code.strip()
+    with connect() as con:
+        a=con.execute("""SELECT a.id,a.quiz_id,a.completed_at,s.external_code
+          FROM attempts a JOIN students s ON s.id=a.student_id WHERE a.id=%s""",(attempt_id,)).fetchone()
+        if not a or a["external_code"]!=code: raise HTTPException(404,"المحاولة غير موجودة")
+        if a["completed_at"] is not None: raise HTTPException(409,"تم تسليم هذه المحاولة بالفعل")
+        if not con.execute("""SELECT 1 FROM quiz_questions qq JOIN quizzes q ON q.id=qq.quiz_id
+          WHERE qq.quiz_id=%s AND qq.question_id=%s AND q.published=TRUE AND q.lifecycle_status='published'""",
+          (a["quiz_id"],p.question_id)).fetchone():
+            raise HTTPException(400,"السؤال غير موجود في الاختبار المنشور")
+        con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)
+          VALUES(%s,%s,%s,NULL,NULL,0)
+          ON CONFLICT (attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL
+          DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=NULL,awarded_score=NULL,points_awarded=0""",
+          (attempt_id,p.question_id,p.answer))
+        return {"ok":True,"attempt_id":attempt_id,"question_id":p.question_id}
+
+@app.get("/api/student/attempts/{attempt_id}/saved")
+def saved_quiz_answers(attempt_id:int,student_code:str):
+    with connect() as con:
+        a=con.execute("""SELECT a.id,a.completed_at,s.external_code FROM attempts a JOIN students s ON s.id=a.student_id
+          WHERE a.id=%s""",(attempt_id,)).fetchone()
+        if not a or a["external_code"]!=student_code.strip(): raise HTTPException(404,"المحاولة غير موجودة")
+        rows=list(con.execute("""SELECT question_id,answer_text FROM attempt_answers
+          WHERE attempt_id=%s ORDER BY id""",(attempt_id,)).fetchall())
+        return {"attempt_id":attempt_id,"completed":a["completed_at"] is not None,"answers":rows}
+
 @app.post("/api/student/quizzes/{quiz_id}/submit")
 def submit_quiz(quiz_id:int,p:SubmitAttempt):
     code=p.student_code.strip()
@@ -92,7 +137,8 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
     with connect() as con:
         student=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not student: raise HTTPException(404,"كود الطالب غير صحيح")
-        quiz=con.execute("SELECT id,title FROM quizzes WHERE id=%s AND published=TRUE",(quiz_id,)).fetchone()
+        quiz=con.execute("""SELECT id,title,duration_minutes FROM quizzes
+          WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
         rows=list(con.execute("""SELECT qq.question_id,qq.points,x.accepted_answer
               FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id

@@ -112,9 +112,9 @@ def generate_quiz(p:QuizGenerate):
         else:
             rows=con.execute(sql+' ORDER BY random() LIMIT %s',params+[p.count]).fetchall()
         if len(rows)<p.count: raise HTTPException(409,{'message':'عدد الأسئلة المعتمدة المطابقة أقل من المطلوب','available':len(rows),'requested':p.count})
-        quiz=con.execute("""INSERT INTO quizzes(title,published,subject_id,grade_level_id,curriculum_version_id,term_id)
-          VALUES (%s,FALSE,%s,%s,%s,%s) RETURNING id,title,published""",
-          (p.title,p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id)).fetchone()
+        quiz=con.execute("""INSERT INTO quizzes(title,published,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id)
+          VALUES (%s,FALSE,%s,%s,%s,%s,%s) RETURNING id,title,published""",
+          (p.title,p.lesson_id,p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id)).fetchone()
         for i,r in enumerate(rows,1):
             con.execute("INSERT INTO quiz_questions(quiz_id,question_id,position) VALUES (%s,%s,%s)",(quiz['id'],r['id'],i))
         return {**quiz,'question_count':len(rows),'question_ids':[r['id'] for r in rows]}

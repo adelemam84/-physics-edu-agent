@@ -41,6 +41,12 @@ class QuestionPatch(BaseModel):
     difficulty: str | None = None
     accepted_answer: str | None = None
 
+class DocumentContextPatch(BaseModel):
+    subject_id:int
+    grade_level_id:int
+    curriculum_version_id:int
+    term_id:int
+
 class ManualQuestionCreate(BaseModel):
     page: int
     text_verbatim: str
@@ -76,6 +82,29 @@ def lessons(subject_id:int|None=None,grade_level_id:int|None=None,curriculum_ver
 @app.get('/api/documents',dependencies=[Depends(require_admin)])
 def documents():
     with connect() as con:return list(con.execute("SELECT d.*,f.page_count,f.file_size_bytes,(SELECT COUNT(*) FROM questions q WHERE q.document_id=d.id) question_count FROM documents d LEFT JOIN document_files f ON f.document_id=d.id ORDER BY d.id DESC").fetchall())
+@app.patch('/api/documents/{document_id}/academic-context',dependencies=[Depends(require_admin)])
+def patch_document_context(document_id:int,p:DocumentContextPatch):
+    with connect() as con:
+        doc=con.execute("SELECT id,filename FROM documents WHERE id=%s",(document_id,)).fetchone()
+        if not doc: raise HTTPException(404,"Document not found")
+        sub=con.execute("SELECT id,name_ar FROM subjects WHERE id=%s AND active=TRUE",(p.subject_id,)).fetchone()
+        grade=con.execute("SELECT id,name_ar FROM grade_levels WHERE id=%s AND active=TRUE",(p.grade_level_id,)).fetchone()
+        cv=con.execute("""SELECT id,subject_id,grade_level_id,academic_year FROM curriculum_versions
+          WHERE id=%s AND active=TRUE""",(p.curriculum_version_id,)).fetchone()
+        term=con.execute("SELECT id,curriculum_version_id,name_ar FROM academic_terms WHERE id=%s",(p.term_id,)).fetchone()
+        if not all((sub,grade,cv,term)): raise HTTPException(400,"السياق الأكاديمي غير مكتمل")
+        if cv["subject_id"]!=p.subject_id or cv["grade_level_id"]!=p.grade_level_id:
+            raise HTTPException(400,"المنهج لا يطابق المادة والصف المختارين")
+        if term["curriculum_version_id"]!=p.curriculum_version_id:
+            raise HTTPException(400,"الترم لا يطابق إصدار المنهج")
+        row=con.execute("""UPDATE documents SET subject_id=%s,grade_level_id=%s,curriculum_version_id=%s,
+          term_id=%s,subject=%s WHERE id=%s RETURNING *""",
+          (p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id,sub["name_ar"],document_id)).fetchone()
+        con.execute("""UPDATE questions SET subject_id=%s,grade_level_id=%s,curriculum_version_id=%s,term_id=%s
+          WHERE document_id=%s AND approved=FALSE""",
+          (p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id,document_id))
+        return {"document":row,"propagated_to_unapproved_questions":True}
+
 @app.get('/api/documents/{document_id}/pages',dependencies=[Depends(require_admin)])
 def document_pages(document_id:int):
     with connect() as con:

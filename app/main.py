@@ -61,8 +61,8 @@ class ManualQuestionCreate(BaseModel):
 
 @app.get('/health')
 def health(): return {'ok':True,'version':app.version,'content_policy':'pdf_only','storage':STORAGE_BACKEND,'object_storage':'ready' if storage_configured() else 'not_configured'}
-@app.get('/api/admin/status')
-def admin_status(): return {'configured':admin_configured(),'write_protection':'x-admin-key'}
+@app.get('/api/admin/status',dependencies=[Depends(require_admin)])
+def admin_status(): return {'configured':admin_configured(),'authentication':'secure_http_only_session','session_protected':True}
 @app.get('/api/storage/status')
 def storage_status(): return {'configured':storage_configured(),'bucket':BUCKET,'mode':'neon_object_storage'}
 @app.get('/api/overview')

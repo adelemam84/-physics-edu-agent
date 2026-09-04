@@ -22,6 +22,7 @@ class QuizGenerate(BaseModel):
     easy_pct: int | None = None
     medium_pct: int | None = None
     hard_pct: int | None = None
+    use_balanced_blueprint: bool = False
 
 @app.get('/api/quizzes/blueprint',dependencies=[Depends(require_admin)])
 def quiz_blueprint(count:int=10,subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None,term_id:int|None=None,unit_id:int|None=None):
@@ -150,7 +151,61 @@ def generate_quiz(p:QuizGenerate):
         if p.difficulty: sql+=' AND q.difficulty=%s';params.append(p.difficulty)
         if p.question_type: sql+=' AND q.question_type=%s';params.append(p.question_type)
         if p.skill_id: sql+=' AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=%s)';params.append(p.skill_id)
-        if any(v is not None for v in mix):
+        if p.use_balanced_blueprint and not p.lesson_id:
+            lesson_rows=list(con.execute("""SELECT l.id,l.title,l.sort_order,count(q.id) available
+              FROM lessons l LEFT JOIN questions q ON q.lesson_id=l.id AND q.approved=TRUE
+                AND q.subject_id=%s AND q.grade_level_id=%s AND q.curriculum_version_id=%s AND q.term_id=%s
+                AND q.question_type<>'unknown' AND q.difficulty<>'unclassified'
+                AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+                AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+                AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
+                AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
+              WHERE l.subject_id=%s AND l.grade_level_id=%s AND l.curriculum_version_id=%s AND l.term_id=%s
+              """+(" AND l.unit_id=%s" if p.unit_id else "")+"""
+              GROUP BY l.id,l.title,l.sort_order ORDER BY l.sort_order,l.id""",
+              [p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id,
+               p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id]+([p.unit_id] if p.unit_id else [])).fetchall())
+            active=[x for x in lesson_rows if int(x['available'] or 0)>0]
+            if not active: raise HTTPException(409,{'message':'لا توجد دروس بها أسئلة جاهزة في هذا السياق'})
+            alloc={int(x['id']):0 for x in active};remaining=p.count
+            while remaining:
+                progressed=False
+                for x in active:
+                    lid=int(x['id']);cap=int(x['available'])
+                    if alloc[lid]<cap and remaining:
+                        alloc[lid]+=1;remaining-=1;progressed=True
+                if not progressed: break
+            if remaining: raise HTTPException(409,{'message':'البنك الجاهز لا يكفي لتوزيع الاختبار على الدروس','missing':remaining})
+            wanted_diff=None
+            if any(v is not None for v in mix):
+                vals=[p.easy_pct or 0,p.medium_pct or 0,p.hard_pct or 0]
+                raw=[p.count*v/100 for v in vals];nums=[int(x) for x in raw]
+                for i in sorted(range(3),key=lambda i:raw[i]-nums[i],reverse=True)[:p.count-sum(nums)]: nums[i]+=1
+                wanted_diff=dict(zip(['easy','medium','hard'],nums))
+            selected=[];used=set();remaining_diff=dict(wanted_diff or {})
+            for x in active:
+                n=alloc[int(x['id'])]
+                if not n: continue
+                local_sql=sql+' AND q.lesson_id=%s'
+                local_params=params+[int(x['id'])]
+                picked=[]
+                if wanted_diff:
+                    for diff in ['easy','medium','hard']:
+                        if not remaining_diff.get(diff,0): continue
+                        need=min(remaining_diff[diff],n-len(picked))
+                        if need<=0: continue
+                        rr=con.execute(local_sql+' AND q.difficulty=%s AND NOT (q.id=ANY(%s)) ORDER BY random() LIMIT %s',
+                                       local_params+[diff,list(used) or [0],need]).fetchall()
+                        picked.extend(rr);used.update(int(r['id']) for r in rr);remaining_diff[diff]-=len(rr)
+                if len(picked)<n:
+                    rr=con.execute(local_sql+' AND NOT (q.id=ANY(%s)) ORDER BY random() LIMIT %s',
+                                   local_params+[list(used) or [0],n-len(picked)]).fetchall()
+                    picked.extend(rr);used.update(int(r['id']) for r in rr)
+                if len(picked)<n: raise HTTPException(409,{'message':'تعذر تحقيق حصة أحد الدروس','lesson_id':int(x['id']),'requested':n,'selected':len(picked)})
+                selected.extend(picked)
+            if len(selected)!=p.count: raise HTTPException(409,{'message':'تعذر إكمال الخطة المتوازنة','selected':len(selected),'requested':p.count})
+            rows=selected
+        elif any(v is not None for v in mix):
             vals=[p.easy_pct or 0,p.medium_pct or 0,p.hard_pct or 0]
             raw=[p.count*v/100 for v in vals]
             nums=[int(x) for x in raw]
@@ -186,6 +241,6 @@ BUILDER=r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" conte
 let ls=[],catalog=null;function h(){return {}}function saveKey(){location.href='/admin/login'}async function init(){catalog=await fetch('/api/academic/catalog').then(r=>r.json());ls=await fetch('/api/lessons').then(r=>r.json());let skills=await fetch('/api/academic/skills').then(r=>r.json());skill.innerHTML='<option value="">كل المهارات</option>'+skills.map(x=>`<option value="${x.id}">${x.name_ar}</option>`).join('');subject.innerHTML='<option value="">اختر المادة</option>'+catalog.subjects.map(x=>`<option value="${x.id}">${x.name_ar}</option>`).join('');grade.innerHTML='<option value="">اختر الصف</option>'+catalog.grades.map(x=>`<option value="${x.id}">${x.name_ar}</option>`).join('');subject.onchange=()=>{grade.value='';renderAcademic(true)};grade.onchange=()=>renderAcademic(true);curriculum.onchange=()=>renderAcademic(false,true);term.onchange=()=>renderAcademic(false,false,true);unit.onchange=renderLessons;chapter.onchange=renderLessons;renderAcademic(true)}
 function keep(el,html){let v=el.value;el.innerHTML=html;if([...el.options].some(o=>o.value==v))el.value=v}
 function renderAcademic(resetCurr=false,resetTerm=false,resetUnit=false){let sid=Number(subject.value||0),gid=Number(grade.value||0);let cvs=catalog.curricula.filter(x=>(!sid||x.subject_id==sid)&&(!gid||x.grade_level_id==gid)&&x.active!==false);keep(curriculum,'<option value="">اختر إصدار المنهج</option>'+cvs.map(x=>`<option value="${x.id}">${x.subject_name} — ${x.grade_name} — ${x.academic_year}</option>`).join(''));if(resetCurr&&!cvs.some(x=>x.id==curriculum.value))curriculum.value='';let cv=Number(curriculum.value||0);let ts=cv?catalog.terms.filter(x=>x.curriculum_version_id==cv):[];keep(term,'<option value="">اختر الترم</option>'+ts.map(x=>`<option value="${x.id}">${x.name_ar}</option>`).join(''));if(resetTerm&&!ts.some(x=>x.id==term.value))term.value='';let tv=Number(term.value||0);let us=tv?catalog.units.filter(x=>x.term_id==tv):[];keep(unit,'<option value="">اختر الوحدة</option>'+us.map(x=>`<option value="${x.id}">${x.title}</option>`).join(''));if(resetUnit&&!us.some(x=>x.id==unit.value))unit.value='';renderLessons()}
-async function blueprint(){if(!subject.value||!grade.value||!curriculum.value||!term.value){msg.textContent='حدد المادة والصف والمنهج والترم أولًا';return}let p=new URLSearchParams({count:count.value,subject_id:subject.value,grade_level_id:grade.value,curriculum_version_id:curriculum.value,term_id:term.value});if(unit.value)p.set('unit_id',unit.value);let r=await fetch('/api/quizzes/blueprint?'+p),x=await r.json();if(!r.ok){msg.textContent=x.detail||'تعذر إنشاء الخطة';return}if(!x.feasible){msg.textContent=x.message+' — المتاح '+x.available+' من '+x.requested;return}easyPct.value=x.recommended_mix.easy_pct;mediumPct.value=x.recommended_mix.medium_pct;hardPct.value=x.recommended_mix.hard_pct;difficulty.value='';plan.innerHTML='<h3>الخطة المقترحة</h3><div class=muted>الصعوبة: سهل '+x.difficulty.easy+' · متوسط '+x.difficulty.medium+' · صعب '+x.difficulty.hard+'</div>'+x.lessons.map(v=>'<div class=q>'+esc(v.chapter||'')+' — '+esc(v.lesson_title)+' : <b>'+v.count+'</b> سؤال (متاح '+v.available+')</div>').join('');msg.textContent='تم إعداد Blueprint متوازن وتطبيق نسب الصعوبة تلقائيًا'}function renderLessons(){let a=ls.filter(x=>(!subject.value||x.subject_id==subject.value)&&(!grade.value||x.grade_level_id==grade.value)&&(!curriculum.value||x.curriculum_version_id==curriculum.value)&&(!term.value||x.term_id==term.value)&&(!unit.value||x.unit_id==unit.value));let cs=[...new Set(a.map(x=>x.chapter).filter(Boolean))];keep(chapter,'<option value="">كل الأبواب</option>'+cs.map(x=>`<option>${x}</option>`).join(''));a=a.filter(x=>(!chapter.value||x.chapter==chapter.value));keep(lesson,'<option value="">كل الدروس</option>'+a.map(x=>`<option value="${x.id}">${x.chapter||''} — ${x.title}</option>`).join(''))}async function generate(){msg.textContent='جارٍ الإنشاء...';let b={title:title.value||'اختبار',count:Number(count.value)};if(subject.value)b.subject_id=Number(subject.value);if(grade.value)b.grade_level_id=Number(grade.value);if(curriculum.value)b.curriculum_version_id=Number(curriculum.value);if(term.value)b.term_id=Number(term.value);if(unit.value)b.unit_id=Number(unit.value);if(chapter.value)b.chapter=chapter.value;if(lesson.value)b.lesson_id=Number(lesson.value);if(difficulty.value)b.difficulty=difficulty.value;if(qtype.value)b.question_type=qtype.value;if(skill.value)b.skill_id=Number(skill.value);if(easyPct.value!==''||mediumPct.value!==''||hardPct.value!==''){b.easy_pct=Number(easyPct.value||0);b.medium_pct=Number(mediumPct.value||0);b.hard_pct=Number(hardPct.value||0)}let r=await fetch('/api/quizzes/generate',{method:'POST',headers:{...h(),'Content-Type':'application/json'},body:JSON.stringify(b)}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='object'?x.detail.message+' — المتاح: '+x.detail.available:(x.detail||'حدث خطأ');return}msg.textContent='تم إنشاء الاختبار #'+x.id;show(x.id)}async function show(id){let r=await fetch('/api/quizzes/'+id,{headers:h()}),x=await r.json();result.innerHTML='<h2>'+x.title+'</h2>'+x.questions.map(q=>`<div class=q><b>${q.position})</b> ${esc(q.text_verbatim)}<br><span class=muted>${q.chapter||''} — ${q.lesson_title||''} · ${q.difficulty} · المصدر: ${q.source_filename} ص ${q.source_page}</span></div>`).join('')}function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}init();</script></html>'''
+async function blueprint(){if(!subject.value||!grade.value||!curriculum.value||!term.value){msg.textContent='حدد المادة والصف والمنهج والترم أولًا';return}let p=new URLSearchParams({count:count.value,subject_id:subject.value,grade_level_id:grade.value,curriculum_version_id:curriculum.value,term_id:term.value});if(unit.value)p.set('unit_id',unit.value);let r=await fetch('/api/quizzes/blueprint?'+p),x=await r.json();if(!r.ok){msg.textContent=x.detail||'تعذر إنشاء الخطة';return}if(!x.feasible){msg.textContent=x.message+' — المتاح '+x.available+' من '+x.requested;return}easyPct.value=x.recommended_mix.easy_pct;mediumPct.value=x.recommended_mix.medium_pct;hardPct.value=x.recommended_mix.hard_pct;difficulty.value='';plan.dataset.balanced='1';plan.innerHTML='<h3>الخطة المقترحة — سيتم الالتزام بتوزيع الدروس عند الإنشاء</h3><div class=muted>الصعوبة: سهل '+x.difficulty.easy+' · متوسط '+x.difficulty.medium+' · صعب '+x.difficulty.hard+'</div>'+x.lessons.map(v=>'<div class=q>'+esc(v.chapter||'')+' — '+esc(v.lesson_title)+' : <b>'+v.count+'</b> سؤال (متاح '+v.available+')</div>').join('');msg.textContent='تم إعداد Blueprint متوازن وتطبيق نسب الصعوبة تلقائيًا'}function renderLessons(){let a=ls.filter(x=>(!subject.value||x.subject_id==subject.value)&&(!grade.value||x.grade_level_id==grade.value)&&(!curriculum.value||x.curriculum_version_id==curriculum.value)&&(!term.value||x.term_id==term.value)&&(!unit.value||x.unit_id==unit.value));let cs=[...new Set(a.map(x=>x.chapter).filter(Boolean))];keep(chapter,'<option value="">كل الأبواب</option>'+cs.map(x=>`<option>${x}</option>`).join(''));a=a.filter(x=>(!chapter.value||x.chapter==chapter.value));keep(lesson,'<option value="">كل الدروس</option>'+a.map(x=>`<option value="${x.id}">${x.chapter||''} — ${x.title}</option>`).join(''))}async function generate(){msg.textContent='جارٍ الإنشاء...';let b={title:title.value||'اختبار',count:Number(count.value)};if(subject.value)b.subject_id=Number(subject.value);if(grade.value)b.grade_level_id=Number(grade.value);if(curriculum.value)b.curriculum_version_id=Number(curriculum.value);if(term.value)b.term_id=Number(term.value);if(unit.value)b.unit_id=Number(unit.value);if(chapter.value)b.chapter=chapter.value;if(lesson.value)b.lesson_id=Number(lesson.value);if(difficulty.value)b.difficulty=difficulty.value;if(qtype.value)b.question_type=qtype.value;if(skill.value)b.skill_id=Number(skill.value);if(easyPct.value!==''||mediumPct.value!==''||hardPct.value!==''){b.easy_pct=Number(easyPct.value||0);b.medium_pct=Number(mediumPct.value||0);b.hard_pct=Number(hardPct.value||0)}if(plan.dataset.balanced==='1')b.use_balanced_blueprint=truelet r=await fetch('/api/quizzes/generate',{method:'POST',headers:{...h(),'Content-Type':'application/json'},body:JSON.stringify(b)}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='object'?x.detail.message+' — المتاح: '+x.detail.available:(x.detail||'حدث خطأ');return}msg.textContent='تم إنشاء الاختبار #'+x.id;show(x.id)}async function show(id){let r=await fetch('/api/quizzes/'+id,{headers:h()}),x=await r.json();result.innerHTML='<h2>'+x.title+'</h2>'+x.questions.map(q=>`<div class=q><b>${q.position})</b> ${esc(q.text_verbatim)}<br><span class=muted>${q.chapter||''} — ${q.lesson_title||''} · ${q.difficulty} · المصدر: ${q.source_filename} ص ${q.source_page}</span></div>`).join('')}function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}init();</script></html>'''
 @app.get('/admin/quiz-builder',response_class=HTMLResponse)
 def quiz_builder(): return BUILDER

@@ -1,0 +1,40 @@
+from __future__ import annotations
+from fastapi import Depends
+from fastapi.responses import HTMLResponse
+from .main import app
+from .db import connect
+from .security import require_admin
+
+@app.get("/api/admin/system-readiness",dependencies=[Depends(require_admin)])
+def system_readiness():
+    with connect() as con:
+        db={
+          "subjects":con.execute("SELECT count(*) n FROM subjects WHERE active=TRUE").fetchone()["n"],
+          "grades":con.execute("SELECT count(*) n FROM grade_levels WHERE active=TRUE").fetchone()["n"],
+          "curricula":con.execute("SELECT count(*) n FROM curriculum_versions WHERE active=TRUE").fetchone()["n"],
+          "lessons":con.execute("SELECT count(*) n FROM lessons").fetchone()["n"],
+          "concepts":con.execute("SELECT count(*) n FROM concepts").fetchone()["n"],
+          "skills":con.execute("SELECT count(*) n FROM skills WHERE active=TRUE").fetchone()["n"],
+          "approved_questions":con.execute("SELECT count(*) n FROM questions WHERE approved=TRUE").fetchone()["n"],
+          "unclassified_questions":con.execute("""SELECT count(*) n FROM questions q WHERE q.approved=FALSE AND
+            (q.subject_id IS NULL OR q.grade_level_id IS NULL OR q.curriculum_version_id IS NULL OR q.term_id IS NULL OR
+             q.unit_id IS NULL OR q.lesson_id IS NULL OR NOT EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
+             OR NOT EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id))""").fetchone()["n"],
+          "students":con.execute("SELECT count(*) n FROM students").fetchone()["n"],
+          "guardians_opted_in":con.execute("SELECT count(*) n FROM guardians WHERE active=TRUE AND whatsapp_opt_in=TRUE").fetchone()["n"],
+        }
+    checks=[
+      {"name":"الهيكل الأكاديمي","ok":db["subjects"]>0 and db["grades"]>0 and db["curricula"]>0,"detail":f'{db["subjects"]} مواد · {db["grades"]} صفوف · {db["curricula"]} مناهج'},
+      {"name":"التصنيف العلمي","ok":db["concepts"]>0 and db["skills"]>=9,"detail":f'{db["concepts"]} مفاهيم · {db["skills"]} مهارات'},
+      {"name":"بنك الأسئلة المعتمد","ok":db["approved_questions"]>0,"detail":f'{db["approved_questions"]} سؤال معتمد'},
+      {"name":"بيانات الطلاب","ok":db["students"]>0,"detail":f'{db["students"]} طالب'},
+      {"name":"أولياء الأمور","ok":db["guardians_opted_in"]>0,"detail":f'{db["guardians_opted_in"]} موافقة واتساب'},
+    ]
+    return {"ready":all(x["ok"] for x in checks),"checks":checks,"counts":db,
+            "external_requirements":["ملفات PDF الرسمية للمناهج وبنوك الأسئلة ومفاتيح الإجابة","بيانات الطلاب وأولياء الأمور الحقيقية","إعداد WhatsApp Cloud API وقوالب Meta المعتمدة"]}
+
+PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width=device-width,initial-scale=1"><title>جاهزية النظام</title><style>
+body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:900px;margin:auto;padding:18px}.box{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.item{padding:12px;border-bottom:1px solid #eee}.ok{color:#067647}.bad{color:#b42318}.muted{color:#667085}input,button{padding:10px;border:1px solid #ccd2dd;border-radius:9px}</style><main><div class=box><input id=key type=password placeholder=ADMIN_API_KEY><button onclick=load()>فحص الجاهزية</button> <a href="/admin/dashboard">لوحة التحكم</a></div><div id=out></div><script>
+key.value=localStorage.pk||'';function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}async function load(){localStorage.pk=key.value;let r=await fetch('/api/admin/system-readiness',{headers:{'X-Admin-Key':key.value}}),x=await r.json();if(!r.ok){out.innerHTML='<div class=box>تعذر الفحص</div>';return}out.innerHTML='<div class=box><h1>جاهزية النظام</h1>'+x.checks.map(c=>'<div class="item '+(c.ok?'ok':'bad')+'">'+(c.ok?'✅ ':'⚠️ ')+e(c.name)+'<div class=muted>'+e(c.detail)+'</div></div>').join('')+'</div><div class=box><h2>المطلوب من صاحب المشروع</h2>'+x.external_requirements.map(v=>'<div class=item>• '+e(v)+'</div>').join('')+'</div>'}load()</script></main></html>'''
+@app.get("/admin/readiness",response_class=HTMLResponse)
+def readiness_page(): return PAGE

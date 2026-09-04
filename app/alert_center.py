@@ -10,8 +10,7 @@ from .main import app
 from .security import require_admin
 
 
-@app.get("/api/admin/alert-center", dependencies=[Depends(require_admin)])
-def alert_center():
+def collect_alerts():
     failure_threshold=float(os.getenv("WHATSAPP_FAILURE_ALERT_PCT","10") or 10)
     stuck_minutes=int(os.getenv("WHATSAPP_STUCK_SENDING_MINUTES","10") or 10)
     queue_age_minutes=int(os.getenv("WHATSAPP_QUEUED_ALERT_MINUTES","30") or 30)
@@ -95,6 +94,17 @@ function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;
 async function load(){let r=await fetch('/api/admin/alert-center');if(r.status===401){location.href='/admin/login';return}let x=await r.json();sum.innerHTML='أخطاء: <b>'+x.error_count+'</b> · تحذيرات: <b>'+x.warning_count+'</b> · معلومات: <b>'+x.info_count+'</b>';list.innerHTML=x.alerts.length?x.alerts.map(a=>'<div class="alert '+e(a.severity)+'"><b>'+e(a.title)+'</b><div>'+e(a.detail)+'</div><div class=muted>'+e(a.source)+'</div><a href="'+e(a.path)+'">فتح الإجراء</a></div>').join(''):'<div class=ok>✅ لا توجد تنبيهات حالية</div>'}
 load()
 </script></main></html>'''
+
+
+@app.get("/api/admin/alert-center", dependencies=[Depends(require_admin)])
+def alert_center():
+    return collect_alerts()
+
+
+@app.get("/api/admin/alert-center/summary", dependencies=[Depends(require_admin)])
+def alert_center_summary():
+    x=collect_alerts()
+    return {"healthy":x["healthy"],"error_count":x["error_count"],"warning_count":x["warning_count"],"info_count":x["info_count"],"total":len(x["alerts"])}
 
 
 @app.get("/admin/alerts", response_class=HTMLResponse)

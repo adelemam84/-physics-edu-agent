@@ -85,6 +85,23 @@ def diagnostics():
                     WHERE qq.question_id IS NULL""").fetchone()["n"],
             },
             {
+                "id": "academic_context_mismatches",
+                "name": "تعارضات في العلاقات الأكاديمية",
+                "severity": "error",
+                "count": con.execute("""SELECT
+                  (SELECT count(*) FROM questions q JOIN lessons l ON l.id=q.lesson_id WHERE
+                    q.subject_id IS DISTINCT FROM l.subject_id OR q.grade_level_id IS DISTINCT FROM l.grade_level_id OR
+                    q.curriculum_version_id IS DISTINCT FROM l.curriculum_version_id OR q.term_id IS DISTINCT FROM l.term_id OR
+                    q.unit_id IS DISTINCT FROM l.unit_id)
+                  + (SELECT count(*) FROM quizzes z JOIN quiz_questions qq ON qq.quiz_id=z.id JOIN questions q ON q.id=qq.question_id WHERE
+                    z.subject_id IS DISTINCT FROM q.subject_id OR z.grade_level_id IS DISTINCT FROM q.grade_level_id OR
+                    z.curriculum_version_id IS DISTINCT FROM q.curriculum_version_id OR z.term_id IS DISTINCT FROM q.term_id)
+                  + (SELECT count(*) FROM questions q JOIN documents d ON d.id=q.document_id WHERE d.subject_id IS NOT NULL AND (
+                    q.subject_id IS DISTINCT FROM d.subject_id OR q.grade_level_id IS DISTINCT FROM d.grade_level_id OR
+                    q.curriculum_version_id IS DISTINCT FROM d.curriculum_version_id OR q.term_id IS DISTINCT FROM d.term_id))
+                  n""").fetchone()["n"],
+            },
+            {
                 "id": "students_without_code",
                 "name": "طلاب بدون كود دخول",
                 "severity": "error",

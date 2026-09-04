@@ -267,6 +267,24 @@ def create_manual_question(document_id:int,payload:ManualQuestionCreate):
         dup=con.execute('SELECT id FROM questions WHERE document_id=%s AND coalesce(source_page,page)=%s AND text_verbatim=%s LIMIT 1',(document_id,payload.page,payload.text_verbatim)).fetchone()
         if dup:raise HTTPException(409,f"هذا السؤال مسجل بالفعل برقم {dup['id']}")
         row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.subject_id,payload.grade_level_id,payload.curriculum_version_id,payload.term_id,payload.unit_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
+@app.patch('/api/documents/{document_id}/academic-context',dependencies=[Depends(require_admin)])
+def assign_document_academic_context(document_id:int,subject_id:int=Form(...),grade_level_id:int=Form(...),
+    curriculum_version_id:int=Form(...),term_id:int=Form(...)):
+    with connect() as con:
+        doc=con.execute("SELECT id FROM documents WHERE id=%s",(document_id,)).fetchone()
+        if not doc: raise HTTPException(404,'Document not found')
+        curriculum=con.execute("""SELECT id FROM curriculum_versions WHERE id=%s AND active=TRUE
+          AND subject_id=%s AND grade_level_id=%s""",(curriculum_version_id,subject_id,grade_level_id)).fetchone()
+        if not curriculum: raise HTTPException(400,'Curriculum does not match selected subject and grade')
+        term=con.execute("SELECT id FROM academic_terms WHERE id=%s AND curriculum_version_id=%s",(term_id,curriculum_version_id)).fetchone()
+        if not term: raise HTTPException(400,'Term does not match selected curriculum')
+        con.execute("""UPDATE documents SET subject_id=%s,grade_level_id=%s,curriculum_version_id=%s,term_id=%s
+          WHERE id=%s""",(subject_id,grade_level_id,curriculum_version_id,term_id,document_id))
+        con.execute("""UPDATE questions SET subject_id=COALESCE(subject_id,%s),grade_level_id=COALESCE(grade_level_id,%s),
+          curriculum_version_id=COALESCE(curriculum_version_id,%s),term_id=COALESCE(term_id,%s)
+          WHERE document_id=%s""",(subject_id,grade_level_id,curriculum_version_id,term_id,document_id))
+    return {'ok':True,'document_id':document_id}
+
 @app.post('/api/documents/upload',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:str=Form('questions'),
     subject_id:int=Form(...),grade_level_id:int=Form(...),curriculum_version_id:int=Form(...),term_id:int=Form(...),

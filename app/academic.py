@@ -21,6 +21,12 @@ class UnitCreate(BaseModel):
     title:str
     sort_order:int=0
 
+class LessonCreate(BaseModel):
+    unit_id:int
+    title:str
+    chapter:str|None=None
+    sort_order:int=0
+
 class ConceptCreate(BaseModel):
     lesson_id:int
     title:str
@@ -68,6 +74,19 @@ def create_unit(p:UnitCreate):
     if not p.title.strip(): raise HTTPException(400,"اسم الوحدة مطلوب")
     with connect() as con:
         return con.execute("INSERT INTO units(term_id,title,sort_order) VALUES(%s,%s,%s) RETURNING *",(p.term_id,p.title.strip(),p.sort_order)).fetchone()
+
+@app.post("/api/academic/lessons",dependencies=[Depends(require_admin)])
+def create_lesson(p:LessonCreate):
+    title=p.title.strip()
+    if not title: raise HTTPException(400,"اسم الدرس مطلوب")
+    with connect() as con:
+        ctx=con.execute("""SELECT u.id unit_id,u.term_id,t.curriculum_version_id,c.subject_id,c.grade_level_id
+          FROM units u JOIN academic_terms t ON t.id=u.term_id
+          JOIN curriculum_versions c ON c.id=t.curriculum_version_id WHERE u.id=%s""",(p.unit_id,)).fetchone()
+        if not ctx: raise HTTPException(404,"الوحدة غير موجودة")
+        return con.execute("""INSERT INTO lessons(chapter,title,sort_order,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id)
+          VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+          (p.chapter.strip() if p.chapter else None,title,p.sort_order,ctx["subject_id"],ctx["grade_level_id"],ctx["curriculum_version_id"],ctx["term_id"],ctx["unit_id"])).fetchone()
 
 @app.get("/api/academic/coverage",dependencies=[Depends(require_admin)])
 def academic_coverage(subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None):

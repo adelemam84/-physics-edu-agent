@@ -295,10 +295,38 @@ def create_manual_question(document_id:int,payload:ManualQuestionCreate):
     if len(text)>50000:raise HTTPException(413,'Question text is too large')
     if payload.difficulty not in {'unclassified','easy','medium','hard'}: raise HTTPException(400,'Invalid difficulty')
     with connect() as con:
+        doc=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id FROM documents WHERE id=%s""",(document_id,)).fetchone()
+        if not doc: raise HTTPException(404,'Document not found')
         if not con.execute('SELECT 1 FROM document_pages WHERE document_id=%s AND page_number=%s',(document_id,payload.page)).fetchone():raise HTTPException(404,'Source page not found')
+        supplied={"subject_id":payload.subject_id,"grade_level_id":payload.grade_level_id,
+                  "curriculum_version_id":payload.curriculum_version_id,"term_id":payload.term_id}
+        for k,v in supplied.items():
+            if v is not None and doc[k] is not None and v!=doc[k]:
+                raise HTTPException(400,{"message":"تصنيف السؤال اليدوي لا يطابق ملف المصدر","field":k})
+        subject_id=payload.subject_id or doc["subject_id"]
+        grade_level_id=payload.grade_level_id or doc["grade_level_id"]
+        curriculum_version_id=payload.curriculum_version_id or doc["curriculum_version_id"]
+        term_id=payload.term_id or doc["term_id"]
+        unit_id=payload.unit_id
+        lesson_id=payload.lesson_id
+        if unit_id:
+            unit=con.execute("""SELECT u.term_id,t.curriculum_version_id,c.subject_id,c.grade_level_id
+              FROM units u JOIN academic_terms t ON t.id=u.term_id
+              JOIN curriculum_versions c ON c.id=t.curriculum_version_id WHERE u.id=%s""",(unit_id,)).fetchone()
+            if not unit or unit["term_id"]!=term_id or unit["curriculum_version_id"]!=curriculum_version_id or unit["subject_id"]!=subject_id or unit["grade_level_id"]!=grade_level_id:
+                raise HTTPException(400,'الوحدة لا تطابق ملف المصدر والسياق الأكاديمي')
+        if lesson_id:
+            lesson=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id,unit_id
+              FROM lessons WHERE id=%s""",(lesson_id,)).fetchone()
+            if not lesson: raise HTTPException(400,'الدرس غير موجود')
+            expected={"subject_id":subject_id,"grade_level_id":grade_level_id,"curriculum_version_id":curriculum_version_id,"term_id":term_id}
+            bad=[k for k,v in expected.items() if v is not None and lesson[k]!=v]
+            if unit_id is not None and lesson["unit_id"]!=unit_id: bad.append("unit_id")
+            if bad: raise HTTPException(400,{"message":"الدرس لا يطابق السياق الأكاديمي لملف المصدر","fields":bad})
+            if unit_id is None: unit_id=lesson["unit_id"]
         dup=con.execute('SELECT id FROM questions WHERE document_id=%s AND coalesce(source_page,page)=%s AND text_verbatim=%s LIMIT 1',(document_id,payload.page,payload.text_verbatim)).fetchone()
         if dup:raise HTTPException(409,f"هذا السؤال مسجل بالفعل برقم {dup['id']}")
-        row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',payload.lesson_id,payload.subject_id,payload.grade_level_id,payload.curriculum_version_id,payload.term_id,payload.unit_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
+        row=con.execute('INSERT INTO questions(document_id,page,source_page,text_verbatim,approved,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty) VALUES (%s,%s,%s,%s,FALSE,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *',(document_id,payload.page,payload.page,payload.text_verbatim,payload.question_type or 'unknown',lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,payload.difficulty)).fetchone();con.execute("UPDATE documents SET status='review_required' WHERE id=%s",(document_id,));return row
 @app.post('/api/documents/upload',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...),subject:str=Form(...),kind:str=Form('questions'),
     subject_id:int=Form(...),grade_level_id:int=Form(...),curriculum_version_id:int=Form(...),term_id:int=Form(...),

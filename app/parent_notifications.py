@@ -391,6 +391,10 @@ def send_one(notification_id: int) -> dict:
         ).fetchone()
         if not n: raise HTTPException(404, "Notification not found")
         if n["status"] == "sent": return {"id":notification_id,"status":"sent","already_sent":True}
+        if n["status"] == "sending":
+            return {"id":notification_id,"status":"sending","already_processing":True}
+        if int(n["attempts_count"] or 0) >= 5:
+            return {"id":notification_id,"status":"failed","retry_exhausted":True}
         if not n["active"] or not n["whatsapp_opt_in"]:
             con.execute("UPDATE parent_notifications SET status='skipped',error_message='guardian_not_opted_in' WHERE id=%s",(notification_id,))
             return {"id":notification_id,"status":"skipped"}
@@ -408,7 +412,13 @@ def send_one(notification_id: int) -> dict:
                 "components":template_components(n["notification_type"],payload),
             },
         }
-        con.execute("UPDATE parent_notifications SET status='sending',attempts_count=attempts_count+1,error_message=NULL WHERE id=%s",(notification_id,))
+        claimed=con.execute("""UPDATE parent_notifications
+             SET status='sending',attempts_count=attempts_count+1,error_message=NULL
+             WHERE id=%s AND status IN ('queued','failed')
+               AND attempts_count<5 AND (next_attempt_at IS NULL OR next_attempt_at<=now())
+             RETURNING id""",(notification_id,)).fetchone()
+        if not claimed:
+            return {"id":notification_id,"status":n["status"],"claimed":False}
     url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{WA_PHONE_ID}/messages"
     try:
         with httpx.Client(timeout=20) as client:
@@ -422,7 +432,12 @@ def send_one(notification_id: int) -> dict:
         return {"id":notification_id,"status":"sent","provider_message_id":mid}
     except Exception as e:
         with connect() as con:
-            con.execute("UPDATE parent_notifications SET status='failed',error_message=%s,next_attempt_at=now()+interval '15 minutes' WHERE id=%s",(str(e)[:2000],notification_id))
+            attempts=con.execute("SELECT attempts_count FROM parent_notifications WHERE id=%s",(notification_id,)).fetchone()
+            count=int(attempts["attempts_count"] or 1) if attempts else 1
+            delay_minutes=min(15*(2**max(count-1,0)),240)
+            con.execute("""UPDATE parent_notifications
+              SET status='failed',error_message=%s,next_attempt_at=now()+(%s * interval '1 minute')
+              WHERE id=%s""",(str(e)[:2000],delay_minutes,notification_id))
         raise HTTPException(502, f"WhatsApp send failed: {e}")
 
 @app.post("/api/parent-notifications/{notification_id}/send", dependencies=[Depends(require_admin)])

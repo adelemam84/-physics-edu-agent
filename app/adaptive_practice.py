@@ -4,6 +4,26 @@ from .main import app
 from .db import connect
 from .security import require_admin
 
+def _latest_remedial_targets(con,student_id:int):
+    last=con.execute("""SELECT a.id,a.quiz_id,a.completed_at FROM attempts a JOIN quizzes q ON q.id=a.quiz_id
+      WHERE a.student_id=%s AND a.completed_at IS NOT NULL
+      AND EXISTS(SELECT 1 FROM quiz_audit_log al WHERE al.quiz_id=q.id AND al.action='adaptive_publish')
+      ORDER BY a.completed_at DESC,a.id DESC LIMIT 1""",(student_id,)).fetchone()
+    if not last:return None
+    rows=list(con.execute("""SELECT c.id concept_id,
+      count(aa.id) responses,count(aa.id) FILTER(WHERE aa.is_correct=TRUE) correct,
+      round(100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0),1) mastery
+      FROM quiz_questions qq JOIN question_concepts qc ON qc.question_id=qq.question_id JOIN concepts c ON c.id=qc.concept_id
+      LEFT JOIN question_concepts allqc ON allqc.concept_id=c.id
+      LEFT JOIN attempt_answers aa ON aa.question_id=allqc.question_id
+      LEFT JOIN attempts hist ON hist.id=aa.attempt_id AND hist.student_id=%s AND hist.completed_at IS NOT NULL AND hist.completed_at<=%s
+      WHERE qq.quiz_id=%s GROUP BY c.id ORDER BY mastery NULLS FIRST""",(student_id,last["completed_at"],last["quiz_id"])).fetchall())
+    unresolved=[r["concept_id"] for r in rows if int(r["responses"] or 0)<2 or r["mastery"] is None or float(r["mastery"])<80]
+    mastered=[r["concept_id"] for r in rows if int(r["responses"] or 0)>=2 and r["mastery"] is not None and float(r["mastery"])>=80]
+    avg=sum(float(r["mastery"]) for r in rows if r["mastery"] is not None)/max(1,sum(1 for r in rows if r["mastery"] is not None))
+    return {"attempt_id":last["id"],"quiz_id":last["quiz_id"],"unresolved_concept_ids":unresolved,
+            "mastered_concept_ids":mastered,"average_mastery":round(avg,1),"closed":not unresolved}
+
 def build_adaptive_practice(student_id:int,count:int=10):
     count=max(1,min(count,30))
     with connect() as con:
@@ -29,6 +49,7 @@ def build_adaptive_practice(student_id:int,count:int=10):
           AND (%s IS NULL OR q.curriculum_version_id=%s) AND (%s IS NULL OR q.term_id=%s)
           GROUP BY qc.concept_id HAVING count(aa.id)>=2 ORDER BY mastery ASC,responses DESC LIMIT 8""",
           (student_id,ctx[0],ctx[0],ctx[1],ctx[1],ctx[2],ctx[2],ctx[3],ctx[3])).fetchall())
+        followup=_latest_remedial_targets(con,student_id)
         weak_skills=list(con.execute("""SELECT qs.skill_id,
           100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0) mastery,count(aa.id) responses
           FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id JOIN questions q ON q.id=aa.question_id
@@ -39,12 +60,20 @@ def build_adaptive_practice(student_id:int,count:int=10):
           (student_id,ctx[0],ctx[0],ctx[1],ctx[1],ctx[2],ctx[2],ctx[3],ctx[3])).fetchall())
         lids=[x["lesson_id"] for x in weak_lessons if x["mastery"] is not None and float(x["mastery"])<70]
         cids=[x["concept_id"] for x in weak_concepts if x["mastery"] is not None and float(x["mastery"])<70]
+        if followup:
+            if followup["closed"]:
+                cids=[]
+            elif followup["unresolved_concept_ids"]:
+                # After a remedial cycle, focus the next cycle only on concepts not yet mastered.
+                cids=[x for x in cids if x in followup["unresolved_concept_ids"]] or followup["unresolved_concept_ids"]
         sids=[x["skill_id"] for x in weak_skills if x["mastery"] is not None and float(x["mastery"])<70]
         if not lids and not cids and not sids:
             return {"student_id":student_id,"questions":[],"reason":"لا توجد نقاط ضعف مؤكدة كافية بعد"}
         # Difficulty rises only after demonstrated mastery; weak areas start easy, developing areas medium.
         weakest=min([float(x["mastery"]) for x in weak_lessons+weak_concepts+weak_skills if x["mastery"] is not None] or [0])
-        preferred="easy" if weakest<50 else "medium" if weakest<75 else "hard"
+        if followup and followup["average_mastery"]>=70: preferred="hard"
+        elif followup and followup["average_mastery"]>=50: preferred="medium"
+        else: preferred="easy" if weakest<50 else "medium" if weakest<75 else "hard"
         rows=list(con.execute("""SELECT DISTINCT q.id,q.text_verbatim,q.difficulty,q.question_type,
           EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=q.id) has_asset,
           coalesce((SELECT count(*) FROM attempt_answers aa JOIN attempts a ON a.id=aa.attempt_id
@@ -67,7 +96,8 @@ def build_adaptive_practice(student_id:int,count:int=10):
            lids or [-1],cids or [-1],sids or [-1],preferred,count)).fetchall())
         return {"student_id":student_id,"weak_lesson_ids":lids,"weak_concept_ids":cids,"weak_skill_ids":sids,
           "preferred_difficulty":preferred,"questions":rows,"academic_context":dict(context) if context else None,
-          "policy":"weak_lesson_then_concept_then_skill; unseen_first; progressive_difficulty; approved_source_questions_only"}
+          "followup":followup,"closed_concept_ids":followup["mastered_concept_ids"] if followup else [],
+          "policy":"close_mastered_targets; followup_unresolved_concepts_only; weak_lesson_then_concept_then_skill; unseen_first; progressive_difficulty; approved_source_questions_only"}
 
 @app.get("/api/admin/students/{student_id}/adaptive-practice",dependencies=[Depends(require_admin)])
 def adaptive_practice(student_id:int,count:int=10):

@@ -3,7 +3,7 @@ import csv
 import io
 import secrets
 from fastapi import Depends, File, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from .main import app
 from .db import connect
@@ -16,7 +16,7 @@ class StudentIn(BaseModel):
     external_code:str|None=None
 
 def new_code():
-    return "SCI-"+secrets.token_hex(3).upper()
+    return "SCI-"+secrets.token_hex(5).upper()
 
 @app.get("/api/admin/students",dependencies=[Depends(require_admin)])
 def list_students():
@@ -51,6 +51,12 @@ def regenerate(student_id:int):
             try:return con.execute("UPDATE students SET external_code=%s WHERE id=%s RETURNING id,name,external_code",(code,student_id)).fetchone()
             except Exception: pass
     raise HTTPException(500,"تعذر إنشاء كود فريد")
+
+@app.get("/api/admin/students/import-template.csv",dependencies=[Depends(require_admin)])
+def students_import_template():
+    body="name,phone,email,external_code\nطالب مثال,01000000000,,\n"
+    return Response("\ufeff"+body,media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":"attachment; filename=students_import_template.csv"})
 
 @app.post("/api/admin/students/import-csv",dependencies=[Depends(require_admin)])
 async def import_students_csv(file:UploadFile=File(...)):
@@ -104,11 +110,12 @@ PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width
 body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:1100px;margin:auto;padding:18px}.box{background:white;padding:16px;border-radius:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.row{display:flex;gap:8px;flex-wrap:wrap}input,button{padding:10px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}table{width:100%;border-collapse:collapse}td,th{padding:9px;border-bottom:1px solid #eee;text-align:right}button{cursor:pointer}.ok{color:#067647}.muted{color:#667085;font-size:13px}</style><main>
 <h1>إدارة الطلاب والاختبارات</h1><div class="box row"><input id=key type=password placeholder=ADMIN_API_KEY><button onclick=save()>حفظ المفتاح</button><a href="/admin/quiz-builder">منشئ الاختبارات</a></div>
 <div class=box><h2>إضافة طالب</h2><div class=row><input id=name placeholder="اسم الطالب"><input id=phone placeholder="هاتف الطالب - اختياري"><input id=email placeholder="البريد - اختياري"><input id=code placeholder="كود مخصص - أو اتركه تلقائي"><button onclick=add()>إضافة وإنشاء الكود</button></div><p id=msg class=muted></p></div>
-<div class=box><h2>استيراد الطلاب دفعة واحدة</h2><p class=muted>ارفع CSV من Excel. الأعمدة المدعومة: name/اسم الطالب، phone، email، external_code (اختياري).</p><div class=row><input id=csvfile type=file accept=".csv,text/csv"><button onclick=importCsv()>استيراد CSV</button></div><p id=importMsg class=muted></p></div>
+<div class=box><h2>استيراد الطلاب دفعة واحدة</h2><p class=muted>ارفع CSV من Excel. الأعمدة المدعومة: name/اسم الطالب، phone، email، external_code (اختياري).</p><div class=row><input id=csvfile type=file accept=".csv,text/csv"><button onclick=importCsv()>استيراد CSV</button><button onclick="downloadCsv('/api/admin/students/import-template.csv','students_import_template.csv')">تحميل نموذج CSV</button></div><p id=importMsg class=muted></p></div>
 <div class=box><h2>الطلاب</h2><div id=students></div></div><div class=box><h2>الاختبارات</h2><div id=quizzes></div></div>
 <script>key.value=localStorage.pk||'';const H=()=>({'X-Admin-Key':localStorage.pk||''});function save(){localStorage.pk=key.value;load()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function add(){let b={name:name.value,phone:phone.value||null,email:email.value||null,external_code:code.value||null};let r=await fetch('/api/admin/students',{method:'POST',headers:{...H(),'Content-Type':'application/json'},body:JSON.stringify(b)}),x=await r.json();msg.textContent=r.ok?'تم إنشاء الطالب — الكود: '+x.external_code:(x.detail||'حدث خطأ');if(r.ok){name.value=phone.value=email.value=code.value='';load()}}
+async function downloadCsv(url,name){let r=await fetch(url,{headers:H()});if(!r.ok){importMsg.textContent='تعذر تحميل النموذج';return}let b=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 async function importCsv(){if(!csvfile.files.length){importMsg.textContent='اختر ملف CSV أولًا';return}let fd=new FormData();fd.append('file',csvfile.files[0]);let r=await fetch('/api/admin/students/import-csv',{method:'POST',headers:H(),body:fd}),x=await r.json();importMsg.textContent=r.ok?('تم إضافة '+x.created_count+' طالب · تخطي '+x.skipped_count+' · أخطاء '+x.error_count):(x.detail||'تعذر الاستيراد');if(r.ok)load()}
 async function regen(id){let r=await fetch('/api/admin/students/'+id+'/regenerate-code',{method:'POST',headers:H()}),x=await r.json();if(r.ok){alert('الكود الجديد: '+x.external_code);load()}}
 async function pub(id,v){let r=await fetch('/api/quizzes/'+id+'/publish?published='+v,{method:'PATCH',headers:H()}),x=await r.json();if(!r.ok)alert(typeof x.detail==='object'?(x.detail.message||JSON.stringify(x.detail)):x.detail);load()}

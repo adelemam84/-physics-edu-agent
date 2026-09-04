@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import csv
+import io
 import os
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -100,6 +102,63 @@ def create_guardian(p: GuardianCreate):
             (p.student_id,p.name.strip(),phone,p.relationship,p.whatsapp_opt_in,p.whatsapp_opt_in)
         ).fetchone()
         return row
+
+@app.post("/api/guardians/import-csv", dependencies=[Depends(require_admin)])
+async def import_guardians_csv(file: UploadFile = File(...)):
+    raw=await file.read()
+    if len(raw)>2_000_000:
+        raise HTTPException(413,"ملف أولياء الأمور أكبر من الحد المسموح")
+    try:
+        text=raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(400,"احفظ الملف CSV بترميز UTF-8")
+    reader=csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(400,"ملف CSV فارغ")
+    aliases={
+        "student_code":["student_code","كود الطالب","code"],
+        "name":["guardian_name","name","اسم ولي الأمر","ولي الأمر"],
+        "phone":["whatsapp_phone","phone","واتساب","رقم الواتساب","الهاتف"],
+        "relationship":["relationship","صلة القرابة"],
+        "opt_in":["whatsapp_opt_in","opt_in","موافقة واتساب","موافق"]
+    }
+    norm={str(h).strip().lower():h for h in reader.fieldnames}
+    def col(key):
+        for a in aliases[key]:
+            if a.lower() in norm:return norm[a.lower()]
+        return None
+    sc,namec,phonec=col("student_code"),col("name"),col("phone")
+    if not sc or not namec or not phonec:
+        raise HTTPException(400,"الأعمدة المطلوبة: student_code و guardian_name و whatsapp_phone")
+    relc,optc=col("relationship"),col("opt_in")
+    created=[];skipped=[];errors=[]
+    true_values={"1","true","yes","y","نعم","موافق","yes"}
+    with connect() as con:
+        for n,row in enumerate(reader,start=2):
+            code=(row.get(sc) or "").strip()
+            name=(row.get(namec) or "").strip()
+            phone=normalize_phone(row.get(phonec) or "")
+            if not code or not name or len(phone)<8:
+                errors.append({"row":n,"error":"بيانات الطالب/ولي الأمر/الواتساب غير مكتملة"});continue
+            st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
+            if not st:
+                skipped.append({"row":n,"student_code":code,"reason":"كود الطالب غير موجود"});continue
+            relation=(row.get(relc) or "").strip() if relc else None
+            opt=(str(row.get(optc) or "").strip().lower() in true_values) if optc else False
+            try:
+                item=con.execute("""INSERT INTO guardians(student_id,name,whatsapp_phone,relationship,whatsapp_opt_in,opt_in_at)
+                   VALUES(%s,%s,%s,%s,%s,CASE WHEN %s THEN now() ELSE NULL END)
+                   ON CONFLICT(student_id,whatsapp_phone) DO UPDATE SET
+                     name=excluded.name,relationship=excluded.relationship,active=TRUE,
+                     whatsapp_opt_in=excluded.whatsapp_opt_in,
+                     opt_in_at=CASE WHEN excluded.whatsapp_opt_in THEN coalesce(guardians.opt_in_at,now()) ELSE NULL END
+                   RETURNING id,student_id,name,whatsapp_phone,whatsapp_opt_in""",
+                   (st["id"],name,phone,relation or None,opt,opt)).fetchone()
+                created.append(item)
+            except Exception as e:
+                errors.append({"row":n,"student_code":code,"error":str(e)[:200]})
+    return {"created_count":len(created),"skipped_count":len(skipped),"error_count":len(errors),
+            "created":created,"skipped":skipped[:50],"errors":errors[:50]}
 
 @app.patch("/api/guardians/{guardian_id}", dependencies=[Depends(require_admin)])
 def patch_guardian(guardian_id: int, p: GuardianPatch):
@@ -397,12 +456,14 @@ body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-wi
 <h1>أولياء الأمور وإشعارات واتساب</h1><div class="box row"><input id=key type=password placeholder="ADMIN_API_KEY"><button onclick=saveKey()>حفظ المفتاح</button><a href="/admin">لوحة الإدارة</a><span id=msg></span></div>
 <div class=box><h3>حالة WhatsApp Cloud API</h3><div id=wa></div></div>
 <div class=box><h3>إضافة ولي أمر</h3><div class=row><select id=student></select><input id=gname placeholder="اسم ولي الأمر"><input id=phone placeholder="2010xxxxxxxx"><input id=relation placeholder="صلة القرابة"><label><input id=opt type=checkbox> موافق على رسائل واتساب</label><button onclick=addG()>حفظ</button></div></div>
+<div class=box><h3>استيراد أولياء الأمور دفعة واحدة</h3><p class=muted>CSV بالأعمدة: student_code, guardian_name, whatsapp_phone, relationship, whatsapp_opt_in.</p><div class=row><input id=gcsv type=file accept=".csv,text/csv"><button onclick=importGuardians()>استيراد CSV</button></div></div>
 <div class=box><h3>أولياء الأمور</h3><div id=gs></div></div>
 <div class=box><h3>طابور الرسائل</h3><button onclick=weekly()>إنشاء التقارير الأسبوعية</button><button onclick=dispatch()>إرسال الرسائل الجاهزة</button><div id=ns></div></div>
 <script>
 key.value=localStorage.pk||'';function h(){return {'X-Admin-Key':localStorage.pk||''}}function saveKey(){localStorage.pk=key.value;load()}
 async function jf(u,o={}){let r=await fetch(u,o),x=null;try{x=await r.json()}catch(e){}if(!r.ok)throw new Error(typeof x?.detail==='string'?x.detail:JSON.stringify(x?.detail||r.status));return x}
 async function load(){try{let [s,g,n,w]=await Promise.all([jf('/api/students',{headers:h()}),jf('/api/guardians',{headers:h()}),jf('/api/parent-notifications',{headers:h()}),jf('/api/whatsapp/status',{headers:h()})]);student.innerHTML=s.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');gs.innerHTML=g.length?g.map(x=>`<div class=item><b>${x.student_name}</b> — ${x.name} — ${x.whatsapp_phone} — ${x.whatsapp_opt_in?'✅ موافق':'⚠️ غير موافق'}</div>`).join(''):'لا يوجد أولياء أمور';ns.innerHTML=n.length?n.map(x=>{let p=x.payload||{},extra=x.notification_type==='weekly_summary'?'<div class=muted>متوسط '+(p.average_percentage??0)+'% · '+(p.trend_label||'—')+' · أقوى: '+(p.strongest_lesson_text||'—')+' · أضعف: '+(p.weakest_lesson_text||'—')+'</div>'+(p.needs_attention?'<div class=bad>⚠️ '+(p.alert_text||'يحتاج متابعة')+'</div>':''):'';return `<div class=item>#${x.id} · ${x.student_name} → ${x.guardian_name} · ${x.notification_type} · <b>${x.status}</b>${extra} ${x.error_message?'<div class=bad>'+x.error_message+'</div>':''}</div>`}).join(''):'لا توجد رسائل';wa.innerHTML=`<b class="${w.configured?'ok':'bad'}">${w.configured?'✅ إعداد الاتصال الأساسي مكتمل':'⚠️ إعداد الاتصال غير مكتمل'}</b><div class=muted>Graph version: ${w.graph_version_configured?'موجود':'غير موجود'} · Phone ID: ${w.phone_number_id_configured?'موجود':'غير موجود'} · Token: ${w.access_token_configured?'موجود':'غير موجود'}</div>`}catch(e){msg.textContent=e.message}}
+async function importGuardians(){if(!gcsv.files.length){msg.textContent='اختر ملف CSV أولًا';return}let fd=new FormData();fd.append('file',gcsv.files[0]);try{let x=await jf('/api/guardians/import-csv',{method:'POST',headers:h(),body:fd});msg.textContent='تمت معالجة الملف: '+x.created_count+' حفظ · '+x.skipped_count+' تخطي · '+x.error_count+' خطأ';load()}catch(e){msg.textContent=e.message}}
 async function addG(){try{await jf('/api/guardians',{method:'POST',headers:{...h(),'Content-Type':'application/json'},body:JSON.stringify({student_id:Number(student.value),name:gname.value,whatsapp_phone:phone.value,relationship:relation.value||null,whatsapp_opt_in:opt.checked})});msg.textContent='تم الحفظ';load()}catch(e){msg.textContent=e.message}}
 async function weekly(){try{let x=await jf('/api/parent-notifications/queue-weekly',{method:'POST',headers:h()});msg.textContent='تم تجهيز '+x.queued_count+' تقرير أسبوعي';load()}catch(e){msg.textContent=e.message}}async function dispatch(){try{let x=await jf('/api/parent-notifications/dispatch',{method:'POST',headers:h()});msg.textContent='تمت معالجة '+x.processed+' رسالة';load()}catch(e){msg.textContent=e.message}}load();
 </script></main></html>'''

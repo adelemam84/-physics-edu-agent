@@ -36,7 +36,10 @@ def generate_quiz(p:QuizGenerate):
     sql="""SELECT q.id FROM questions q LEFT JOIN lessons l ON l.id=q.lesson_id
       WHERE q.approved=TRUE AND q.lesson_id IS NOT NULL AND q.question_type<>'unknown'
       AND q.difficulty<>'unclassified'
-      AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)"""
+      AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+      AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+      AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
+      AND EXISTS(SELECT 1 FROM question_skills qsk WHERE qsk.question_id=q.id)"""
     params=[]
     if p.subject_id: sql+=' AND q.subject_id=%s';params.append(p.subject_id)
     if p.grade_level_id: sql+=' AND q.grade_level_id=%s';params.append(p.grade_level_id)

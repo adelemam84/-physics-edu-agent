@@ -25,7 +25,13 @@ def collect_alerts():
              OR NOT EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id))) invalid_approved_questions,
           (SELECT count(DISTINCT qq.quiz_id) FROM quiz_questions qq JOIN questions q ON q.id=qq.question_id WHERE q.approved=FALSE) invalid_quizzes,
           (SELECT count(*) FROM students WHERE external_code IS NULL OR btrim(external_code)='') students_without_code,
-          (SELECT count(*) FROM guardians WHERE active=TRUE AND whatsapp_opt_in=FALSE) guardians_without_optin
+          (SELECT count(*) FROM guardians WHERE active=TRUE AND whatsapp_opt_in=FALSE) guardians_without_optin,
+          ((SELECT count(*) FROM questions q JOIN lessons l ON l.id=q.lesson_id WHERE
+             q.subject_id IS DISTINCT FROM l.subject_id OR q.grade_level_id IS DISTINCT FROM l.grade_level_id OR
+             q.curriculum_version_id IS DISTINCT FROM l.curriculum_version_id OR q.term_id IS DISTINCT FROM l.term_id OR q.unit_id IS DISTINCT FROM l.unit_id)
+           +(SELECT count(*) FROM quizzes z JOIN quiz_questions qq ON qq.quiz_id=z.id JOIN questions q ON q.id=qq.question_id WHERE
+             z.subject_id IS DISTINCT FROM q.subject_id OR z.grade_level_id IS DISTINCT FROM q.grade_level_id OR
+             z.curriculum_version_id IS DISTINCT FROM q.curriculum_version_id OR z.term_id IS DISTINCT FROM q.term_id)) academic_mismatches
         """).fetchone()
         wa=con.execute("""SELECT
           count(*) total,
@@ -44,6 +50,8 @@ def collect_alerts():
         alerts.append({"severity":"error","source":"quizzes","title":"اختبارات غير سليمة","detail":f'{vals["invalid_quizzes"]} اختبار يحتوي سؤالًا غير معتمد',"path":"/admin/quiz-builder"})
     if int(vals["students_without_code"] or 0):
         alerts.append({"severity":"error","source":"students","title":"طلاب بدون كود دخول","detail":f'{vals["students_without_code"]} طالب',"path":"/admin/students"})
+    if int(vals["academic_mismatches"] or 0):
+        alerts.append({"severity":"error","source":"academic","title":"تعارض في السياق الأكاديمي","detail":f'{vals["academic_mismatches"]} علاقة تحتاج تصحيح',"path":"/admin/diagnostics"})
     if int(vals["guardians_without_optin"] or 0):
         alerts.append({"severity":"info","source":"guardians","title":"أولياء أمور بدون موافقة واتساب","detail":f'{vals["guardians_without_optin"]} ولي أمر',"path":"/admin/parents"})
 

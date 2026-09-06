@@ -6,10 +6,12 @@ from PIL import Image
 
 from app.lesson_studio_source_editor import _render_adjusted
 from app.science_reference_library import _normalize_tokens, _score_page
+from app.services.diagram_router import route_diagram
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
 from app.services.lesson_pdf_renderer import lesson_html, render_lesson_pdf
 from app.services.ocr_consensus import compare_ocr, single_provider_result
+from app.services.science_diagram_extensions import render_advanced
 from app.services.science_diagrams import DiagramSpec, render, validate_spec
 from app.services.science_notation import classify_notation
 
@@ -65,6 +67,26 @@ class ScienceDiagramTests(unittest.TestCase):
         result = render(DiagramSpec('atom_shell', 'تركيب الذرة', ('K', 'L'), subject='chemistry'))
         self.assertIsNotNone(result['svg'])
         self.assertTrue(result['review_required'])
+
+    def test_series_parallel_renderer_is_deterministic_but_reviewed(self):
+        result = render_advanced('series_parallel_circuit', 'دائرة مركبة', ('R1', 'R2', 'R3'))
+        self.assertTrue(result['deterministic'])
+        self.assertTrue(result['review_required'])
+        self.assertIn('R1', result['svg'])
+
+    def test_solenoid_router_and_renderer(self):
+        route = route_diagram('other', 'المجال داخل ملف لولبي', 'اتجاه المجال داخل الملف', 'physics')
+        self.assertEqual(route.kind, 'solenoid_field')
+        result = render_advanced(route.kind, 'ملف لولبي', ('الملف', 'B'))
+        self.assertIn('<svg', result['svg'])
+        self.assertTrue(result['review_required'])
+
+    def test_chemistry_lab_setup_stays_review_required(self):
+        route = route_diagram('other', 'جهاز تحضير غاز', 'دورق وأنبوب توصيل ووعاء تجميع', 'chemistry')
+        self.assertEqual(route.kind, 'chemistry_lab_setup')
+        result = render_advanced(route.kind, 'تحضير غاز', ('دورق', 'أنبوب', 'وعاء'))
+        self.assertTrue(result['review_required'])
+        self.assertIn('دورق', result['svg'])
 
 
 class ScienceNotationTests(unittest.TestCase):
@@ -168,22 +190,23 @@ class ManualSourceAdjustmentTests(unittest.TestCase):
 
 
 class LessonPDFTests(unittest.TestCase):
-    def sample(self, long=False, sections=1):
+    def sample(self, long=False, sections=1, mode='teacher_notes'):
         text = ('شرح علمي منظم. ' * 180) if long else 'شرح علمي منظم.'
         diagram = render(DiagramSpec('simple_circuit', 'دائرة', ('مصدر', 'مقاومة')))['svg']
+        headings = ['تعريف المقاومة', 'قانون أوم', 'مثال تطبيقي', 'تنبيه مهم', 'تجربة عملية']
         return {
             'title': 'درس تجريبي',
             'subject': 'physics',
             'grade_label': 'الثالث الثانوي',
-            'mode': 'teacher_notes',
+            'mode': mode,
             'learning_objectives': ['فهم الفكرة'],
             'sections': [
-                {'heading': f'الفكرة {i}', 'body': text, 'source_only': True, 'source_refs': ['مصدر 1']}
+                {'heading': headings[(i-1) % len(headings)] if sections > 1 else f'الفكرة {i}', 'body': text, 'source_only': True, 'source_refs': ['مصدر 1']}
                 for i in range(1, sections + 1)
             ],
             'equations_or_rules': [{'label': 'قانون', 'expression': 'V = IR', 'notes': 'من المصدر'}],
             'diagram_specs': [{'title': 'دائرة', 'description': 'رسم', 'scientific_labels': ['مصدر', 'مقاومة'], 'diagram_engine': {'svg': diagram, 'review_required': False}}],
-            'teacher_warnings': [],
+            'teacher_warnings': ['راجع اتجاهات الرسم'],
             'uncertain_items': [],
             'summary': 'ملخص',
         }
@@ -196,7 +219,20 @@ class LessonPDFTests(unittest.TestCase):
     def test_long_lesson_has_generated_toc(self):
         out = lesson_html(self.sample(sections=5))
         self.assertIn('المحتويات', out)
-        self.assertIn('الفكرة 5', out)
+        self.assertIn('تجربة عملية', out)
+
+    def test_teaching_sections_receive_visual_roles(self):
+        out = lesson_html(self.sample(sections=5))
+        self.assertIn('callout-definition', out)
+        self.assertIn('callout-law', out)
+        self.assertIn('callout-example', out)
+        self.assertIn('callout-warning', out)
+        self.assertIn('callout-experiment', out)
+
+    def test_student_mode_hides_provenance_visually(self):
+        out = lesson_html(self.sample(mode='student_simple'))
+        self.assertIn('mode-student_simple', out)
+        self.assertIn('مصدر 1', out)
 
     def test_pdf_is_valid_and_stamped(self):
         data = render_lesson_pdf(self.sample())
@@ -206,7 +242,7 @@ class LessonPDFTests(unittest.TestCase):
         self.assertGreaterEqual(doc.page_count, 1)
         text = '\n'.join(page.get_text() for page in doc)
         doc.close()
-        self.assertIn('Smart Science Lesson Studio', text)
+        self.assertIn('درس تجريبي', text)
         self.assertIn('1 /', text)
 
     def test_mobile_pdf_is_valid(self):

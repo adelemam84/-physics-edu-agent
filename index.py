@@ -39,4 +39,5 @@ from app import research_engine  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402
 from app import research_admin_ops  # noqa: F401,E402
+from app import science_lesson_studio  # noqa: F401,E402
 from app import release_hardening  # noqa: F401,E402

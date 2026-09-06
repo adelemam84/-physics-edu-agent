@@ -15,6 +15,7 @@ from .db import STORAGE_BACKEND, connect, init_db
 from .security import admin_configured, admin_session_valid, require_admin
 from .services.pdf_ingest import detect_verbatim_question_candidates, extract_pages
 from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, storage_configured
+from .release_candidate import source_corpus_benchmark, release_readiness
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,6 +65,10 @@ class ManualQuestionCreate(BaseModel):
 
 @app.get('/health')
 def health(): return {'ok':True,'version':app.version,'content_policy':'pdf_only','storage':STORAGE_BACKEND,'object_storage':'ready' if storage_configured() else 'not_configured'}
+@app.get('/api/release/source-benchmark',dependencies=[Depends(require_admin)])
+def release_source_benchmark(): return source_corpus_benchmark()
+@app.get('/api/release/readiness',dependencies=[Depends(require_admin)])
+def release_readiness_api(): return release_readiness()
 @app.get('/api/admin/status',dependencies=[Depends(require_admin)])
 def admin_status(): return {'configured':admin_configured(),'authentication':'secure_http_only_session','session_protected':True}
 @app.get('/api/storage/status')

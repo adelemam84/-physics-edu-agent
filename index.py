@@ -28,5 +28,5 @@ from app import question_bank_balance  # noqa: F401,E402
 from app import quiz_lifecycle  # noqa: F401,E402
 from app import student_lesson  # noqa: F401,E402
 from app import lesson_sources  # noqa: F401,E402
-
 from app import source_review  # noqa: F401,E402
+from app import current_corpus_ops  # noqa: F401,E402

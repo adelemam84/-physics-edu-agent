@@ -4,8 +4,8 @@ This file records non-blocking or deferred issues discovered during implementati
 
 ## Open
 
-### EDU-001 — No approved lesson/explanation source is ingested yet
-- Status: deferred / data prerequisite
+### EDU-001 — No dedicated textbook/theory PDF is ingested yet
+- Status: non-blocking content expansion
 - Observed: production database currently has one document only: `تجريبى 23.pdf`.
 - Current document kind: `questions`.
 - Current document status: `extraction_review_required`.
@@ -28,3 +28,10 @@ This file records non-blocking or deferred issues discovered during implementati
 - Risk: registering or using the legacy module unchanged would target a different schema and can fail or create two competing workflows.
 - Immediate decision: do not register the legacy module yet; keep the new table isolated until the workflow is consolidated.
 - Later treatment: migrate/replace the legacy module to `lesson_source_mappings`, then remove or compatibility-map `lesson_source_ranges` only after checking production data and references.
+
+
+### EDU-003 — Visual source crops
+- Status: operational review queue
+- 22 diagram/graph-dependent questions remain intentionally unapproved until a durable question-asset copy is stored.
+- The platform is fully operational without publishing those questions; text-self-sufficient questions are no longer blocked by an unnecessary asset requirement.
+- Generated crop coordinates/images have been verified locally from the real PDF source; persistent upload remains a content-operations task, not a release blocker.

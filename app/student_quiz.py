@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from .main import app
 from .db import connect
 from .security import require_admin
-from .parent_notifications import queue_attempt_notifications
+from .parent_notifications import queue_attempt_notifications\nfrom .services.grading import grade_answer
 
 class AnswerIn(BaseModel):
     question_id: int
@@ -27,19 +27,6 @@ class SaveAnswer(BaseModel):
     student_code: str
     question_id: int
     answer: str
-
-def norm(v: str | None) -> str:
-    if v is None:
-        return ""
-    v = re.sub(r"\s+", " ", str(v)).strip().casefold()
-    trans = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
-    return v.translate(trans)
-
-def is_correct(answer: str, accepted: str | None) -> bool:
-    if not accepted:
-        return False
-    choices = [norm(x) for x in re.split(r"\s*\|\s*", accepted) if norm(x)]
-    return norm(answer) in choices
 
 @app.patch("/api/quizzes/{quiz_id}/publish", dependencies=[Depends(require_admin)])
 def legacy_publish_quiz(quiz_id: int, published: bool = True):
@@ -213,7 +200,7 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
         score=Decimal("0"); correct=0
         for qid,r in allowed.items():
             ans=saved.get(qid,"") or ""
-            ok=is_correct(ans,r["accepted_answer"])
+            ok=bool(grade_answer(ans,r["accepted_answer"]))
             pts=Decimal(str(r["points"])) if ok else Decimal("0")
             score+=pts; correct+=1 if ok else 0
             con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)

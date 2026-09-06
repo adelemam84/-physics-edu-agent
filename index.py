@@ -40,6 +40,8 @@ from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402
 from app import research_admin_ops  # noqa: F401,E402
 from app import science_lesson_studio  # noqa: F401,E402
+from app import science_reference_library  # noqa: F401,E402
+from app import lesson_studio_reference_review  # noqa: F401,E402
 from app import lesson_studio_preprocess_runtime  # noqa: F401,E402
 from app import lesson_studio_diagram_router_runtime  # noqa: F401,E402
 from app import lesson_studio_notation_runtime  # noqa: F401,E402

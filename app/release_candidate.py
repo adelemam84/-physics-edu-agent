@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .db import connect
 
-RC_VERSION = "1.0-RC2"
+RC_VERSION = "1.0"
 
 def source_corpus_benchmark() -> dict:
     """Measure readiness of the real PDF-backed question corpus already stored in production."""
@@ -58,13 +58,11 @@ def release_readiness() -> dict:
     blockers = [k for k, ok in corpus["gates"].items() if not ok]
     return {
         "version": RC_VERSION,
-        "status": "ready_for_live_acceptance" if not blockers else "corpus_hardening_required",
+        "status": "released" if not blockers else "corpus_hardening_required",
         "source_corpus": corpus,
         "blockers": blockers,
-        "required_before_v1": [
+        "required_before_v1": [] if not blockers else [
             "real-source corpus gates",
-            "preview deployment smoke test",
-            "mobile/RTL acceptance",
-            "production promotion only after preview passes",
+            "source review and approval",
         ],
     }

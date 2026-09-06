@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
         init_db()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.0-RC2", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):

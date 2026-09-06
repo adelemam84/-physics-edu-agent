@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .db import connect
 
-RC_VERSION = "1.3.0"
+RC_VERSION = "1.4.0"
 
 def source_corpus_benchmark() -> dict:
     """Measure readiness of the real PDF-backed question corpus already stored in production."""

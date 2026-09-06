@@ -224,6 +224,8 @@ def question_readiness(question_id:int):
         row=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,q.accepted_answer,q.approved,
           EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
           EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid,
+          EXISTS(SELECT 1 FROM documents d WHERE d.id=q.document_id AND d.storage_url IS NOT NULL) external_source,
+          (q.text_verbatim ~ '(بالشكل|بالرسم|الرسم|الشكل)') diagram_required,
           EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
           EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) has_skill,
           EXISTS(SELECT 1 FROM lessons l WHERE l.id=q.lesson_id
@@ -233,7 +235,8 @@ def question_readiness(question_id:int):
             WHERE qc.question_id=q.id AND c.lesson_id IS DISTINCT FROM q.lesson_id) concept_consistent
           FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
     if not row: raise HTTPException(404,'Question not found')
-    source_ready=bool(row['document_id'] and row['page_number'] and row['source_page_exists'] and row['asset_valid'])
+    visual_ready=bool(row['asset_valid'] or (row['external_source'] and not row['diagram_required']))
+    source_ready=bool(row['document_id'] and row['page_number'] and row['source_page_exists'] and visual_ready)
     classified=bool(row['subject_id'] and row['grade_level_id'] and row['curriculum_version_id'] and row['term_id'] and row['unit_id'] and row['lesson_id'] and row['has_concept'] and row['has_skill'] and row['academic_consistent'] and row['concept_consistent'] and row['question_type']!='unknown' and row['difficulty']!='unclassified' and row['accepted_answer'] and str(row['accepted_answer']).strip())
     ready=source_ready and classified
     state='approved' if row['approved'] else ('reviewed' if ready else ('cropped' if row['asset_valid'] else 'draft'))
@@ -244,6 +247,8 @@ def question_quality_check(question_id:int):
     with connect() as con:
         q=con.execute("""SELECT q.*,
           EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) has_asset,
+          EXISTS(SELECT 1 FROM documents d WHERE d.id=q.document_id AND d.storage_url IS NOT NULL) external_source,
+          (q.text_verbatim ~ '(بالشكل|بالرسم|الرسم|الشكل)') diagram_required,
           EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
           EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) has_skill,
           EXISTS(SELECT 1 FROM lessons l WHERE l.id=q.lesson_id AND l.subject_id=q.subject_id
@@ -255,7 +260,7 @@ def question_quality_check(question_id:int):
         if not q: raise HTTPException(404,'Question not found')
         checks=[
           ('source',q['document_id'] is not None and (q['source_page'] or q['page']) is not None,'المصدر والصفحة'),
-          ('asset',bool(q['has_asset']),'القصاصة'),
+          ('asset',bool(q['has_asset'] or (q['external_source'] and not q['diagram_required'])),'القصاصة أو الصفحة الخارجية للسؤال النصي'),
           ('academic',all(q[k] is not None for k in ('subject_id','grade_level_id','curriculum_version_id','term_id','unit_id','lesson_id')) and bool(q['academic_consistent']),'التصنيف الأكاديمي'),
           ('concept',bool(q['has_concept']) and bool(q['concept_consistent']),'المفهوم'),
           ('skill',bool(q['has_skill']),'المهارة'),
@@ -343,6 +348,8 @@ def patch_question(question_id:int,patch:QuestionPatch):
             gate=con.execute("""SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,q.subject_id,q.grade_level_id,q.curriculum_version_id,q.term_id,q.unit_id,q.lesson_id,q.question_type,q.difficulty,q.accepted_answer,
               EXISTS(SELECT 1 FROM document_pages p WHERE p.document_id=q.document_id AND p.page_number=coalesce(q.source_page,q.page)) source_page_exists,
               EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id AND a.page_number=coalesce(q.source_page,q.page)) asset_valid,
+              EXISTS(SELECT 1 FROM documents d WHERE d.id=q.document_id AND d.storage_url IS NOT NULL) external_source,
+              (q.text_verbatim ~ '(بالشكل|بالرسم|الرسم|الشكل)') diagram_required,
               EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
               EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) has_skill,
               EXISTS(SELECT 1 FROM lessons l WHERE l.id=q.lesson_id
@@ -370,7 +377,7 @@ def patch_question(question_id:int,patch:QuestionPatch):
             if not gate['document_id']: missing.append('document')
             if not gate['page_number']: missing.append('source_page')
             if not gate['source_page_exists']: missing.append('valid_source_page')
-            if not gate['asset_valid']: missing.append('question_asset')
+            if not gate['asset_valid'] and not (gate['external_source'] and not gate['diagram_required']): missing.append('question_asset')
             if not effective_subject: missing.append('subject')
             if not effective_grade: missing.append('grade_level')
             if not effective_curriculum: missing.append('curriculum_version')

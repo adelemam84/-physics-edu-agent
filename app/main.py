@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
         init_db()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.3.0", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.4.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -98,6 +98,8 @@ def current_curriculum_status():
           (SELECT count(*) FROM document_page_reviews r JOIN documents d ON d.id=r.document_id WHERE d.curriculum_version_id=cv.id AND r.review_status='pending') pending_visual_pages,
           (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id) total_questions,
           (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id AND q.approved=TRUE) approved_questions,
+          (SELECT count(*) FROM question_review_notes qr JOIN questions q ON q.id=qr.question_id WHERE q.curriculum_version_id=cv.id AND qr.status='open') qa_open,
+          (SELECT count(*) FROM question_review_notes qr JOIN questions q ON q.id=qr.question_id WHERE q.curriculum_version_id=cv.id AND qr.status='resolved') qa_resolved,
           (SELECT count(*) FROM quizzes z WHERE z.curriculum_version_id=cv.id AND z.published=TRUE) published_quizzes
           FROM curriculum_versions cv
           WHERE cv.subject_id=1 AND cv.grade_level_id=6 AND cv.active=TRUE
@@ -106,7 +108,12 @@ def current_curriculum_status():
             return {'active':False,'status':'not_configured'}
         out=dict(row)
         out['active']=True
-        out['status']='ready' if out['approved_questions']>0 and out['published_quizzes']>0 else 'source_review_in_progress'
+        if out['approved_questions']>0 and out['published_quizzes']>0 and out['qa_open']==0:
+            out['status']='ready'
+        elif out['approved_questions']>0 and out['published_quizzes']>0:
+            out['status']='partial_bank_ready'
+        else:
+            out['status']='source_review_in_progress'
         return out
 @app.get('/api/release/source-benchmark',dependencies=[Depends(require_admin)])
 def release_source_benchmark(): return source_corpus_benchmark()

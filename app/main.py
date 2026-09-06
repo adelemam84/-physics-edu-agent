@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
         init_db()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.0-RC1", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.0-RC2", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -96,7 +96,11 @@ def lessons(subject_id:int|None=None,grade_level_id:int|None=None,curriculum_ver
     with connect() as con:return list(con.execute(sql,params).fetchall())
 @app.get('/api/documents',dependencies=[Depends(require_admin)])
 def documents():
-    with connect() as con:return list(con.execute("SELECT d.*,f.page_count,f.file_size_bytes,(SELECT COUNT(*) FROM questions q WHERE q.document_id=d.id) question_count FROM documents d LEFT JOIN document_files f ON f.document_id=d.id ORDER BY d.id DESC").fetchall())
+    with connect() as con:return list(con.execute("""SELECT d.*,
+        coalesce(f.page_count,(SELECT count(*) FROM document_pages p WHERE p.document_id=d.id)) page_count,
+        f.file_size_bytes,
+        (SELECT COUNT(*) FROM questions q WHERE q.document_id=d.id) question_count
+        FROM documents d LEFT JOIN document_files f ON f.document_id=d.id ORDER BY d.id DESC""").fetchall())
 @app.patch('/api/documents/{document_id}/academic-context',dependencies=[Depends(require_admin)])
 def patch_document_context(document_id:int,p:DocumentContextPatch):
     with connect() as con:
@@ -522,9 +526,22 @@ def reextract_document_questions(document_id:int):
 
 @app.get('/api/documents/{document_id}/page/{page}/preview',dependencies=[Depends(require_admin)])
 def page_preview(document_id:int,page:int):
-    with connect() as con:row=con.execute('SELECT p.preview_object_key,f.object_key FROM document_pages p JOIN document_files f ON f.document_id=p.document_id WHERE p.document_id=%s AND p.page_number=%s',(document_id,page)).fetchone()
-    if not row:raise HTTPException(404,'Page not found')
-    if row['preview_object_key']:return Response(get_bytes(row['preview_object_key']),media_type='image/jpeg',headers={'Cache-Control':'private, max-age=300'})
+    with connect() as con:
+        row=con.execute("""SELECT p.preview_object_key,f.object_key,d.storage_url
+          FROM document_pages p JOIN documents d ON d.id=p.document_id
+          LEFT JOIN document_files f ON f.document_id=p.document_id
+          WHERE p.document_id=%s AND p.page_number=%s""",(document_id,page)).fetchone()
+    if not row: raise HTTPException(404,'Page not found')
+    if row['preview_object_key']:
+        return Response(get_bytes(row['preview_object_key']),media_type='image/jpeg',headers={'Cache-Control':'private, max-age=300'})
+    if not row['object_key'] and row['storage_url']:
+        svg=f"""<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200">
+        <rect width="100%" height="100%" fill="#f7f8fa"/>
+        <text x="450" y="520" text-anchor="middle" font-size="34" font-family="Arial" fill="#172033">External PDF source</text>
+        <text x="450" y="580" text-anchor="middle" font-size="28" font-family="Arial" fill="#667085">Page {page}</text>
+        <text x="450" y="640" text-anchor="middle" font-size="23" font-family="Arial" fill="#667085">Use Open PDF to review the original page</text>
+        </svg>"""
+        return Response(svg,media_type='image/svg+xml',headers={'Cache-Control':'private, max-age=300'})
     raw=get_bytes(row['object_key'])
     try:
         pdf=fitz.open(stream=raw,filetype='pdf');pix=pdf.load_page(page-1).get_pixmap(matrix=fitz.Matrix(1.45,1.45),alpha=False);preview=pix.tobytes('jpeg',jpg_quality=82);pdf.close()

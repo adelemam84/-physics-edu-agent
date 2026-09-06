@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .db import connect
 
-RC_VERSION = "1.0-RC1"
+RC_VERSION = "1.0-RC2"
 
 def source_corpus_benchmark() -> dict:
     """Measure readiness of the real PDF-backed question corpus already stored in production."""
@@ -36,7 +36,11 @@ def source_corpus_benchmark() -> dict:
         "documents_needing_review": int(review_docs or 0),
         "total_questions": int(total or 0),
         "approved_count": int(approved or 0),
+        "candidate_questions": int(total or 0) - int(approved or 0),
+        "source_documents": 0,
     }
+    with connect() as con:
+        metrics["source_documents"] = int(con.execute("SELECT count(*) c FROM documents WHERE storage_url IS NOT NULL OR EXISTS(SELECT 1 FROM document_files f WHERE f.document_id=documents.id)").fetchone()["c"] or 0)
     gates = {
         "has_real_questions": total > 0,
         "has_approved_questions": approved > 0,

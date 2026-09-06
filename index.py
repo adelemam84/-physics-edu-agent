@@ -34,3 +34,4 @@ from app import source_asset_admin  # noqa: F401,E402
 from app import advanced_learning  # noqa: F401,E402
 from app import exam_blueprint  # noqa: F401,E402
 from app import corpus_public_status  # noqa: F401,E402
+from app import research_engine  # noqa: F401,E402

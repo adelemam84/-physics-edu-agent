@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
         init_db()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.2.1", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.3.0", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -32,6 +32,17 @@ async def protect_admin_pages(request: Request, call_next):
     if path.startswith("/admin") and path!="/admin/login" and not admin_session_valid(request):
         return RedirectResponse("/admin/login",status_code=307)
     return await call_next(request)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response=await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options","nosniff")
+    response.headers.setdefault("X-Frame-Options","DENY")
+    response.headers.setdefault("Referrer-Policy","same-origin")
+    response.headers.setdefault("Permissions-Policy","camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("Content-Security-Policy",
+      "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+    return response
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None

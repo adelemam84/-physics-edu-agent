@@ -3,6 +3,7 @@ import hmac
 import os
 import secrets
 import time
+from urllib.parse import urlparse
 
 from fastapi import Header, HTTPException, Request
 
@@ -60,12 +61,32 @@ def admin_session_valid(request: Request) -> bool:
     return hmac.compare_digest(sig, expected_sig)
 
 
+def same_origin_request(request: Request) -> bool:
+    origin=(request.headers.get("origin") or "").strip()
+    referer=(request.headers.get("referer") or "").strip()
+    source=origin or referer
+    if not source:
+        return False
+    try:
+        parsed=urlparse(source)
+    except ValueError:
+        return False
+    host=(request.headers.get("host") or request.url.netloc or "").lower()
+    source_host=(parsed.netloc or "").lower()
+    return bool(source_host and host and source_host==host)
+
 def require_admin(request: Request, x_admin_key: str | None = Header(default=None)):
     expected = _expected_key()
     if not expected:
         if os.getenv("VERCEL") or os.getenv("VERCEL_ENV") == "production":
             raise HTTPException(status_code=503, detail="Admin access is disabled until ADMIN_API_KEY is configured")
         return True
-    if validate_admin_key(x_admin_key) or admin_session_valid(request):
+    if validate_admin_key(x_admin_key):
         return True
+    if admin_session_valid(request):
+        if request.method.upper() in {"GET","HEAD","OPTIONS"}:
+            return True
+        if same_origin_request(request):
+            return True
+        raise HTTPException(status_code=403, detail="Cross-origin admin mutation blocked")
     raise HTTPException(status_code=401, detail="Invalid or missing admin credentials")

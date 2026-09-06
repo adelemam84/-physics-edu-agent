@@ -4,17 +4,12 @@ This file records non-blocking or deferred issues discovered during implementati
 
 ## Open
 
-### EDU-001 — No dedicated textbook/theory PDF is ingested yet
+### EDU-001 — Dedicated theory/textbook source is not yet approved
 - Status: non-blocking content expansion
-- Observed: production database currently has one document only: `تجريبى 23.pdf`.
-- Current document kind: `questions`.
-- Current document status: `extraction_review_required`.
-- Academic metadata on that document is not assigned.
-- There are currently no lesson rows / approved question-to-lesson mappings available for source-grounded lesson reading.
-- Impact: the student lesson page correctly falls back to “no source content linked” rather than generating unsupported scientific explanations.
-- Guard added: lesson reading accepts only approved explanatory kinds (`lesson`, `explanation`, `textbook`, `notes`) and approved/ready/processed documents.
-- Progress: upload now accepts explanatory source kinds; reviewed lesson/page mapping APIs and approval gates are implemented.
-- Remaining prerequisite: ingest actual user-provided lesson/explanation PDFs and create the academic hierarchy/lesson rows, then review and approve their page ranges.
+- Current production has a fully mapped legacy-2020 question source plus a registered 2026 final-review source from Google Drive.
+- The 2026/2027 academic hierarchy is now present and marked active.
+- Student lesson reading remains source-grounded and will not invent explanations when no approved textbook/lesson page range is linked.
+- Remaining prerequisite: add an approved explanatory PDF (`lesson`, `explanation`, `textbook`, or `notes`) and review its lesson page mappings.
 
 ## Policy
 - Scientific lesson content and questions must remain grounded in user-provided/approved source PDFs.
@@ -22,12 +17,11 @@ This file records non-blocking or deferred issues discovered during implementati
 - Record newly discovered non-blocking problems here and continue implementation when safe.
 
 
-### EDU-002 — Duplicate lesson-source schema/workflow discovered
-- Status: deferred / compatibility hardening
-- Observed: repository already contains `app/lesson_sources.py` built around a legacy table named `lesson_source_ranges`, while the new production migration adds `lesson_source_mappings`.
-- Risk: registering or using the legacy module unchanged would target a different schema and can fail or create two competing workflows.
-- Immediate decision: do not register the legacy module yet; keep the new table isolated until the workflow is consolidated.
-- Later treatment: migrate/replace the legacy module to `lesson_source_mappings`, then remove or compatibility-map `lesson_source_ranges` only after checking production data and references.
+### EDU-002 — Lesson-source workflow consolidation
+- Status: resolved
+- `app/lesson_sources.py` now uses the production `lesson_source_mappings` table.
+- The legacy `lesson_source_ranges` table is not present in production.
+- The module is registered by `index.py`, and mapping/approval gates use one schema only.
 
 
 ### EDU-003 — Visual source crops

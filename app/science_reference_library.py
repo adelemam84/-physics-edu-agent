@@ -76,7 +76,7 @@ def reference_context(subject: str, grade_label: str, query: str, limit: int = 8
             return {'available': False, 'documents': [], 'pages': [], 'policy': 'reference_only_no_silent_rewrite'}
         doc_ids = [d['id'] for d in docs]
         pages = list(con.execute('''SELECT document_id,page_number,page_text,extraction_method FROM science_reference_pages
-          WHERE document_id=ANY(%s) AND btrim(page_text)<>'' ''', (doc_ids,)).fetchall())
+          WHERE document_id=ANY(%s) AND length(btrim(page_text))>0''', (doc_ids,)).fetchall())
     tokens = _normalize_tokens(query)
     ranked = []
     title_by_id = {str(d['id']): d['title'] for d in docs}
@@ -107,7 +107,7 @@ def _refresh_ingestion_status(reference_id: str) -> dict:
         if not row:
             raise HTTPException(404, 'Scientific reference not found')
         extracted = con.execute('''SELECT count(*) n FROM science_reference_pages
-          WHERE document_id=%s AND btrim(page_text)<>'' '' ''', (reference_id,)).fetchone()['n']
+          WHERE document_id=%s AND length(btrim(page_text))>0''', (reference_id,)).fetchone()['n']
         total = int(row['page_count'])
         status = 'ready' if int(extracted) >= total else ('partial_ocr' if int(extracted) > 0 else 'ocr_required')
         con.execute('UPDATE science_reference_documents SET ingestion_status=%s,extracted_pages=%s WHERE id=%s',

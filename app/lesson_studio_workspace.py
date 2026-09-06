@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from fastapi import Depends, HTTPException
+from fastapi.responses import HTMLResponse, Response
+
+from .db import connect
+from .main import app
+from .security import require_admin
+from .services.storage import get_bytes
+
+
+@app.get('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/original', dependencies=[Depends(require_admin)])
+def lesson_source_original(job_id: str, source_id: int):
+    with connect() as con:
+        row = con.execute('''SELECT filename,content_type,object_key FROM science_lesson_sources
+          WHERE id=%s AND job_id=%s''', (source_id, job_id)).fetchone()
+    if not row:
+        raise HTTPException(404, 'Lesson source not found')
+    data = get_bytes(row['object_key'])
+    return Response(
+        data,
+        media_type=row['content_type'],
+        headers={'Content-Disposition': f'inline; filename="source-{source_id}"', 'Cache-Control': 'private, max-age=300'},
+    )
+
+
+WORKSPACE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lesson Studio Workspace</title><style>
+:root{color-scheme:light}*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f5f7fb;color:#172033}main{max-width:1280px;margin:auto;padding:14px}.bar,.card{background:white;border:1px solid #e4e7ec;border-radius:14px;padding:14px;margin:10px 0}.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:3}input,textarea,button{font:inherit;border:1px solid #d0d5dd;border-radius:9px;padding:9px}input{min-width:220px;flex:1}textarea{width:100%;min-height:150px;resize:vertical}button{cursor:pointer;background:#fff}.primary{background:#101828;color:#fff}.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}.source-img{width:100%;max-height:660px;object-fit:contain;background:#f2f4f7;border-radius:10px}.pill{display:inline-block;border-radius:999px;padding:3px 8px;font-size:12px;margin:2px}.green{background:#ecfdf3;color:#027a48}.yellow{background:#fffaeb;color:#b54708}.red{background:#fef3f2;color:#b42318}.approved,.teacher_approved{background:#eff8ff;color:#175cd3}.muted{color:#667085}.row{display:flex;gap:8px;flex-wrap:wrap}.section{border-top:1px solid #eaecf0;padding:12px 0}.svg svg{max-width:100%;height:auto}.tabs{display:flex;gap:6px;flex-wrap:wrap}.tab.active{background:#101828;color:#fff}.hidden{display:none}.warn{background:#fffaeb;border-right:4px solid #f79009;padding:10px}.ok{background:#ecfdf3;border-right:4px solid #12b76a;padding:10px}pre{white-space:pre-wrap;word-break:break-word}.conflict{font-size:12px;background:#fef3f2;padding:8px;border-radius:8px;margin:6px 0}@media(max-width:800px){.grid{grid-template-columns:1fr}.bar{position:static}.source-img{max-height:420px}}
+</style><main>
+<div class="bar"><a href="/admin/lesson-studio">Lesson Studio</a><a href="/admin/dashboard">لوحة التحكم</a><input id=jid placeholder="رقم مشروع الدرس"><button id=load class=primary>تحميل مساحة العمل</button></div>
+<div id=summary class=card>أدخل رقم المشروع لعرض المصدر والمحتوى المنظم جنبًا إلى جنب.</div>
+<div class="tabs card"><button class="tab active" data-view=ocr>المصدر وOCR</button><button class=tab data-view=content>المحتوى</button><button class=tab data-view=diagrams>الرسومات</button><button class=tab data-view=quality>الجودة والتصدير</button></div>
+<div id=ocr class=view></div><div id=content class="view hidden"></div><div id=diagrams class="view hidden"></div><div id=quality class="view hidden"></div>
+<script>
+const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));let state=null;
+function jobId(){return $('#jid').value.trim()}function badge(v){return `<span class="pill ${esc(v||'yellow')}">${esc(v||'unknown')}</span>`}
+async function api(url,opt){let r=await fetch(url,opt);if(r.status===401){location.href='/admin/login';throw new Error('auth')}let x=await r.json().catch(()=>null);if(!r.ok)throw new Error(JSON.stringify(x?.detail||x||r.status));return x}
+async function load(){let id=jobId();if(!id)return;try{let [review,content,q]=await Promise.all([api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(id)}/review`),api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(id)}/content-review`),api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(id)}/quality`)]);state={review,content,q};render()}catch(e){$('#summary').textContent=e.message}}
+function render(){let {review,content,q}=state;$('#summary').innerHTML=`<b>${esc(review.job.title)}</b> · ${esc(review.job.subject)} · ${esc(review.job.grade_label||'')}</b><br><span class=muted>OCR يحتاج مراجعة: ${review.summary.pending_sources} · عناصر غير واضحة: ${content.summary.uncertain_items} · قوانين تحتاج مراجعة: ${content.summary.notations_pending_review} · رسومات تحتاج مراجعة: ${content.summary.diagrams_pending_review}</span>`;renderOCR();renderContent();renderDiagrams();renderQuality()}
+function renderOCR(){let id=jobId();$('#ocr').innerHTML=state.review.sources.map(s=>{let src=`/api/admin/lesson-studio/jobs/${encodeURIComponent(id)}/sources/${s.id}/original`;let original=s.content_type.startsWith('image/')?`<img class=source-img src="${src}" alt="${esc(s.filename)}">`:`<p><a target=_blank href="${src}">فتح ملف PDF الأصلي</a></p>`;let conflicts=(s.ocr_conflicts||[]).map(c=>`<div class=conflict><b>${esc(c.kind)}</b><br>Gemini/الأساسي: ${esc(c.primary)}<br>المقارنة: ${esc(c.secondary)}</div>`).join('');return `<div class="card grid"><div><h3>المصدر ${s.position}: ${esc(s.filename)}</h3>${original}</div><div><div>${badge(s.ocr_confidence_band)} Score ${esc(s.confidence)}</div>${conflicts}<label>النص المعتمد</label><textarea id="src-${s.id}">${esc(s.extracted_text)}</textarea>${s.alternate_ocr_text?`<details><summary>قراءة OCR الثانية</summary><pre>${esc(s.alternate_ocr_text)}</pre></details>`:''}<button class=primary onclick="approveSource(${s.id})">اعتماد النص</button></div></div>`}).join('')}
+async function approveSource(sid){let fd=new FormData();fd.append('approved_text',$(`#src-${sid}`).value);try{await api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(jobId())}/sources/${sid}/approve`,{method:'POST',body:fd});await load()}catch(e){alert(e.message)}}
+function renderContent(){let c=state.content;let sections=(c.sections||[]).map((s,i)=>`<div class=section><h3>${esc(s.heading)}</h3><p>${esc(s.body)}</p><div class=muted>المصدر: ${esc((s.source_refs||[]).join('، ')||'غير مربوط')}</div></div>`).join('');let uncertain=(c.uncertain_items||[]).map((x,i)=>`<div class="section warn">${esc(x)}<div class=row><input id="un-${i}" placeholder="اكتب التصحيح/الحسم من المصدر"><button onclick="resolveUncertain(${i})">اعتماد الحل</button></div></div>`).join('');let eq=(c.equations_or_rules||[]).map((x,i)=>`<div class=section><b>${esc(x.label)}</b> <span dir=ltr>${esc(x.expression)}</span> ${badge((x.notation||{}).requires_review?'yellow':'green')}<div class=muted>${esc(x.notes||'')}</div>${(x.notation||{}).requires_review?`<div class=row><input id="eq-${i}" value="${esc(x.expression)}"><button onclick="approveNotation(${i})">اعتماد القانون/المعادلة</button></div>`:''}</div>`).join('');$('#content').innerHTML=`<div class=card><h2>الأقسام المنظمة</h2>${sections||'<p class=muted>لا توجد أقسام.</p>'}</div><div class=card><h2>القوانين والمعادلات</h2>${eq||'<p class=muted>لا توجد.</p>'}</div><div class=card><h2>عناصر غير واضحة</h2>${uncertain||'<div class=ok>لا توجد عناصر غير محسومة.</div>'}</div>`}
+async function resolveUncertain(i){let fd=new FormData();fd.append('resolution',$(`#un-${i}`).value);try{await api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(jobId())}/uncertain/${i}/resolve`,{method:'POST',body:fd});await load()}catch(e){alert(e.message)}}
+async function approveNotation(i){let fd=new FormData();fd.append('approved_expression',$(`#eq-${i}`).value);try{await api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(jobId())}/notations/${i}/approve`,{method:'POST',body:fd});await load()}catch(e){alert(e.message)}}
+function renderDiagrams(){let rows=(state.content.diagram_specs||[]).map((d,i)=>{let e=d.diagram_engine||{};return `<div class=card><h3>${esc(d.title)}</h3><p>${esc(d.description||'')}</p><div class=muted>${esc((d.scientific_labels||[]).join('، '))}</div>${e.svg?`<div class=svg>${e.svg}</div>`:'<div class=warn>لا يوجد Renderer دقيق لهذا النوع بعد.</div>'}<p>${badge(e.review_required?'yellow':'green')} ${e.review_required?'يحتاج اعتماد المدرس':'جاهز'}</p>${e.review_required&&e.svg?`<button class=primary onclick="approveDiagram(${i})">اعتماد الرسم بعد المراجعة</button>`:''}</div>`}).join('');$('#diagrams').innerHTML=rows||'<div class=card>لا توجد رسومات مقترحة.</div>'}
+async function approveDiagram(i){let fd=new FormData();fd.append('teacher_note','تمت مراجعة الرسم بصريًا وعلميًا');try{await api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(jobId())}/diagrams/${i}/approve`,{method:'POST',body:fd});await load()}catch(e){alert(e.message)}}
+function renderQuality(){let q=state.q;let checks=q.checks.map(x=>`<div class="section ${x.ok?'ok':'warn'}"><b>${esc(x.id)}</b> · ${x.ok?'✅':'⚠️'} · ${esc(JSON.stringify(x.value))}</div>`).join('');$('#quality').innerHTML=`<div class=card><h2>بوابة الجودة</h2>${checks}<p><b>جاهز لاعتماد المدرس:</b> ${q.preapproval_ready?'نعم':'لا'} · <b>اعتماد المدرس:</b> ${q.teacher_approved?'تم':'لم يتم'}</p><div class=row><button class=primary id=approveFinal ${q.preapproval_ready&&!q.teacher_approved?'':'disabled'}>اعتماد المحتوى النهائي</button><button id=exportFinal ${q.final_ready?'':'disabled'}>تصدير PDF النهائي</button></div></div>`;$('#approveFinal')?.addEventListener('click',approveFinal);$('#exportFinal')?.addEventListener('click',()=>{location.href=`/api/admin/lesson-studio/jobs/${encodeURIComponent(jobId())}/final-pdf`})}
+async function approveFinal(){try{await api(`/api/admin/lesson-studio/jobs/${encodeURIComponent(jobId())}/approve-content`,{method:'POST'});await load()}catch(e){alert(e.message)}}
+$('.tabs').addEventListener('click',e=>{if(!e.target.dataset.view)return;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));e.target.classList.add('active');document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));$('#'+e.target.dataset.view).classList.remove('hidden')});$('#load').addEventListener('click',load);let p=new URLSearchParams(location.search).get('job_id');if(p){$('#jid').value=p;load()}
+</script></main></html>'''
+
+
+@app.get('/admin/lesson-studio/workspace', response_class=HTMLResponse)
+def lesson_studio_workspace():
+    return WORKSPACE

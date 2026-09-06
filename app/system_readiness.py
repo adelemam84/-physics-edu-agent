@@ -22,6 +22,10 @@ def system_readiness():
             WHERE subject_id IS NULL OR grade_level_id IS NULL OR curriculum_version_id IS NULL OR term_id IS NULL""").fetchone()["n"],
           "document_pages":con.execute("SELECT count(*) n FROM document_pages").fetchone()["n"],
           "question_assets":con.execute("SELECT count(*) n FROM question_assets").fetchone()["n"],
+          "qa_open":con.execute("SELECT count(*) n FROM question_review_notes WHERE status='open'").fetchone()["n"],
+          "qa_critical":con.execute("SELECT count(*) n FROM question_review_notes WHERE status='open' AND severity='critical'").fetchone()["n"],
+          "published_quizzes":con.execute("SELECT count(*) n FROM quizzes WHERE published=TRUE AND lifecycle_status='published'").fetchone()["n"],
+          "active_source_documents":con.execute("""SELECT count(*) n FROM documents d JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id WHERE cv.active=TRUE""").fetchone()["n"],
           "skills":con.execute("SELECT count(*) n FROM skills WHERE active=TRUE").fetchone()["n"],
           "approved_questions":con.execute("SELECT count(*) n FROM questions WHERE approved=TRUE").fetchone()["n"],
           "unclassified_questions":con.execute("""SELECT count(*) n FROM questions q WHERE q.approved=FALSE AND
@@ -49,12 +53,18 @@ def system_readiness():
        "detail":f'{db["documents"]} ملفات · {db["document_pages"]} صفحات مفهرسة'},
       {"name":"التصنيف العلمي","ok":db["concepts"]>0 and db["skills"]>=9,
        "detail":f'{db["concepts"]} مفاهيم · {db["skills"]} مهارات'},
-      {"name":"بنك الأسئلة المعتمد","ok":db["approved_questions"]>0 and db["question_assets"]>=db["approved_questions"],
-       "detail":f'{db["approved_questions"]} سؤال معتمد · {db["question_assets"]} قصاصة محفوظة'},
+      {"name":"بنك الأسئلة المعتمد","ok":db["approved_questions"]>0 and db["qa_critical"]==0,
+       "detail":f'{db["approved_questions"]} سؤال معتمد · {db["qa_open"]} مراجعة مفتوحة · {db["qa_critical"]} حرجة'},
+      {"name":"الاختبارات المنشورة","ok":db["published_quizzes"]>0,
+       "detail":f'{db["published_quizzes"]} اختبار منشور'},
+      {"name":"مصدر المنهج الحالي","ok":db["active_source_documents"]>0,
+       "detail":f'{db["active_source_documents"]} مصدر مرتبط بالمنهج النشط'},
+    ]
+    optional_checks=[
       {"name":"بيانات الطلاب","ok":db["students"]>0,"detail":f'{db["students"]} طالب'},
       {"name":"أولياء الأمور","ok":db["guardians_opted_in"]>0,"detail":f'{db["guardians_opted_in"]} موافقة واتساب'},
       {"name":"WhatsApp Cloud API","ok":wa_ready,
-       "detail":"مكتمل" if wa_ready else "ناقص إعداد من إعدادات الاتصال/القوالب/Webhook"},
+       "detail":"مكتمل" if wa_ready else "اختياري حتى تفعيل إشعارات أولياء الأمور"},
     ]
     actions=[]
     if db["curricula"]==0: actions.append({"title":"إنشاء المناهج والترمين","path":"/admin/academic","owner":"user"})
@@ -64,11 +74,11 @@ def system_readiness():
     if db["students"]==0: actions.append({"title":"إضافة الطلاب وأكواد الدخول","path":"/admin/students","owner":"user"})
     if db["guardians_opted_in"]==0: actions.append({"title":"إضافة أولياء الأمور وتسجيل موافقة واتساب","path":"/admin/parents","owner":"user"})
     if not wa_ready: actions.append({"title":"إكمال إعداد WhatsApp Cloud API وMeta Webhook","path":"/admin/parents","owner":"user"})
-    return {"ready":all(x["ok"] for x in checks),"checks":checks,"counts":db,"whatsapp":wa,"next_actions":actions,
+    return {"ready":all(x["ok"] for x in checks),"checks":checks,"optional_checks":optional_checks,"counts":db,"whatsapp":wa,"next_actions":actions,
             "external_requirements":["ملفات PDF الأصلية للمناهج/الشرح وبنوك الأسئلة ومفاتيح الإجابة","بيانات الطلاب وأولياء الأمور الحقيقية","بيانات WhatsApp Cloud API وأسماء قوالب Meta المعتمدة"]}
 
 PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width=device-width,initial-scale=1"><title>جاهزية النظام</title><style>
 body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:900px;margin:auto;padding:18px}.box{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.item{padding:12px;border-bottom:1px solid #eee}.ok{color:#067647}.bad{color:#b42318}.muted{color:#667085}input,button{padding:10px;border:1px solid #ccd2dd;border-radius:9px}</style><main><div class=box><a href="/admin/dashboard">لوحة التحكم</a> · <a href="/admin/academic">الهيكل الأكاديمي</a> · <a href="/admin/workflow">المصادر والأسئلة</a></div><div id=out></div><script>
-function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}async function load(){let r=await fetch('/api/admin/system-readiness',{}),x=await r.json();if(!r.ok){out.innerHTML='<div class=box>تعذر الفحص</div>';return}out.innerHTML='<div class=box><h1>جاهزية النظام</h1>'+x.checks.map(c=>'<div class="item '+(c.ok?'ok':'bad')+'">'+(c.ok?'✅ ':'⚠️ ')+e(c.name)+'<div class=muted>'+e(c.detail)+'</div></div>').join('')+'</div><div class=box><h2>الخطوات التالية</h2>'+(x.next_actions.length?x.next_actions.map(v=>'<div class=item><a href="'+e(v.path)+'">'+e(v.title)+'</a><div class=muted>'+(v.owner==='user'?'مطلوب منك':'يُستكمل داخل النظام')+'</div></div>').join(''):'<div class="item ok">✅ لا توجد خطوات إعداد أساسية ناقصة</div>')+'</div><div class=box><h2>المدخلات الخارجية المطلوبة</h2>'+x.external_requirements.map(v=>'<div class=item>• '+e(v)+'</div>').join('')+'</div>'}load()</script></main></html>'''
+function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}async function load(){let r=await fetch('/api/admin/system-readiness',{}),x=await r.json();if(!r.ok){out.innerHTML='<div class=box>تعذر الفحص</div>';return}out.innerHTML='<div class=box><h1>جاهزية النظام الأساسية</h1>'+x.checks.map(c=>'<div class="item '+(c.ok?'ok':'bad')+'">'+(c.ok?'✅ ':'⚠️ ')+e(c.name)+'<div class=muted>'+e(c.detail)+'</div></div>').join('')+'</div><div class=box><h2>تكاملات تشغيلية اختيارية</h2>'+x.optional_checks.map(c=>'<div class="item '+(c.ok?'ok':'muted')+'">'+(c.ok?'✅ ':'○ ')+e(c.name)+'<div class=muted>'+e(c.detail)+'</div></div>').join('')+'</div><div class=box><h2>الخطوات التالية</h2>'+(x.next_actions.length?x.next_actions.map(v=>'<div class=item><a href="'+e(v.path)+'">'+e(v.title)+'</a><div class=muted>'+(v.owner==='user'?'مطلوب منك':'يُستكمل داخل النظام')+'</div></div>').join(''):'<div class="item ok">✅ لا توجد خطوات إعداد أساسية ناقصة</div>')+'</div><div class=box><h2>المدخلات الخارجية المطلوبة</h2>'+x.external_requirements.map(v=>'<div class=item>• '+e(v)+'</div>').join('')+'</div>'}load()</script></main></html>'''
 @app.get("/admin/readiness",response_class=HTMLResponse)
 def readiness_page(): return PAGE

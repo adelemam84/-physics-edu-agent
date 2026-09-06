@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .db import connect
 
-RC_VERSION = "1.2.1"
+RC_VERSION = "1.3.0"
 
 def source_corpus_benchmark() -> dict:
     """Measure readiness of the real PDF-backed question corpus already stored in production."""
@@ -23,7 +23,7 @@ def source_corpus_benchmark() -> dict:
             FROM questions q
         """).fetchone()
         review_docs = con.execute(
-            "SELECT count(*) c FROM documents WHERE status IN ('review_required','extraction_review_required')"
+            "SELECT count(*) c FROM documents WHERE status IN ('review_required','extraction_review_required','visual_review_required','source_review_required')"
         ).fetchone()["c"]
         qa = con.execute("""SELECT count(*) FILTER(WHERE status='open') open,
           count(*) FILTER(WHERE status='open' AND severity='critical') critical,
@@ -47,6 +47,14 @@ def source_corpus_benchmark() -> dict:
     }
     with connect() as con:
         metrics["source_documents"] = int(con.execute("SELECT count(*) c FROM documents WHERE storage_url IS NOT NULL OR EXISTS(SELECT 1 FROM document_files f WHERE f.document_id=documents.id)").fetchone()["c"] or 0)
+        active=con.execute("""SELECT cv.id,cv.academic_year,
+          (SELECT count(*) FROM documents d WHERE d.curriculum_version_id=cv.id) source_docs,
+          (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id AND q.approved=TRUE) approved_questions
+          FROM curriculum_versions cv WHERE cv.active=TRUE ORDER BY cv.id DESC LIMIT 1""").fetchone()
+        metrics["active_curriculum_id"] = int(active["id"]) if active else None
+        metrics["active_curriculum_year"] = active["academic_year"] if active else None
+        metrics["active_source_documents"] = int(active["source_docs"] or 0) if active else 0
+        metrics["active_approved_questions"] = int(active["approved_questions"] or 0) if active else 0
     gates = {
         "has_real_questions": total > 0,
         "has_approved_questions": approved > 0,

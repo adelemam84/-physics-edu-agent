@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from fastapi import Depends, HTTPException
 from fastapi.responses import Response
@@ -9,8 +10,11 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
+from .services.lesson_integrity import review_source_hash
 from .services.lesson_pdf_renderer import render_lesson_pdf
 from .services.storage import put_bytes, storage_configured
+
+OPENAI_REVIEW_CONFIGURED = bool(os.getenv('OPENAI_API_KEY', '').strip())
 
 
 def _quality_schema() -> None:
@@ -19,12 +23,49 @@ def _quality_schema() -> None:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_source_hash text')
+
+
+def _second_review_check(row: dict, structured: dict) -> dict:
+    if not OPENAI_REVIEW_CONFIGURED:
+        return {
+            'id': 'independent_second_review',
+            'ok': True,
+            'value': 'optional_not_configured',
+        }
+    review = row.get('second_review') or {}
+    transcript = row.get('raw_transcript') or ''
+    current_hash = review_source_hash(transcript, structured)
+    stored_hash = row.get('second_review_source_hash') or ''
+    findings = review.get('findings') if isinstance(review, dict) else []
+    if not isinstance(findings, list):
+        findings = []
+    blocking = [x for x in findings if x.get('severity') in {'critical', 'review'}]
+    verdict = review.get('verdict') if isinstance(review, dict) else None
+    fresh = bool(stored_hash) and stored_hash == current_hash
+    ok = bool(review) and fresh and verdict == 'clear' and not blocking
+    return {
+        'id': 'independent_second_review',
+        'ok': ok,
+        'value': {
+            'configured': True,
+            'present': bool(review),
+            'fresh_for_current_content': fresh,
+            'verdict': verdict,
+            'blocking_findings': len(blocking),
+            'provider': row.get('second_review_provider'),
+        },
+    }
 
 
 def quality_snapshot(job_id: str) -> dict:
     _quality_schema()
     row, sources = _job(job_id)
-    structured = row['structured_json'] or {}
+    row = dict(row)
+    structured = row.get('structured_json') or {}
     source_pending = sum(1 for s in sources if s.get('requires_review'))
     uncertain = list(structured.get('uncertain_items') or [])
     diagrams = list(structured.get('diagram_specs') or [])
@@ -37,13 +78,14 @@ def quality_snapshot(job_id: str) -> dict:
     sections = list(structured.get('sections') or [])
     sections_without_source_refs = sum(1 for s in sections if not (s.get('source_refs') or []))
     checks = [
-        {'id': 'source_preserved', 'ok': int(row['source_count'] or 0) == len(sources) and len(sources) > 0, 'value': len(sources)},
+        {'id': 'source_preserved', 'ok': int(row.get('source_count') or 0) == len(sources) and len(sources) > 0, 'value': len(sources)},
         {'id': 'ocr_review_clear', 'ok': source_pending == 0, 'value': source_pending},
         {'id': 'structured_content_ready', 'ok': bool(structured), 'value': bool(structured)},
         {'id': 'uncertainty_clear', 'ok': len(uncertain) == 0, 'value': len(uncertain)},
         {'id': 'notation_review_clear', 'ok': notation_pending == 0, 'value': notation_pending},
         {'id': 'diagram_review_clear', 'ok': diagram_pending == 0, 'value': diagram_pending},
         {'id': 'section_provenance', 'ok': sections_without_source_refs == 0 if sections else True, 'value': sections_without_source_refs},
+        _second_review_check(row, structured),
     ]
     preapproval_ready = all(x['ok'] for x in checks)
     snapshot = {
@@ -57,10 +99,13 @@ def quality_snapshot(job_id: str) -> dict:
             'teacher_is_final_gate': True,
             'precise_diagrams_require_deterministic_or_reviewed_output': True,
             'ambiguous_scientific_notation_requires_review': True,
+            'fresh_independent_review_required_when_provider_configured': True,
         },
     }
+    # Storing the quality snapshot must not change the content revision timestamp.
+    # Freshness of the second review is tied to a content hash instead.
     with connect() as con:
-        con.execute('UPDATE science_lesson_jobs SET quality_snapshot=%s::jsonb,updated_at=now() WHERE id=%s',
+        con.execute('UPDATE science_lesson_jobs SET quality_snapshot=%s::jsonb WHERE id=%s',
                     (json.dumps(snapshot, ensure_ascii=False), job_id))
     return snapshot
 

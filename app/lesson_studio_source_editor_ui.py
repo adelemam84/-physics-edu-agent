@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+from fastapi.responses import HTMLResponse
+
+from .main import app
+
+
+PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تصحيح مصدر Lesson Studio</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:#f5f7fb;color:#172033}main{max-width:1150px;margin:auto;padding:14px}.card{background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:14px;margin:10px 0}.grid{display:grid;grid-template-columns:1.15fr .85fr;gap:12px}.row{display:flex;gap:8px;flex-wrap:wrap}input,select,button,textarea{font:inherit;padding:9px;border:1px solid #d0d5dd;border-radius:8px}input[type=number]{width:105px}input[type=text]{min-width:210px}textarea{width:100%;min-height:80px}button{cursor:pointer}.primary{background:#101828;color:#fff}.preview{width:100%;max-height:660px;object-fit:contain;background:#f2f4f7;border-radius:10px}.muted{color:#667085}.ok{background:#ecfdf3;padding:10px;border-radius:8px}.warn{background:#fffaeb;padding:10px;border-radius:8px}@media(max-width:800px){.grid{grid-template-columns:1fr}.preview{max-height:420px}}
+</style><main>
+<div class=card><a href="/admin/lesson-studio/workspace">مساحة العمل</a> · <a href="/admin/lesson-studio">Lesson Studio</a></div>
+<div class=card><h1>تصحيح الصورة قبل OCR</h1><p class=muted>العملية تنشئ نسخة مشتقة فقط. الملف الأصلي لا يتم استبداله أو حذفه.</p><div class=row><input id=job placeholder="رقم المشروع"><input id=source placeholder="رقم المصدر"><button id=open class=primary>فتح المصدر</button></div></div>
+<div class=grid><div class=card><h2>الصورة</h2><img id=img class=preview><p><button id=showOriginal>الأصل</button><button id=showAdjusted>النسخة المصححة</button></p></div><div class=card><h2>التعديلات</h2>
+<p class=muted>قيم القص من 0 إلى 1 بالنسبة لأبعاد الصورة.</p><div class=row><label>يسار <input id=l type=number min=0 max=1 step=.01 value=0></label><label>أعلى <input id=t type=number min=0 max=1 step=.01 value=0></label><label>يمين <input id=r type=number min=0 max=1 step=.01 value=1></label><label>أسفل <input id=b type=number min=0 max=1 step=.01 value=1></label></div>
+<p><label>تدوير <select id=rot><option>0</option><option>90</option><option>180</option><option>270</option></select></label></p>
+<label>نقاط المنظور — اختياري [TLx,TLy,TRx,TRy,BRx,BRy,BLx,BLy]</label><textarea id=pers placeholder="[0.03,0.04,0.97,0.05,0.96,0.96,0.04,0.95]"></textarea>
+<div class=row><button id=apply class=primary>حفظ النسخة المصححة</button><button id=rerun>إعادة OCR</button><button id=reset>إلغاء التصحيح</button></div><div id=status class=muted style="margin-top:12px"></div></div></div>
+<script>
+const $=s=>document.querySelector(s);function ids(){return {j:$('#job').value.trim(),s:$('#source').value.trim()}}function originalUrl(){let x=ids();return `/api/admin/lesson-studio/jobs/${encodeURIComponent(x.j)}/sources/${encodeURIComponent(x.s)}/original`}function adjustedUrl(){let x=ids();return `/api/admin/lesson-studio/jobs/${encodeURIComponent(x.j)}/sources/${encodeURIComponent(x.s)}/adjusted?ts=${Date.now()}`}async function jsonFetch(url,opt){let q=await fetch(url,opt);if(q.status===401){location.href='/admin/login';throw new Error('auth')}let x=await q.json().catch(()=>null);if(!q.ok)throw new Error(JSON.stringify(x?.detail||x||q.status));return x}
+$('#open').onclick=()=>{$('#img').src=originalUrl();$('#status').textContent='تم فتح الأصل.'};$('#showOriginal').onclick=()=>$('#img').src=originalUrl();$('#showAdjusted').onclick=()=>$('#img').src=adjustedUrl();
+$('#apply').onclick=async()=>{let x=ids();let fd=new FormData();fd.append('crop_left',$('#l').value);fd.append('crop_top',$('#t').value);fd.append('crop_right',$('#r').value);fd.append('crop_bottom',$('#b').value);fd.append('rotation',$('#rot').value);fd.append('perspective_json',$('#pers').value.trim());try{let y=await jsonFetch(`/api/admin/lesson-studio/jobs/${encodeURIComponent(x.j)}/sources/${encodeURIComponent(x.s)}/adjust`,{method:'POST',body:fd});$('#status').innerHTML='<div class=ok>تم حفظ نسخة مشتقة. الأصل محفوظ. الأبعاد الجديدة: '+y.meta.output_size.join('×')+'</div>';$('#img').src=adjustedUrl()}catch(e){$('#status').innerHTML='<div class=warn>'+e.message+'</div>'}};
+$('#rerun').onclick=async()=>{let x=ids();try{let y=await jsonFetch(`/api/admin/lesson-studio/jobs/${encodeURIComponent(x.j)}/sources/${encodeURIComponent(x.s)}/rerun-ocr`,{method:'POST'});$('#status').innerHTML='<div class=ok>تمت إعادة OCR. النتيجة: '+(y.verification.confidence_band||'review')+' — ما زال اعتماد المدرس مطلوبًا.</div>'}catch(e){$('#status').innerHTML='<div class=warn>'+e.message+'</div>'}};
+$('#reset').onclick=async()=>{let x=ids();try{await jsonFetch(`/api/admin/lesson-studio/jobs/${encodeURIComponent(x.j)}/sources/${encodeURIComponent(x.s)}/reset-adjustment`,{method:'POST'});$('#status').innerHTML='<div class=ok>تم إلغاء النسخة المصححة. الأصل لم يتغير.</div>';$('#img').src=originalUrl()}catch(e){$('#status').innerHTML='<div class=warn>'+e.message+'</div>'}};
+let p=new URLSearchParams(location.search);if(p.get('job_id'))$('#job').value=p.get('job_id');if(p.get('source_id')){$('#source').value=p.get('source_id');$('#img').src=originalUrl()}
+</script></main></html>'''
+
+
+@app.get('/admin/lesson-studio/source-editor', response_class=HTMLResponse)
+def lesson_studio_source_editor_page():
+    return PAGE

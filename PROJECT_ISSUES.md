@@ -7,25 +7,33 @@ This file records non-blocking or deferred issues discovered during implementati
 ### EDU-001 — Dedicated theory/textbook source is not yet approved
 - Status: non-blocking content expansion
 - Current production has a fully mapped legacy-2020 question source plus a registered 2026 final-review source from Google Drive.
-- The 2026/2027 academic hierarchy is now present and marked active.
+- The 2026/2027 academic hierarchy is present and active.
 - Student lesson reading remains source-grounded and will not invent explanations when no approved textbook/lesson page range is linked.
 - Remaining prerequisite: add an approved explanatory PDF (`lesson`, `explanation`, `textbook`, or `notes`) and review its lesson page mappings.
+
+### EDU-002 — Lesson-source workflow consolidation
+- Status: resolved
+- `app/lesson_sources.py` uses the production `lesson_source_mappings` table.
+- The legacy `lesson_source_ranges` table is not present in production.
+- The module is registered by `index.py`, and mapping/approval gates use one schema only.
+
+### EDU-003 — Visual transcription review queue
+- Status: operational review queue; non-blocking
+- Source-backed visual assets are already attached to the current 2026/2027 candidates.
+- Phase-2 manual source review increased current-curriculum approvals from 41 to 71.
+- 50 source-image candidates still have `visual_transcription_required`; they remain deliberately unapproved until their exact question text, answer, academic mapping, concept, skill and difficulty are verified from the source image.
+- One additional candidate remains blocked as `source_candidate_mismatch` and must not be silently converted into a question.
+- No missing visual asset is currently being treated as permission to recreate or invent a diagram.
+
+### EDU-004 — Broad-quiz legacy quality-check SQL
+- Status: non-blocking hardening
+- The legacy request-layer `quiz_quality_check` path can hit PostgreSQL parameter type ambiguity for a broad quiz whose `lesson_id` is null.
+- Phase-2 automatic quiz publication does not use that ambiguous path; it uses a strict source/QA/composition gate and production is operational.
+- Follow-up hardening should explicitly cast nullable lesson parameters in the legacy query before relying on that endpoint for broad-quiz admin review.
 
 ## Policy
 - Scientific lesson content and questions must remain grounded in user-provided/approved source PDFs.
 - Do not silently substitute model knowledge when source material is missing.
+- Visual questions must preserve the authoritative source image/diagram.
+- Do not close transcription QA merely because an image asset exists; text, answer and academic classification must be independently reviewed.
 - Record newly discovered non-blocking problems here and continue implementation when safe.
-
-
-### EDU-002 — Lesson-source workflow consolidation
-- Status: resolved
-- `app/lesson_sources.py` now uses the production `lesson_source_mappings` table.
-- The legacy `lesson_source_ranges` table is not present in production.
-- The module is registered by `index.py`, and mapping/approval gates use one schema only.
-
-
-### EDU-003 — Visual source crops
-- Status: operational review queue
-- 19 diagram/graph-dependent questions remain intentionally unapproved until a durable question-asset copy is stored.
-- The platform is fully operational without publishing those questions; text-self-sufficient questions are no longer blocked by an unnecessary asset requirement.
-- Generated crop coordinates/images for the remaining 19 visual questions have been verified locally from the real PDF source. The admin now supports direct JPG/PNG/WEBP upload for external/Google Drive sources; persistent image upload remains a content-operations task, not a release blocker.

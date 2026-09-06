@@ -11,6 +11,10 @@ import re
 #   1) ...   2. ...   (18) ...   [7] ...
 #   سؤال 5 ...   س 12: ...
 # Arabic-Indic digits are supported as well.
+QUESTION_LINE_START = re.compile(
+    r"(?m)^\\s*\\(\\s*([0-9٠-٩]{1,3})\\s*\\)\\s+"
+)
+
 QUESTION_START = re.compile(
     r"(?<![\w\d])(?:"
     r"(?:س(?:ؤال)?\s*)[\(\[]?([0-9٠-٩]{1,3})[\)\]]?[\.\-:،)]?"
@@ -52,7 +56,12 @@ def detect_verbatim_question_candidates(page_text: str) -> list[str]:
     We prefer false negatives over false positives: a marker must look like an
     actual question number, not a measurement or formula value.
     """
-    matches = list(QUESTION_START.finditer(page_text))
+    # Prefer explicit numbered question markers at the start of a text line.
+    # This avoids treating worked-solution labels such as # (1), formula values,
+    # or inline numbered steps as new questions. Some older PDFs only expose
+    # inline markers, so the conservative legacy matcher remains a fallback.
+    line_matches = list(QUESTION_LINE_START.finditer(page_text))
+    matches = line_matches if line_matches else list(QUESTION_START.finditer(page_text))
     if not matches:
         return []
 

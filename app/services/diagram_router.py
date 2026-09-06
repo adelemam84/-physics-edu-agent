@@ -33,7 +33,7 @@ ALIASES = {
 
 _KEYWORDS = [
     ('series_parallel_circuit', ('توالي وتوازي', 'دائرة مركبة', 'فروع مقاومات', 'series parallel', 'mixed resistor')),
-    ('resistor_network', ('شبكة مقاومات', 'مقاومات متوازية', 'resistor network', 'parallel resistors')),
+    ('resistor_network', ('شبكة مقاومات', 'مقاومات متوازية', 'توصيل مقاومات على التوازي', 'مقاومات على التوازي', 'resistor network', 'parallel resistors')),
     ('solenoid_field', ('ملف لولبي', 'solenoid', 'مجال ملف', 'مجال داخل الملف')),
     ('magnetic_field', ('مجال مغناطيسي', 'خطوط الفيض', 'حول سلك', 'magnetic field')),
     ('chemistry_lab_setup', ('جهاز تحضير غاز', 'تجربة كيميائية', 'دورق وأنبوب', 'chemistry apparatus', 'gas preparation')),

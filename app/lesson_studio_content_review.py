@@ -11,8 +11,15 @@ from .science_lesson_studio import _job, _schema
 from .services.science_notation import classify_notation
 
 
-def _load_structured(job_id: str) -> tuple[dict, dict]:
+def _content_review_schema() -> None:
     _schema()
+    with connect() as con:
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
+
+
+def _load_structured(job_id: str) -> tuple[dict, dict]:
+    _content_review_schema()
     with connect() as con:
         row = con.execute('SELECT * FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
     if not row:
@@ -24,6 +31,7 @@ def _load_structured(job_id: str) -> tuple[dict, dict]:
 
 
 def _save_structured(job_id: str, structured: dict) -> None:
+    _content_review_schema()
     with connect() as con:
         con.execute('''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,
           teacher_approved=FALSE,teacher_approved_at=NULL,status='content_review_required',updated_at=now()

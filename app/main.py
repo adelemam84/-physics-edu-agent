@@ -428,7 +428,11 @@ def patch_question(question_id:int,patch:QuestionPatch):
                 AND l.subject_id=q.subject_id AND l.grade_level_id=q.grade_level_id
                 AND l.curriculum_version_id=q.curriculum_version_id AND l.term_id=q.term_id AND l.unit_id=q.unit_id) academic_consistent,
               NOT EXISTS(SELECT 1 FROM question_concepts qc JOIN concepts c ON c.id=qc.concept_id
-                WHERE qc.question_id=q.id AND c.lesson_id IS DISTINCT FROM q.lesson_id) concept_consistent
+                WHERE qc.question_id=q.id AND c.lesson_id IS DISTINCT FROM q.lesson_id) concept_consistent,
+              NOT EXISTS(SELECT 1 FROM curriculum_versions cv WHERE cv.id=q.curriculum_version_id AND cv.active=TRUE)
+                OR EXISTS(SELECT 1 FROM document_page_reviews r
+                  WHERE r.document_id=q.document_id AND r.page_number=coalesce(q.source_page,q.page)
+                    AND r.page_role='question_candidate' AND r.review_status IN ('reviewing','done')) current_visual_page_reviewed
               FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
             if not gate: raise HTTPException(404,'Question not found')
             effective_subject=values.get('subject_id',gate['subject_id'])

@@ -50,3 +50,13 @@ uvicorn app.main:app --reload
 - QA-clear text questions can be used without artificial image-asset requirements.
 - Publication gate validates source grounding, approval, answer coverage and QA state.
 - Diagnostic quizzes are generated only from approved source-backed questions.
+
+
+## v1.3.0 Production
+- Active third-secondary Physics curriculum context: 2026/2027.
+- Current 2026 final-review PDF is registered as an image-only Google Drive source and is not silently OCR-invented.
+- Page-level visual review queue separates question pages from covers, indexes and worked-solution pages.
+- Student portal labels legacy 2020 diagnostics explicitly instead of presenting them as current curriculum.
+- Cookie-authenticated admin mutations are same-origin protected; production responses include baseline security headers.
+- Bulk visual-asset ZIP ingestion closes diagram QA only after durable images are stored and other quality gates pass.
+- Current-source progress is available from `/api/current-curriculum/status`.

@@ -87,6 +87,27 @@ def health(): return {'ok':True,'version':app.version,'content_policy':'pdf_only
 def release_status():
     r=release_readiness()
     return {'version':r['version'],'status':r['status'],'blockers':r['blockers']}
+
+@app.get('/api/current-curriculum/status')
+def current_curriculum_status():
+    with connect() as con:
+        row=con.execute("""SELECT cv.id,cv.academic_year,cv.version_label,
+          (SELECT count(*) FROM documents d WHERE d.curriculum_version_id=cv.id) source_documents,
+          (SELECT count(*) FROM document_pages p JOIN documents d ON d.id=p.document_id WHERE d.curriculum_version_id=cv.id) source_pages,
+          (SELECT count(*) FROM document_page_reviews r JOIN documents d ON d.id=r.document_id WHERE d.curriculum_version_id=cv.id AND r.page_role='question_candidate') candidate_question_pages,
+          (SELECT count(*) FROM document_page_reviews r JOIN documents d ON d.id=r.document_id WHERE d.curriculum_version_id=cv.id AND r.review_status='pending') pending_visual_pages,
+          (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id) total_questions,
+          (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id AND q.approved=TRUE) approved_questions,
+          (SELECT count(*) FROM quizzes z WHERE z.curriculum_version_id=cv.id AND z.published=TRUE) published_quizzes
+          FROM curriculum_versions cv
+          WHERE cv.subject_id=1 AND cv.grade_level_id=6 AND cv.active=TRUE
+          ORDER BY cv.id DESC LIMIT 1""").fetchone()
+        if not row:
+            return {'active':False,'status':'not_configured'}
+        out=dict(row)
+        out['active']=True
+        out['status']='ready' if out['approved_questions']>0 and out['published_quizzes']>0 else 'source_review_in_progress'
+        return out
 @app.get('/api/release/source-benchmark',dependencies=[Depends(require_admin)])
 def release_source_benchmark(): return source_corpus_benchmark()
 @app.get('/api/release/readiness',dependencies=[Depends(require_admin)])

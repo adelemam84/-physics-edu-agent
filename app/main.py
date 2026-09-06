@@ -21,7 +21,7 @@ from .release_candidate import source_corpus_benchmark, release_readiness
 async def lifespan(app: FastAPI):
     init_db(); yield
 
-app = FastAPI(title="Science Education Platform", version="0.13.0", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.0-RC1", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -65,6 +65,10 @@ class ManualQuestionCreate(BaseModel):
 
 @app.get('/health')
 def health(): return {'ok':True,'version':app.version,'content_policy':'pdf_only','storage':STORAGE_BACKEND,'object_storage':'ready' if storage_configured() else 'not_configured'}
+@app.get('/api/release/status')
+def release_status():
+    r=release_readiness()
+    return {'version':r['version'],'status':r['status'],'blockers':r['blockers']}
 @app.get('/api/release/source-benchmark',dependencies=[Depends(require_admin)])
 def release_source_benchmark(): return source_corpus_benchmark()
 @app.get('/api/release/readiness',dependencies=[Depends(require_admin)])

@@ -34,7 +34,6 @@ class OCRConsensusResult:
 
 
 _SCIENCE_SYMBOL_RE = re.compile(r"[=<>±×÷→←⇌∑∆ΔθλμΩ]|\d|[A-Za-z]{1,3}\d|[A-Z][a-z]?\d*")
-_EQUATION_MARK_RE = re.compile(r"[=→←⇌±×÷/]|")
 _UNCLEAR_MARKERS = ('[غير واضح]', '[unclear]', '???')
 
 

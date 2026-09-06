@@ -1,8 +1,14 @@
 import unittest
+from io import BytesIO
 
+from PIL import Image
+
+from app.services.handwriting_preprocess import preprocess_handwriting
+from app.services.lesson_integrity import review_source_hash
+from app.services.lesson_pdf_renderer import lesson_html, render_lesson_pdf
 from app.services.ocr_consensus import compare_ocr, single_provider_result
 from app.services.science_diagrams import DiagramSpec, render, validate_spec
-from app.services.lesson_pdf_renderer import render_lesson_pdf, lesson_html
+from app.services.science_notation import classify_notation
 
 
 class OCRConsensusTests(unittest.TestCase):
@@ -51,6 +57,65 @@ class ScienceDiagramTests(unittest.TestCase):
         svg = render(spec)['svg']
         self.assertIn('A &lt; B', svg)
         self.assertIn('C &amp; D', svg)
+
+    def test_science_specific_shell_remains_review_required(self):
+        result = render(DiagramSpec('atom_shell', 'تركيب الذرة', ('K', 'L'), subject='chemistry'))
+        self.assertIsNotNone(result['svg'])
+        self.assertTrue(result['review_required'])
+
+
+class ScienceNotationTests(unittest.TestCase):
+    def test_physics_equation_is_classified_without_rewrite(self):
+        item = classify_notation('V = IR')
+        self.assertEqual(item.raw, 'V = IR')
+        self.assertEqual(item.kind, 'physics_or_math_equation')
+
+    def test_chemical_reaction_is_detected(self):
+        item = classify_notation('2H2 + O2 → 2H2O')
+        self.assertEqual(item.raw, '2H2 + O2 → 2H2O')
+        self.assertEqual(item.kind, 'chemical_equation')
+
+    def test_unclear_notation_requires_review(self):
+        item = classify_notation('V = [غير واضح] R')
+        self.assertTrue(item.requires_review)
+
+
+class IntegrityTests(unittest.TestCase):
+    def test_review_hash_is_stable_for_identical_content(self):
+        structured = {'sections': [{'body': 'نفس النص'}]}
+        a = review_source_hash('الأصل', structured)
+        b = review_source_hash('الأصل', structured)
+        self.assertEqual(a, b)
+
+    def test_review_hash_changes_after_any_content_change(self):
+        a = review_source_hash('الأصل', {'summary': 'أ'})
+        b = review_source_hash('الأصل', {'summary': 'ب'})
+        c = review_source_hash('أصل معدل', {'summary': 'أ'})
+        self.assertNotEqual(a, b)
+        self.assertNotEqual(a, c)
+
+
+class HandwritingPreprocessTests(unittest.TestCase):
+    def test_preprocess_creates_derivative_without_mutating_original_bytes(self):
+        img = Image.new('RGB', (320, 180), 'white')
+        buf = BytesIO()
+        img.save(buf, format='JPEG', quality=85)
+        original = buf.getvalue()
+        snapshot = bytes(original)
+        processed, ctype, report = preprocess_handwriting(original, 'image/jpeg')
+        self.assertEqual(original, snapshot)
+        self.assertEqual(ctype, 'image/png')
+        self.assertTrue(processed.startswith(b'\x89PNG'))
+        self.assertTrue(report.applied)
+        self.assertTrue(report.grayscale)
+        self.assertFalse(report.perspective_corrected)
+
+    def test_pdf_is_not_modified_by_image_preprocessor(self):
+        data = b'%PDF-test'
+        processed, ctype, report = preprocess_handwriting(data, 'application/pdf')
+        self.assertEqual(processed, data)
+        self.assertEqual(ctype, 'application/pdf')
+        self.assertFalse(report.applied)
 
 
 class LessonPDFTests(unittest.TestCase):

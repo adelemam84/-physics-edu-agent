@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -19,7 +20,9 @@ from .release_candidate import source_corpus_benchmark, release_readiness
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db(); yield
+    if os.getenv('DATABASE_URL'):
+        init_db()
+    yield
 
 app = FastAPI(title="Science Education Platform", version="1.0-RC1", lifespan=lifespan)
 

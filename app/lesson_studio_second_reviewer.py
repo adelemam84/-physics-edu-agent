@@ -10,6 +10,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
+from .services.lesson_integrity import review_source_hash
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
 REVIEW_MODEL = os.getenv('LESSON_STUDIO_REVIEW_MODEL', 'gpt-5.6-sol').strip() or 'gpt-5.6-sol'
@@ -21,6 +22,7 @@ def _schema_review() -> None:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_source_hash text')
 
 
 def reviewer_status() -> dict:
@@ -103,8 +105,6 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
     try:
         review = json.loads(text)
     except json.JSONDecodeError:
-        # The reviewer is advisory. If it fails to emit parseable JSON we report the
-        # provider-format issue explicitly and do not mutate or approve the lesson.
         return {
             'verdict': 'review_required',
             'findings': [{
@@ -144,24 +144,23 @@ def run_second_review(job_id: str):
     if any(s.get('requires_review') for s in sources):
         raise HTTPException(409, 'Resolve OCR review items before independent scientific review')
     structured = row['structured_json'] or {}
-    if not structured or not row['raw_transcript']:
+    transcript = row['raw_transcript'] or ''
+    if not structured or not transcript:
         raise HTTPException(409, 'Structured lesson and transcript are required')
-    review = _openai_review(
-        row['raw_transcript'],
-        structured,
-        row['subject'],
-        row['grade_label'] or '',
-    )
+    source_hash = review_source_hash(transcript, structured)
+    review = _openai_review(transcript, structured, row['subject'], row['grade_label'] or '')
     with connect() as con:
         con.execute('''UPDATE science_lesson_jobs SET second_review=%s::jsonb,
-          second_review_provider=%s,second_review_at=now(),updated_at=now() WHERE id=%s''',
-          (json.dumps(review, ensure_ascii=False), f'openai:{REVIEW_MODEL}', job_id))
+          second_review_provider=%s,second_review_at=now(),second_review_source_hash=%s,
+          updated_at=now() WHERE id=%s''',
+          (json.dumps(review, ensure_ascii=False), f'openai:{REVIEW_MODEL}', source_hash, job_id))
     critical = sum(1 for x in review.get('findings', []) if x.get('severity') == 'critical')
     needs_review = sum(1 for x in review.get('findings', []) if x.get('severity') in {'critical', 'review'})
     return {
         'job_id': job_id,
         'provider': 'openai',
         'model': REVIEW_MODEL,
+        'source_hash': source_hash,
         'advisory_only': True,
         'auto_modified': False,
         'auto_approved': False,

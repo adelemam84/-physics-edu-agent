@@ -12,6 +12,8 @@
 6. Every transformed block must retain provenance to its source page/image.
 7. Teacher review remains the final publication gate.
 8. A second-review result is valid only for the exact content hash it reviewed.
+9. Scientific reference PDFs are validation/coverage context, not an automatic authoring source.
+10. A reference finding may flag a contradiction or missing coverage, but never rewrites teacher content automatically.
 
 ## Product modes
 - teacher_notes — مذكرة مدرس منظمة
@@ -32,7 +34,8 @@
 - OCR image derivative with EXIF orientation, conservative resize, grayscale, autocontrast and mild sharpening.
 - Original bytes are never replaced by preprocessing.
 - Page ordering and source identifiers.
-- Manual crop / perspective correction remains an enhancement item; automatic perspective guessing is intentionally not used because it can distort scientific figures.
+- Manual crop, 90/180/270 rotation and four-point perspective correction implemented as a separate derivative workflow.
+- Adjusted source can be re-OCRed while the original remains untouched.
 
 ### Phase B — Dual OCR Verification
 - Gemini multimodal transcription.
@@ -54,6 +57,8 @@ Deterministic SVG/programmatic renderers first.
 
 Implemented renderer families:
 - simple circuits and basic component symbols
+- resistor-network review shells
+- magnetic-field review shells
 - vectors/arrows
 - graph axes
 - process/flow diagrams
@@ -62,6 +67,7 @@ Implemented renderer families:
 - food-chain shells
 - anatomy block schematics
 - atom/electron-shell schematics
+- molecule/bond review shells
 - ray-diagram shells
 - comparison/apparatus safe layout shells
 
@@ -69,17 +75,17 @@ Safety rule:
 - relationship-sensitive scientific diagrams remain teacher-review-required even when a deterministic SVG can be rendered.
 - generative imagery may be used only for illustrative/decorative visuals that do not encode precise scientific facts unless explicitly reviewed.
 
-Planned renderer depth expansions:
-- complex resistor networks
-- magnetic field diagrams
+Further renderer depth:
+- validated arbitrary resistor topology from structured circuit specifications
+- precise magnetic direction conventions from validated input
 - precise optical ray paths after validated geometry inputs
-- chemistry bond/molecule renderers
+- chemistry bond-order/charge geometry from explicit molecular specifications
 - more laboratory apparatus components
 
 ### Phase E — Smart Diagram Detection
 - Detect where a diagram improves comprehension.
 - Produce a typed diagram specification, not a freeform image request.
-- Conservative intent router recognizes circuit, graph, process, classification, cycle, food-chain, atom-shell, anatomy, apparatus, vector and optical-ray intents.
+- Conservative intent router recognizes circuit, resistor-network, magnetic-field, molecule/bond, graph, process, classification, cycle, food-chain, atom-shell, anatomy, apparatus, vector and optical-ray intents.
 - Unknown intents stay unsupported/review-required instead of being guessed.
 
 ### Phase F — Formula and Chemistry notation engine
@@ -87,7 +93,7 @@ Planned renderer depth expansions:
 - Preserve ambiguous symbols for review.
 - Detect physics/math equations, quantities with units, chemical formula candidates and chemical reactions including stoichiometric coefficients.
 - Teacher can approve/correct a notation item explicitly; the original expression is retained in review metadata.
-- Further typography work for subscripts, charges and states can be layered into the PDF renderer without altering source text.
+- Further typography work for advanced subscripts, charges and states can be layered into the PDF renderer without altering source text.
 
 ### Phase G — Original vs Organized review UI
 - Unified mobile-responsive workspace at `/admin/lesson-studio/workspace`.
@@ -96,6 +102,7 @@ Planned renderer depth expansions:
 - Confidence badges and conflict details.
 - Teacher can approve OCR, resolve uncertain items, approve notation and approve deterministic diagrams.
 - Quality gate and final export are visible in the same workspace.
+- Manual source correction UI at `/admin/lesson-studio/source-editor`.
 
 ### Phase H — Smart Expansion
 - Suggestions such as: add example, add diagram, define term, add common mistake.
@@ -115,35 +122,51 @@ Planned renderer depth expansions:
 
 ### Phase K — Professional PDF composition
 - Multi-page A4 flow using PyMuPDF Story.
+- Dedicated mobile-reading PDF preset.
 - Arabic RTL document structure.
 - Cover/title block.
 - Objectives and section hierarchy.
+- Automatic contents section for longer lessons.
 - Source provenance under organized sections.
 - Equation blocks.
 - Embedded deterministic SVG diagrams where available.
 - Teacher warnings in teacher edition.
 - Summary and footer.
+- Page header + page numbering after rendering.
 - Long lessons flow across pages rather than being compressed onto one page.
-- Final PDF route is protected by the strict quality gate.
+- Final PDF routes are protected by the strict quality gate.
 
-Future composition upgrades:
+Further composition upgrades:
 - richer Arabic font handling/typographic tuning
-- generated table of contents for long lessons
-- dedicated mobile-reading PDF preset in addition to A4
+- richer printed table-of-contents page-number mapping
+- branded templates/themes without changing scientific content
 
 ### Phase L — Multi-model quality architecture
 Roles implemented/scaffolded:
-- Gemini: multimodal page understanding, handwriting transcription context and lesson organization.
+- Gemini: multimodal page understanding, handwriting transcription context, lesson organization and scanned-reference page OCR.
 - Mathpix: optional specialist STEM OCR for handwriting/equations/chemistry; activates when credentials are configured.
 - OpenAI GPT-5.6 Sol: optional independent second reviewer via Responses API; advisory only, cannot modify, approve or publish.
-- Deterministic code: OCR conflict comparison, diagram rendering, notation classification, integrity hashes, PDF rendering and publication gates.
+- Deterministic code: OCR conflict comparison, reference-page matching, diagram rendering, notation classification, integrity hashes, PDF rendering and publication gates.
 
 Second-review integrity:
 - review is bound to SHA-256 of transcript + structured lesson.
 - any later content change makes the prior review stale automatically.
 - when OpenAI reviewer is configured, a fresh clear review becomes part of the pre-approval quality gate.
 
-### Phase M — Quality gates
+### Phase M — Scientific Reference Library
+- Per-subject / per-grade reference PDFs.
+- Admin surface: `/admin/lesson-studio/references`.
+- Original reference PDF retained when object storage is configured.
+- Native PDF text is extracted page-by-page and page numbers are preserved.
+- Scanned/image-only pages are marked `ocr_required` or `partial_ocr` instead of being rejected.
+- Scanned pages can be OCRed via Gemini in small serverless-safe batches of 1–5 pages.
+- Reference context selects relevant pages for a lesson using deterministic lexical matching before sending evidence to the AI reviewer.
+- Reference alignment review compares teacher transcript + organized lesson only against selected reference excerpts.
+- Findings must retain reference document/page provenance.
+- `not_covered` means the reference did not cover a statement; it is not automatically treated as scientifically wrong.
+- Reference review is advisory by default and can be promoted to an export quality gate with `LESSON_STUDIO_REQUIRE_REFERENCE_REVIEW=true`.
+
+### Phase N — Quality gates
 Implemented checks:
 - source preserved
 - OCR review clear
@@ -152,6 +175,7 @@ Implemented checks:
 - scientific notation review clear
 - diagram review clear
 - section provenance present
+- scientific reference alignment status (optional or required by configuration)
 - fresh independent second review when reviewer provider is configured
 - final teacher approval
 - final PDF export blocked until all applicable gates pass
@@ -160,7 +184,9 @@ Implemented checks:
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.
 - `/admin/lesson-studio/workspace` — unified Original vs Organized review, diagrams and final quality.
+- `/admin/lesson-studio/source-editor` — crop/rotate/perspective correction derivative and re-OCR.
 - `/admin/lesson-studio/tools` — teacher style, Smart Expansion, independent reviewer and grade/output editions.
+- `/admin/lesson-studio/references` — per-subject scientific reference library + scanned-PDF OCR controls.
 
 ## Provider configuration
 Already supported by code:
@@ -170,6 +196,7 @@ Already supported by code:
 - `MATHPIX_APP_KEY`
 - `OPENAI_API_KEY`
 - `LESSON_STUDIO_REVIEW_MODEL`
+- `LESSON_STUDIO_REQUIRE_REFERENCE_REVIEW`
 - image preprocessing controls.
 
 Secrets must be configured through production environment variables, never committed to the repository.
@@ -178,6 +205,7 @@ Secrets must be configured through production environment variables, never commi
 - zero silent scientific corrections
 - zero hidden unresolved OCR conflicts
 - 100% source provenance for transformed sections before final approval
+- page-level provenance for scientific reference findings
 - deterministic rendering for precise scientific diagrams whenever a validated renderer exists
 - mobile-first admin workflow
 - export reproducibility from saved structured JSON
@@ -191,27 +219,32 @@ Secrets must be configured through production environment variables, never commi
 - Gemini handwriting OCR and organization.
 - Optional Mathpix STEM OCR integration.
 - Dual OCR consensus + confidence bands + critical scientific-symbol conflicts.
-- OCR image preprocessing derivative.
+- Automatic OCR image preprocessing derivative.
+- Manual crop/rotation/perspective correction derivative + re-OCR flow.
 - Source vs OCR review UI.
 - Unified Original vs Organized workspace.
-- Scientific Diagram Engine with multiple deterministic SVG primitives.
+- Scientific Diagram Engine with deterministic SVG primitives and advanced review-required shells.
 - Smart Diagram intent routing.
 - Non-destructive science notation classification and teacher approval path.
 - Smart Expansion suggestions with explicit teacher approval.
 - Grade/output-specific editions.
 - Teacher Style Profile.
 - Independent OpenAI second reviewer architecture with content-hash freshness protection.
-- Strict quality/teacher approval gate.
-- Professional multi-page A4 PDF renderer.
-- Deterministic CI test coverage for OCR, diagrams, notation, integrity, image preprocessing and PDF rendering.
+- Scientific Reference Library and page-level reference alignment review.
+- Native-text and scanned-reference ingestion paths.
+- Strict configurable quality/teacher approval gate.
+- Professional multi-page A4 + mobile PDF renderer with TOC and page numbering.
+- Application version advanced to 1.8.0 for this accumulated release line.
+- Deterministic CI test coverage for OCR, diagrams, notation, integrity, image preprocessing, reference matching and PDF rendering.
 
 ### External activation still required
 - Mathpix dual OCR becomes active only after `MATHPIX_APP_ID` + `MATHPIX_APP_KEY` are configured in production.
 - OpenAI second reviewer becomes active only after `OPENAI_API_KEY` is configured in production.
-- Latest module is not considered production-live until Vercel can build/deploy the accumulated `main` branch and live acceptance passes.
+- Scientific reference alignment can already use Gemini once the new build is deployed and the Gemini key is present.
+- Latest modules are not considered production-live until Vercel can build/deploy the accumulated `main` branch and live acceptance passes.
 
 ### Remaining enhancement depth (not blockers for the first usable release)
-- manual crop/perspective correction UI
-- deeper physics/chemistry deterministic diagram libraries
-- table of contents and dedicated mobile-PDF preset
-- broader subject expansion to Biology/Mathematics when desired
+- richer Arabic typography and branded lesson templates
+- more precise parameterized circuit/optics/molecular renderers
+- optional Biology/Mathematics subject expansion when desired
+- reference semantic retrieval can later be upgraded from deterministic lexical matching to embeddings/File Search while retaining exact page provenance

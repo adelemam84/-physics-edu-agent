@@ -47,7 +47,7 @@ def whatsapp_monitor():
                FROM parent_notifications""",(stuck_minutes,queue_age_minutes)
         ).fetchone()
         daily = list(con.execute(
-            """SELECT to_char(date_trunc('day',created_at),'YYYY-MM-DD') day,
+            """SELECT to_char(date_trunc('day',created_at),'YYYY-MM-DD') AS "day",
                       count(*) total,
                       count(*) FILTER(WHERE status='sent') sent,
                       count(*) FILTER(WHERE status='failed') failed,

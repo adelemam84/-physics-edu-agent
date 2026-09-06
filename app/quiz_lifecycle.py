@@ -16,7 +16,7 @@ def lifecycle(status:str|None=None,limit:int=250):
           count(qq.question_id) question_count
           FROM quizzes q LEFT JOIN subjects s ON s.id=q.subject_id LEFT JOIN grade_levels g ON g.id=q.grade_level_id
           LEFT JOIN quiz_questions qq ON qq.quiz_id=q.id
-          WHERE (%s IS NULL OR q.lifecycle_status=%s)
+          WHERE (%s::text IS NULL OR q.lifecycle_status=%s::text)
           GROUP BY q.id,s.name_ar,g.name_ar ORDER BY q.created_at DESC LIMIT %s""",(status,status,min(max(limit,1),1000))).fetchall())
         counts=list(con.execute("""SELECT lifecycle_status,count(*) n FROM quizzes GROUP BY lifecycle_status""").fetchall())
     return {"counts":{r["lifecycle_status"]:int(r["n"]) for r in counts},"items":rows}

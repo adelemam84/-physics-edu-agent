@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
         init_db()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.0", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.1", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -53,6 +53,10 @@ class DocumentContextPatch(BaseModel):
     grade_level_id:int
     curriculum_version_id:int
     term_id:int
+
+class ReviewNotePatch(BaseModel):
+    status: str
+    details: str | None = None
 
 class ManualQuestionCreate(BaseModel):
     page: int
@@ -137,6 +141,7 @@ def page_text(document_id:int,page:int):
 @app.get('/api/questions',dependencies=[Depends(require_admin)])
 def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|None=None,grade_level_id:int|None=None,curriculum_version_id:int|None=None,term_id:int|None=None,unit_id:int|None=None,difficulty:str|None=None,question_type:str|None=None,workflow_state:str|None=None,chapter:str|None=None,limit:int=500):
     sql="""SELECT q.*,d.filename source_filename,ad.filename answer_source_filename,l.chapter,l.title lesson_title,
+           qr.reason_code review_reason,qr.severity review_severity,qr.details review_details,qr.status review_status,
            CASE WHEN q.answer_document_id IS NOT NULL AND q.answer_page IS NOT NULL THEN 'pdf_source' ELSE 'manual_review' END AS answer_source_type,
            EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id) AS has_asset,
            CASE
@@ -193,6 +198,41 @@ def questions(approved:bool|None=None,lesson_id:int|None=None,subject_id:int|Non
         sql+=f' AND ({state_sql})=%s';params.append(workflow_state)
     sql+=' ORDER BY q.id DESC LIMIT %s';params.append(min(limit,1000))
     with connect() as con:return list(con.execute(sql,params).fetchall())
+
+@app.get('/api/admin/corpus/qa',dependencies=[Depends(require_admin)])
+def corpus_qa(status:str|None='open',reason_code:str|None=None):
+    sql="""SELECT qr.question_id,qr.reason_code,qr.severity,qr.details,qr.source_verified,qr.status,qr.updated_at,
+      q.approved,q.source_page,q.text_verbatim,q.accepted_answer,d.filename source_filename,l.title lesson_title
+      FROM question_review_notes qr JOIN questions q ON q.id=qr.question_id
+      LEFT JOIN documents d ON d.id=q.document_id LEFT JOIN lessons l ON l.id=q.lesson_id WHERE 1=1"""
+    params=[]
+    if status is not None: sql+=' AND qr.status=%s';params.append(status)
+    if reason_code is not None: sql+=' AND qr.reason_code=%s';params.append(reason_code)
+    sql+=' ORDER BY CASE qr.severity WHEN \'critical\' THEN 0 ELSE 1 END,qr.question_id'
+    with connect() as con:return list(con.execute(sql,params).fetchall())
+
+@app.get('/api/admin/corpus/qa/summary',dependencies=[Depends(require_admin)])
+def corpus_qa_summary():
+    with connect() as con:
+        totals=con.execute("""SELECT count(*) total,
+          count(*) FILTER(WHERE status='open') open,
+          count(*) FILTER(WHERE status='open' AND severity='critical') critical,
+          count(*) FILTER(WHERE status='resolved') resolved
+          FROM question_review_notes""").fetchone()
+        reasons=list(con.execute("""SELECT reason_code,count(*) c
+          FROM question_review_notes WHERE status='open' GROUP BY reason_code ORDER BY c DESC,reason_code""").fetchall())
+        return {**totals,'by_reason':reasons}
+
+@app.patch('/api/admin/corpus/qa/{question_id}',dependencies=[Depends(require_admin)])
+def patch_corpus_qa(question_id:int,p:ReviewNotePatch):
+    if p.status not in {'open','resolved','dismissed'}: raise HTTPException(400,'Invalid QA status')
+    with connect() as con:
+        note=con.execute("SELECT * FROM question_review_notes WHERE question_id=%s",(question_id,)).fetchone()
+        if not note: raise HTTPException(404,'QA note not found')
+        row=con.execute("""UPDATE question_review_notes SET status=%s,
+          details=coalesce(%s,details),updated_at=now() WHERE question_id=%s RETURNING *""",
+          (p.status,p.details,question_id)).fetchone()
+        return row
 
 @app.get('/api/question-stats',dependencies=[Depends(require_admin)])
 def question_stats():

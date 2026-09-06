@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .db import connect
 
-RC_VERSION = "1.0"
+RC_VERSION = "1.1"
 
 def source_corpus_benchmark() -> dict:
     """Measure readiness of the real PDF-backed question corpus already stored in production."""
@@ -25,6 +25,9 @@ def source_corpus_benchmark() -> dict:
         review_docs = con.execute(
             "SELECT count(*) c FROM documents WHERE status IN ('review_required','extraction_review_required')"
         ).fetchone()["c"]
+        qa = con.execute("""SELECT count(*) FILTER(WHERE status='open') open,
+          count(*) FILTER(WHERE status='open' AND severity='critical') critical,
+          count(*) FILTER(WHERE status='resolved') resolved FROM question_review_notes""").fetchone()
 
     denominator = max(int(rows["approved"] or 0), 1)
     metrics = {
@@ -38,6 +41,9 @@ def source_corpus_benchmark() -> dict:
         "approved_count": int(approved or 0),
         "candidate_questions": int(total or 0) - int(approved or 0),
         "source_documents": 0,
+        "qa_open": int(qa["open"] or 0),
+        "qa_critical": int(qa["critical"] or 0),
+        "qa_resolved": int(qa["resolved"] or 0),
     }
     with connect() as con:
         metrics["source_documents"] = int(con.execute("SELECT count(*) c FROM documents WHERE storage_url IS NOT NULL OR EXISTS(SELECT 1 FROM document_files f WHERE f.document_id=documents.id)").fetchone()["c"] or 0)

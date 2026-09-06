@@ -44,6 +44,16 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempts_student_quiz_submitted ON attempts(student_id,quiz_id,submitted_at DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_guardians_student_active_optin ON guardians(student_id,active,whatsapp_opt_in)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_position ON quiz_questions(quiz_id,position)")
+        con.execute("""CREATE TABLE IF NOT EXISTS question_review_notes(
+          question_id bigint PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
+          reason_code text NOT NULL,
+          severity text NOT NULL DEFAULT 'review',
+          details text,
+          source_verified boolean NOT NULL DEFAULT false,
+          status text NOT NULL DEFAULT 'open',
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_question_review_notes_status ON question_review_notes(status,reason_code)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_questions_ready_academic ON questions(subject_id,grade_level_id,curriculum_version_id,term_id,approved) WHERE approved=TRUE")
         # Data-integrity constraints. Guarded by pg_constraint checks so startup remains idempotent.
         constraints = [

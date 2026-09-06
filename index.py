@@ -43,4 +43,5 @@ from app import science_lesson_studio  # noqa: F401,E402
 from app import lesson_studio_pdf_runtime  # noqa: F401,E402
 from app import lesson_studio_review  # noqa: F401,E402
 from app import lesson_studio_enhancements  # noqa: F401,E402
+from app import lesson_studio_quality  # noqa: F401,E402
 from app import release_hardening  # noqa: F401,E402

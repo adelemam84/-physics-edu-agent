@@ -51,7 +51,15 @@ def source_review_summary(document_id:int|None=None):
           FROM documents d JOIN document_page_reviews r ON r.document_id=d.id
           LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
           GROUP BY d.id,d.filename,d.status,cv.academic_year ORDER BY d.id DESC""").fetchall())
-        return {**totals,"documents":docs}
+        gate=con.execute("""SELECT
+          count(*) FILTER(WHERE r.page_role='question_candidate') candidate_pages,
+          count(*) FILTER(WHERE r.page_role='question_candidate' AND r.review_status='done') reviewed_candidate_pages,
+          count(*) FILTER(WHERE r.page_role='question_candidate' AND r.review_status IN ('pending','reviewing')) open_candidate_pages
+          FROM document_page_reviews r JOIN documents d ON d.id=r.document_id
+          LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
+          WHERE cv.active=TRUE""").fetchone()
+        return {**totals,"documents":docs,"current_corpus_gate":gate,
+          "current_corpus_ready":bool(gate and gate["candidate_pages"]>0 and gate["open_candidate_pages"]==0)}
 
 @app.patch("/api/admin/source-review/{document_id}/{page_number}",dependencies=[Depends(require_admin)])
 def patch_source_review(document_id:int,page_number:int,p:PageReviewPatch):
@@ -79,7 +87,7 @@ body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-wi
 <script>
 let docs=[],rows=[];const H=()=>({});function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function jf(u,o={}){let r=await fetch(u,o),x=await r.json();if(!r.ok)throw new Error(typeof x.detail==='string'?x.detail:JSON.stringify(x.detail));return x}
-async function init(){let s=await jf('/api/admin/source-review/summary');docs=s.documents||[];doc.innerHTML=docs.map(d=>'<option value="'+d.id+'">#'+d.id+' · '+e(d.filename)+' · '+e(d.academic_year||'')+'</option>').join('');summary.textContent='إجمالي '+s.total+' صفحة · مرشح أسئلة '+s.question_candidate+' · معلق '+s.pending+' · مكتمل '+s.done;loadPages()}
+async function init(){let s=await jf('/api/admin/source-review/summary');docs=s.documents||[];doc.innerHTML=docs.map(d=>'<option value="'+d.id+'">#'+d.id+' · '+e(d.filename)+' · '+e(d.academic_year||'')+'</option>').join('');summary.textContent='إجمالي '+s.total+' صفحة · مرشح أسئلة '+s.question_candidate+' · معلق '+s.pending+' · مكتمل '+s.done+(s.current_corpus_gate?' · بوابة المنهج الحالي: '+s.current_corpus_gate.reviewed_candidate_pages+'/'+s.current_corpus_gate.candidate_pages+' صفحة مكتملة':'');loadPages()}
 async function loadPages(){if(!doc.value)return;let u='/api/admin/source-review?document_id='+doc.value+(status.value?'&review_status='+status.value:'');rows=await jf(u);pages.innerHTML=rows.map(r=>'<div class=card><b>صفحة '+r.page_number+'</b><div class=muted>'+e(r.academic_year||'')+' · أسئلة مدخلة: '+r.extracted_questions+'</div><select id="role'+r.page_number+'"><option value=question_candidate>مرشح أسئلة</option><option value=answer_solution>حل/إجابة</option><option value=front_matter>غلاف/مقدمة</option><option value=index_or_divider>فهرس/فاصل</option><option value=unknown>غير محدد</option></select><select id="st'+r.page_number+'"><option value=pending>معلق</option><option value=reviewing>تحت المراجعة</option><option value=classified>مصنف</option><option value=done>مكتمل</option><option value=skipped>متخطى</option></select><input id="cnt'+r.page_number+'" type=number min=0 placeholder="عدد الأسئلة" value="'+(r.question_count??'')+'"><button onclick="save('+r.page_number+')">حفظ</button><div class=muted>'+e(r.notes||'')+'</div></div>').join('');rows.forEach(r=>{document.getElementById('role'+r.page_number).value=r.page_role;document.getElementById('st'+r.page_number).value=r.review_status})}
 async function save(p){let body={page_role:document.getElementById('role'+p).value,review_status:document.getElementById('st'+p).value};let v=document.getElementById('cnt'+p).value;if(v!=='')body.question_count=Number(v);await jf('/api/admin/source-review/'+doc.value+'/'+p,{method:'PATCH',headers:{...H(),'Content-Type':'application/json'},body:JSON.stringify(body)});loadPages()}
 async function openPdf(){let x=await jf('/api/documents/'+doc.value+'/pdf-url');window.open(x.url,'_blank','noopener')}

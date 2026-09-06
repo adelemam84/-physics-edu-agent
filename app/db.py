@@ -81,3 +81,38 @@ def init_db():
             if not con.execute("SELECT 1 FROM pg_constraint WHERE conname=%s",(name,)).fetchone():
                 con.execute(ddl)
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_parent_notifications_provider_message_id ON parent_notifications(provider_message_id) WHERE provider_message_id IS NOT NULL")
+
+        # Reconcile legacy visual QA notes with source-backed assets created by the
+        # newer Drive/source-page workflow. This is intentionally narrow: only a
+        # `visual_asset_required` note can be auto-resolved, and only when the
+        # attached asset points to the exact same source document and source page.
+        con.execute("""UPDATE question_review_notes qr
+          SET status='resolved', source_verified=TRUE,
+              details=concat_ws(' | ',nullif(qr.details,''),'تم التحقق آليًا من الأصل البصري المرتبط بنفس المستند والصفحة.'),
+              updated_at=now()
+          FROM questions q JOIN question_assets a ON a.question_id=q.id
+          WHERE qr.question_id=q.id
+            AND qr.status='open'
+            AND qr.reason_code='visual_asset_required'
+            AND a.document_id=q.document_id
+            AND a.page_number=coalesce(q.source_page,q.page)""")
+
+        # Auto-approve only questions that now pass every deterministic production
+        # gate and have no remaining QA note. This never invents text/answers and
+        # never overrides source-candidate mismatches or scientific review notes.
+        con.execute("""UPDATE questions q SET approved=TRUE
+          WHERE q.approved=FALSE
+            AND q.document_id IS NOT NULL
+            AND coalesce(q.source_page,q.page) IS NOT NULL
+            AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+            AND q.subject_id IS NOT NULL AND q.grade_level_id IS NOT NULL
+            AND q.curriculum_version_id IS NOT NULL AND q.term_id IS NOT NULL
+            AND q.unit_id IS NOT NULL AND q.lesson_id IS NOT NULL
+            AND q.question_type<>'unknown' AND q.difficulty<>'unclassified'
+            AND EXISTS(SELECT 1 FROM question_assets a
+              WHERE a.question_id=q.id AND a.document_id=q.document_id
+                AND a.page_number=coalesce(q.source_page,q.page))
+            AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
+            AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
+            AND NOT EXISTS(SELECT 1 FROM question_review_notes qr
+              WHERE qr.question_id=q.id AND qr.status='open')""")

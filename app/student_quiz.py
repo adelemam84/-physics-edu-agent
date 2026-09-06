@@ -63,7 +63,7 @@ def student_quiz(quiz_id: int):
                       AND x.lesson_id IS NOT NULL AND x.subject_id IS NOT NULL AND x.grade_level_id IS NOT NULL
                       AND x.curriculum_version_id IS NOT NULL AND x.term_id IS NOT NULL
                       AND x.question_type<>'unknown' AND x.difficulty<>'unclassified'
-                      AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id)
+                      AND NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=x.id AND qr.status='open')
                       AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
                       AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
                     ORDER BY qq.position""",(quiz_id,quiz_id,quiz_id,quiz_id,quiz_id)).fetchall())
@@ -164,7 +164,7 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt):
                 AND x.lesson_id IS NOT NULL AND x.subject_id IS NOT NULL AND x.grade_level_id IS NOT NULL
                 AND x.curriculum_version_id IS NOT NULL AND x.term_id IS NOT NULL
                 AND x.question_type<>'unknown' AND x.difficulty<>'unclassified'
-                AND EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=x.id)
+                AND NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=x.id AND qr.status='open')
                 AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=x.id)
                 AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=x.id)
               ORDER BY qq.position""",(quiz_id,quiz_id,quiz_id,quiz_id,quiz_id)).fetchall())

@@ -118,7 +118,7 @@ def lesson_css(mode: str | None = None) -> str:
 def render_lesson_pdf(structured: dict) -> bytes:
     """Render a multi-page A4 PDF using PyMuPDF Story flow layout."""
     mode = str(structured.get('mode') or 'teacher_notes')
-    story = fitz.Story(html=lesson_html(structured, mode=mode), css=lesson_css(mode), em=11)
+    story = fitz.Story(html=lesson_html(structured, mode=mode), user_css=lesson_css(mode), em=11)
     media = fitz.paper_rect('a4')
     content = fitz.Rect(media.x0 + 40, media.y0 + 40, media.x1 - 40, media.y1 - 42)
     output = io.BytesIO()

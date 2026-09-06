@@ -46,9 +46,11 @@ from app import lesson_studio_notation_runtime  # noqa: F401,E402
 from app import lesson_studio_pdf_runtime  # noqa: F401,E402
 from app import lesson_studio_review  # noqa: F401,E402
 from app import lesson_studio_content_review  # noqa: F401,E402
+from app import lesson_studio_source_editor  # noqa: F401,E402
 from app import lesson_studio_workspace  # noqa: F401,E402
 from app import lesson_studio_enhancements  # noqa: F401,E402
 from app import lesson_studio_second_reviewer  # noqa: F401,E402
 from app import lesson_studio_tools_ui  # noqa: F401,E402
 from app import lesson_studio_quality  # noqa: F401,E402
+from app import lesson_studio_export_presets  # noqa: F401,E402
 from app import release_hardening  # noqa: F401,E402

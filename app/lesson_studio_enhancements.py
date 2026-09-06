@@ -29,6 +29,11 @@ def _enhancement_schema() -> None:
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS ai_suggestions jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS approved_additions jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
         con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_editions(
           id uuid PRIMARY KEY,
           job_id uuid NOT NULL REFERENCES science_lesson_jobs(id) ON DELETE CASCADE,
@@ -121,9 +126,11 @@ def approve_lesson_suggestion(job_id: str, suggestion_index: int, teacher_note: 
     structured = dict(job['structured_json'] or {})
     structured['approved_additions'] = approved
     with connect() as con:
-        con.execute('''UPDATE science_lesson_jobs SET approved_additions=%s::jsonb,structured_json=%s::jsonb,updated_at=now()
-          WHERE id=%s''', (json.dumps(approved, ensure_ascii=False), json.dumps(structured, ensure_ascii=False), job_id))
-    return {'approved': True, 'suggestion': selected, 'approved_additions_count': len(approved)}
+        con.execute('''UPDATE science_lesson_jobs SET approved_additions=%s::jsonb,structured_json=%s::jsonb,
+          teacher_approved=FALSE,teacher_approved_at=NULL,second_review=NULL,second_review_provider=NULL,
+          second_review_at=NULL,status='content_review_required',updated_at=now() WHERE id=%s''',
+          (json.dumps(approved, ensure_ascii=False), json.dumps(structured, ensure_ascii=False), job_id))
+    return {'approved': True, 'suggestion': selected, 'approved_additions_count': len(approved), 'previous_approval_invalidated': True}
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/editions', dependencies=[Depends(require_admin)])

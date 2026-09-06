@@ -97,12 +97,13 @@ def _grade_single(student_answer: str | None, accepted_answer: str) -> bool:
         return False
     if s_norm == a_norm:
         return True
-    # Natural short textual answers are accepted when one normalized form clearly contains the other.
-    if len(s_norm) >= 4 and (s_norm in a_norm or a_norm in s_norm):
-        return True
 
     expected = extract_numeric_values(accepted_answer)
     actual = extract_numeric_values(student_answer)
+    # Containment is only safe for genuinely textual answers. With numeric answers it
+    # could incorrectly accept one component of a multi-part expected answer.
+    if not expected and len(s_norm) >= 4 and (s_norm in a_norm or a_norm in s_norm):
+        return True
     if expected and _numeric_contains(expected, actual):
         # Preserve qualitative meaning when the source answer includes a direction/state.
         for anchor in _required_text_anchors(accepted_answer):

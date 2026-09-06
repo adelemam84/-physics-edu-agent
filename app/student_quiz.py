@@ -12,6 +12,10 @@ from .security import require_admin
 from .parent_notifications import queue_attempt_notifications
 from .services.grading import grade_answer
 
+def is_correct(answer: str, accepted: str | None) -> bool:
+    """Backward-compatible wrapper used by lesson diagnostics and older modules."""
+    return bool(grade_answer(answer, accepted))
+
 class AnswerIn(BaseModel):
     question_id: int
     answer: str

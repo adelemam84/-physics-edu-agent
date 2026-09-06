@@ -43,3 +43,10 @@ uvicorn app.main:app --reload
 ### Deployment source
 
 الفرع `main` في هذا المستودع هو المصدر الأساسي للنشر إلى مشروع Vercel `physics-edu-agent`. أي تعديل إنتاجي يجب أن يمر عبر GitHub بدل إعادة نشر حزمة قديمة يدويًا.
+
+
+## v1.2 Production
+- Source-aware tolerant grading for numeric/scientific answers.
+- QA-clear text questions can be used without artificial image-asset requirements.
+- Publication gate validates source grounding, approval, answer coverage and QA state.
+- Diagnostic quizzes are generated only from approved source-backed questions.

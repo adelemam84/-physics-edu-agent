@@ -83,12 +83,59 @@ def _ensure_quiz(con, ctx, title: str, count: int, reverse: bool = False):
     return {'id':quiz['id'],'created':True,'published':False,'status':'draft'}
 
 
+def _phase2_quality(con, quiz_id: int):
+    rows=list(con.execute("""SELECT q.id,q.lesson_id,q.difficulty,q.question_type,q.approved,
+      q.document_id,coalesce(q.source_page,q.page) source_page,q.accepted_answer,
+      EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id
+        AND a.page_number=coalesce(q.source_page,q.page)) asset_ok,
+      EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
+      EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) has_skill,
+      EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=q.id AND qr.status='open') qa_open
+      FROM quiz_questions qq JOIN questions q ON q.id=qq.question_id
+      WHERE qq.quiz_id=%s ORDER BY qq.position""",(quiz_id,)).fetchall())
+    if not rows:
+        return {'ready':False,'score':0,'reason':'empty'}
+    lessons={int(r['lesson_id']) for r in rows if r['lesson_id'] is not None}
+    diffs={r['difficulty'] for r in rows if r['difficulty']}
+    types={r['question_type'] for r in rows if r['question_type']}
+    source_ok=all(bool(r['approved'] and r['document_id'] and r['source_page'] and r['accepted_answer'] and r['asset_ok'] and r['has_concept'] and r['has_skill'] and not r['qa_open']) for r in rows)
+    max_lesson=max((sum(1 for r in rows if r['lesson_id']==lid) for lid in lessons),default=len(rows))/len(rows)
+    checks={
+      'count_20':len(rows)==20,
+      'source_integrity':source_ok,
+      'lesson_coverage':len(lessons)>=min(4,len(rows)),
+      'difficulty_mix':len(diffs)>=2,
+      'type_mix':len(types)>=1,
+      'lesson_concentration':max_lesson<=0.60,
+    }
+    score=round(sum(1 for v in checks.values() if v)*100/len(checks))
+    return {'ready':all(checks.values()),'score':score,'checks':checks}
+
+
+def _publish_if_ready(con, item):
+    qid=item.get('id')
+    if not qid or item.get('published'):
+        return item
+    quality=_phase2_quality(con,int(qid))
+    target='published' if quality['ready'] else 'quality_review'
+    if quality['ready']:
+        con.execute("""UPDATE quizzes SET published=TRUE,lifecycle_status='published',quality_score=%s,
+          ready_at=coalesce(ready_at,now()),published_at=coalesce(published_at,now()),archived_at=NULL WHERE id=%s""",
+          (quality['score'],qid))
+    else:
+        con.execute("UPDATE quizzes SET published=FALSE,lifecycle_status='quality_review',quality_score=%s WHERE id=%s",(quality['score'],qid))
+    con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
+      VALUES(%s,'phase2_quality_gate','draft',%s,%s,'{\"automatic\":true,\"gate\":\"phase2_strict\"}'::jsonb)""",
+      (qid,target,quality['score']))
+    return {**item,'published':quality['ready'],'status':target,'quality_score':quality['score'],'quality':quality}
+
+
 def run_phase2_bootstrap():
     """Idempotent production hardening after DB migration.
 
-    Visual QA reconciliation/approval runs in init_db. This function only expands
-    the current source-backed assessment set, then reuses the existing quality and
-    publication gates. A quiz that does not pass those gates remains unpublished.
+    Visual QA reconciliation/approval runs in init_db. This function expands the
+    current source-backed assessment set and uses a strict local publication gate.
+    It avoids importing request-layer route functions during FastAPI startup.
     """
     with connect() as con:
         ctx=_active_context(con)
@@ -98,20 +145,5 @@ def run_phase2_bootstrap():
             _ensure_quiz(con,ctx,'اختبار 2026/2027 — تدريب شامل (أ)',20,False),
             _ensure_quiz(con,ctx,'اختبار 2026/2027 — تدريب شامل (ب)',20,True),
         ]
-    # Reuse the production quality gate; never bypass publication checks.
-    from ..quiz_builder import quiz_quality_check, publish_quiz, review_quiz
-    results=[]
-    for item in candidates:
-        qid=item.get('id')
-        if not qid:
-            results.append(item);continue
-        if item.get('published'):
-            results.append(item);continue
-        quality=quiz_quality_check(int(qid))
-        if quality.get('ready'):
-            pub=publish_quiz(int(qid))
-            results.append({**item,'published':True,'status':'published','quality_score':pub.get('quality_score')})
-        else:
-            reviewed=review_quiz(int(qid))
-            results.append({**item,'published':False,'status':reviewed.get('lifecycle_status'),'quality_score':reviewed.get('quality_score')})
+        results=[_publish_if_ready(con,item) for item in candidates]
     return {'active':True,'quizzes':results}

@@ -53,6 +53,17 @@ def init_db():
           status text NOT NULL DEFAULT 'open',
           updated_at timestamptz NOT NULL DEFAULT now()
         )""")
+        con.execute("""CREATE TABLE IF NOT EXISTS document_page_reviews(
+          document_id bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+          page_number integer NOT NULL,
+          page_role text NOT NULL DEFAULT 'unknown',
+          review_status text NOT NULL DEFAULT 'pending',
+          notes text,
+          question_count integer,
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY(document_id,page_number)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_document_page_reviews_queue ON document_page_reviews(document_id,review_status,page_role,page_number)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_question_review_notes_status ON question_review_notes(status,reason_code)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_questions_ready_academic ON questions(subject_id,grade_level_id,curriculum_version_id,term_id,approved) WHERE approved=TRUE")
         # Data-integrity constraints. Guarded by pg_constraint checks so startup remains idempotent.

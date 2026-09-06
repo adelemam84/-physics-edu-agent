@@ -34,6 +34,7 @@ class OCRConsensusResult:
 
 
 _SCIENCE_SYMBOL_RE = re.compile(r"[=<>±×÷→←⇌∑∆ΔθλμΩ]|\d|[A-Za-z]{1,3}\d|[A-Z][a-z]?\d*")
+_EQUATION_MARK_RE = re.compile(r"[=→←⇌±×÷/]|")
 _UNCLEAR_MARKERS = ('[غير واضح]', '[unclear]', '???')
 
 
@@ -55,10 +56,23 @@ def _line_similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _looks_like_equation(value: str) -> bool:
+    value = _normalize_line(value)
+    return bool(re.search(r'[=→←⇌]', value)) and bool(re.search(r'[A-Za-z0-9Α-Ωα-ω]', value))
+
+
+def _compact_science(value: str) -> str:
+    return re.sub(r'\s+', '', _normalize_line(value))
+
+
 def _severity(primary: str, secondary: str, similarity: float) -> tuple[str, str]:
     joined = f'{primary} {secondary}'.lower()
     if any(marker.lower() in joined for marker in _UNCLEAR_MARKERS):
         return 'critical', 'unclear_source'
+    # Equations / reaction expressions are exact-content sensitive: changing an
+    # operator, denominator, coefficient or arrow may change the scientific meaning.
+    if (_looks_like_equation(primary) or _looks_like_equation(secondary)) and _compact_science(primary) != _compact_science(secondary):
+        return 'critical', 'scientific_notation_conflict'
     if _science_sensitive(primary) or _science_sensitive(secondary):
         if similarity < 0.92:
             return 'critical', 'scientific_notation_conflict'

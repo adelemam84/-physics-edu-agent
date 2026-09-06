@@ -47,7 +47,10 @@ def source_corpus_benchmark() -> dict:
     return {"version": RC_VERSION, "metrics": metrics, "gates": gates, "passed": all(gates.values())}
 
 def release_readiness() -> dict:
-    corpus = source_corpus_benchmark()
+    try:
+        corpus = source_corpus_benchmark()
+    except RuntimeError as exc:
+        corpus = {"version": RC_VERSION, "metrics": {}, "gates": {"database_available": False}, "passed": False, "error": str(exc)}
     blockers = [k for k, ok in corpus["gates"].items() if not ok]
     return {
         "version": RC_VERSION,

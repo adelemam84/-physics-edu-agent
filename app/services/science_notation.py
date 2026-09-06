@@ -18,7 +18,9 @@ class NotationItem:
 _CHEM_ARROW = re.compile(r'(?:→|⇌|->|<->)')
 _EQUATION = re.compile(r'^[^\n]{1,120}=[^\n]{1,120}$')
 _UNIT_HINT = re.compile(r'\b(?:V|A|Ω|W|J|N|Pa|Hz|T|C|mol|kg|m/s|m/s²|cm|mm|nm)\b')
-_CHEM_TOKEN = re.compile(r'\b(?:[A-Z][a-z]?\d*){1,8}\b')
+# Allows a stoichiometric coefficient before a formula (e.g. 2H2, 3NaCl)
+# while still extracting the chemical formula itself for reaction detection.
+_CHEM_TOKEN = re.compile(r'(?<![A-Za-z])(?:\d+\s*)?(?:[A-Z][a-z]?\d*){1,8}(?![a-z])')
 
 
 def classify_notation(raw: str) -> NotationItem:

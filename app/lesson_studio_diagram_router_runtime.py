@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from . import science_lesson_studio
 from .services.diagram_router import route_diagram
-from .services.science_diagram_extensions import render_advanced
+from .services.science_diagram_extensions import ADVANCED_KINDS, render_advanced
 
 _BASE_ATTACH = science_lesson_studio._attach_diagram_engine
 
@@ -23,7 +23,7 @@ def _attach_with_smart_routing(structured: dict, subject: str) -> dict:
         item['routing'] = route.as_dict()
         specs.append(item)
         labels = tuple(str(x) for x in (item.get('scientific_labels') or []))
-        if route.kind in {'resistor_network', 'magnetic_field', 'molecule_bond'}:
+        if route.kind in ADVANCED_KINDS:
             advanced_indexes[idx] = (route.kind, labels, str(item.get('title') or 'رسم توضيحي'))
     routed['diagram_specs'] = specs
     out = _BASE_ATTACH(routed, subject)
@@ -42,7 +42,7 @@ def _attach_with_smart_routing(structured: dict, subject: str) -> dict:
     summary['total'] = len(diagrams)
     summary['deterministic_ready'] = sum(1 for x in diagrams if (x.get('diagram_engine') or {}).get('svg'))
     summary['review_required'] = sum(1 for x in diagrams if (x.get('diagram_engine') or {}).get('review_required'))
-    summary['advanced_extension_kinds'] = ['magnetic_field', 'molecule_bond', 'resistor_network']
+    summary['advanced_extension_kinds'] = sorted(ADVANCED_KINDS)
     out['diagram_engine_summary'] = summary
     return out
 

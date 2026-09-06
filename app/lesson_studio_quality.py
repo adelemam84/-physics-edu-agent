@@ -33,6 +33,7 @@ def quality_snapshot(job_id: str) -> dict:
         engine = d.get('diagram_engine') or {}
         if not engine.get('svg') or engine.get('review_required'):
             diagram_pending += 1
+    notation_pending = int((structured.get('notation_quality') or {}).get('review_required') or 0)
     sections = list(structured.get('sections') or [])
     sections_without_source_refs = sum(1 for s in sections if not (s.get('source_refs') or []))
     checks = [
@@ -40,6 +41,7 @@ def quality_snapshot(job_id: str) -> dict:
         {'id': 'ocr_review_clear', 'ok': source_pending == 0, 'value': source_pending},
         {'id': 'structured_content_ready', 'ok': bool(structured), 'value': bool(structured)},
         {'id': 'uncertainty_clear', 'ok': len(uncertain) == 0, 'value': len(uncertain)},
+        {'id': 'notation_review_clear', 'ok': notation_pending == 0, 'value': notation_pending},
         {'id': 'diagram_review_clear', 'ok': diagram_pending == 0, 'value': diagram_pending},
         {'id': 'section_provenance', 'ok': sections_without_source_refs == 0 if sections else True, 'value': sections_without_source_refs},
     ]
@@ -54,6 +56,7 @@ def quality_snapshot(job_id: str) -> dict:
             'no_silent_scientific_correction': True,
             'teacher_is_final_gate': True,
             'precise_diagrams_require_deterministic_or_reviewed_output': True,
+            'ambiguous_scientific_notation_requires_review': True,
         },
     }
     with connect() as con:

@@ -3,6 +3,7 @@ from io import BytesIO
 
 from PIL import Image
 
+from app.lesson_studio_source_editor import _render_adjusted
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
 from app.services.lesson_pdf_renderer import lesson_html, render_lesson_pdf
@@ -118,8 +119,39 @@ class HandwritingPreprocessTests(unittest.TestCase):
         self.assertFalse(report.applied)
 
 
+class ManualSourceAdjustmentTests(unittest.TestCase):
+    def image_bytes(self):
+        img = Image.new('RGB', (400, 300), 'white')
+        buf = BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
+    def test_crop_rotation_creates_derivative_and_preserves_input(self):
+        original = self.image_bytes()
+        snapshot = bytes(original)
+        adjusted, meta = _render_adjusted(
+            original, left=0.1, top=0.1, right=0.9, bottom=0.9,
+            rotation=90, perspective_json='',
+        )
+        self.assertEqual(original, snapshot)
+        self.assertTrue(adjusted.startswith(b'\x89PNG'))
+        self.assertTrue(meta['original_preserved'])
+        self.assertEqual(meta['rotation'], 90)
+        self.assertNotEqual(meta['original_size'], meta['output_size'])
+
+    def test_perspective_quad_is_applied_only_to_derivative(self):
+        original = self.image_bytes()
+        adjusted, meta = _render_adjusted(
+            original, left=0, top=0, right=1, bottom=1, rotation=0,
+            perspective_json='[0.05,0.05,0.95,0.08,0.9,0.92,0.08,0.95]',
+        )
+        self.assertTrue(adjusted.startswith(b'\x89PNG'))
+        self.assertEqual(len(meta['perspective_points']), 8)
+        self.assertTrue(meta['original_preserved'])
+
+
 class LessonPDFTests(unittest.TestCase):
-    def sample(self, long=False):
+    def sample(self, long=False, sections=1):
         text = ('شرح علمي منظم. ' * 180) if long else 'شرح علمي منظم.'
         diagram = render(DiagramSpec('simple_circuit', 'دائرة', ('مصدر', 'مقاومة')))['svg']
         return {
@@ -128,7 +160,10 @@ class LessonPDFTests(unittest.TestCase):
             'grade_label': 'الثالث الثانوي',
             'mode': 'teacher_notes',
             'learning_objectives': ['فهم الفكرة'],
-            'sections': [{'heading': 'الفكرة', 'body': text, 'source_only': True, 'source_refs': ['مصدر 1']}],
+            'sections': [
+                {'heading': f'الفكرة {i}', 'body': text, 'source_only': True, 'source_refs': ['مصدر 1']}
+                for i in range(1, sections + 1)
+            ],
             'equations_or_rules': [{'label': 'قانون', 'expression': 'V = IR', 'notes': 'من المصدر'}],
             'diagram_specs': [{'title': 'دائرة', 'description': 'رسم', 'scientific_labels': ['مصدر', 'مقاومة'], 'diagram_engine': {'svg': diagram, 'review_required': False}}],
             'teacher_warnings': [],
@@ -141,8 +176,18 @@ class LessonPDFTests(unittest.TestCase):
         self.assertIn('مصدر 1', out)
         self.assertIn('V = IR', out)
 
+    def test_long_lesson_has_generated_toc(self):
+        out = lesson_html(self.sample(sections=5))
+        self.assertIn('المحتويات', out)
+        self.assertIn('الفكرة 5', out)
+
     def test_pdf_is_valid(self):
         data = render_lesson_pdf(self.sample())
+        self.assertTrue(data.startswith(b'%PDF'))
+        self.assertGreater(len(data), 1000)
+
+    def test_mobile_pdf_is_valid(self):
+        data = render_lesson_pdf(self.sample(sections=5), preset='mobile')
         self.assertTrue(data.startswith(b'%PDF'))
         self.assertGreater(len(data), 1000)
 

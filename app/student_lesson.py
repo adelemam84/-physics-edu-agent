@@ -38,7 +38,7 @@ def student_lesson(lesson_id:int,student_code:str):
           FROM questions q WHERE q.lesson_id=%s AND q.approved=TRUE
             AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
             AND q.question_type<>'unknown' AND q.difficulty<>'unclassified'
-            AND EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
+            AND NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=q.id AND qr.status='open')
             AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
             AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
           ORDER BY random() LIMIT 5""",(lesson_id,)).fetchall())

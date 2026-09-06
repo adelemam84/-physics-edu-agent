@@ -32,6 +32,6 @@ This file records non-blocking or deferred issues discovered during implementati
 
 ### EDU-003 — Visual source crops
 - Status: operational review queue
-- 22 diagram/graph-dependent questions remain intentionally unapproved until a durable question-asset copy is stored.
+- 19 diagram/graph-dependent questions remain intentionally unapproved until a durable question-asset copy is stored.
 - The platform is fully operational without publishing those questions; text-self-sufficient questions are no longer blocked by an unnecessary asset requirement.
-- Generated crop coordinates/images have been verified locally from the real PDF source; persistent upload remains a content-operations task, not a release blocker.
+- Generated crop coordinates/images for the remaining 19 visual questions have been verified locally from the real PDF source. The admin now supports direct JPG/PNG/WEBP upload for external/Google Drive sources; persistent image upload remains a content-operations task, not a release blocker.

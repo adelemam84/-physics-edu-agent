@@ -28,9 +28,9 @@ def student_lesson(lesson_id:int,student_code:str):
         if not lesson: raise HTTPException(404,"الدرس غير موجود")
         concepts=list(con.execute("""SELECT id,title FROM concepts WHERE lesson_id=%s ORDER BY sort_order,id""",(lesson_id,)).fetchall())
         source_pages=list(con.execute("""SELECT DISTINCT d.id document_id,d.filename,dp.page_number,dp.extracted_text
-          FROM lesson_source_ranges m JOIN documents d ON d.id=m.document_id
+          FROM lesson_source_mappings m JOIN documents d ON d.id=m.document_id
           JOIN document_pages dp ON dp.document_id=m.document_id AND dp.page_number BETWEEN m.start_page AND m.end_page
-          WHERE m.lesson_id=%s AND m.approved=TRUE AND d.kind IN ('lesson','explanation','textbook','notes') AND d.status='approved'
+          WHERE m.lesson_id=%s AND m.mapping_status='approved' AND d.kind IN ('lesson','explanation','textbook','notes') AND d.status='approved'
             AND dp.extracted_text IS NOT NULL AND btrim(dp.extracted_text)<>''
           ORDER BY d.filename,dp.page_number LIMIT 30""",(lesson_id,)).fetchall())
         questions=list(con.execute("""SELECT q.id,q.text_verbatim,q.question_type,q.difficulty,

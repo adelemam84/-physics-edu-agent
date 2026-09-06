@@ -17,6 +17,12 @@ class DiagramRoute:
 ALIASES = {
     'circuit': 'simple_circuit',
     'electric_circuit': 'simple_circuit',
+    'resistor_network': 'resistor_network',
+    'resistors': 'resistor_network',
+    'magnetic': 'magnetic_field',
+    'magnetic_field': 'magnetic_field',
+    'molecule': 'molecule_bond',
+    'bond': 'molecule_bond',
     'graph': 'graph_axes',
     'chart_axes': 'graph_axes',
     'flow': 'process',
@@ -27,6 +33,9 @@ ALIASES = {
 }
 
 _KEYWORDS = [
+    ('resistor_network', ('توصيل مقاومات', 'شبكة مقاومات', 'مقاومات على التوالي', 'مقاومات على التوازي', 'resistor network')),
+    ('magnetic_field', ('مجال مغناطيسي', 'كثافة الفيض', 'حول سلك', 'حول موصل', 'magnetic field', 'magnetic flux')),
+    ('molecule_bond', ('رابطة كيميائية', 'تركيب جزيء', 'molecular bond', 'chemical bond', 'molecule structure')),
     ('cycle', ('دورة', 'دورية', 'cycle', 'دوران المراحل')),
     ('food_chain', ('سلسلة غذائية', 'شبكة غذائية', 'food chain', 'منتج ومستهلك')),
     ('atom_shell', ('تركيب الذرة', 'مستويات الطاقة', 'أغلفة إلكترونية', 'electron shell', 'atomic shell')),
@@ -47,9 +56,9 @@ def route_diagram(kind: str, title: str = '', description: str = '', subject: st
     if raw in ALIASES:
         return DiagramRoute(ALIASES[raw], 1.0, 'explicit_alias', False)
     known = {
-        'simple_circuit', 'graph_axes', 'apparatus', 'process', 'comparison',
-        'classification', 'vector', 'cycle', 'food_chain', 'anatomy_block',
-        'atom_shell', 'ray_diagram',
+        'simple_circuit', 'resistor_network', 'magnetic_field', 'molecule_bond',
+        'graph_axes', 'apparatus', 'process', 'comparison', 'classification',
+        'vector', 'cycle', 'food_chain', 'anatomy_block', 'atom_shell', 'ray_diagram',
     }
     if raw in known:
         return DiagramRoute(raw, 1.0, 'explicit_kind', False)
@@ -62,6 +71,6 @@ def route_diagram(kind: str, title: str = '', description: str = '', subject: st
     if matches:
         matches.sort(reverse=True)
         hits, target = matches[0]
-        confidence = min(0.92, 0.68 + 0.08 * hits)
+        confidence = min(0.94, 0.68 + 0.08 * hits)
         return DiagramRoute(target, confidence, 'keyword_inference', True)
     return DiagramRoute(raw or 'other', 0.0, 'no_safe_route', True)

@@ -2,6 +2,7 @@ import unittest
 
 from app.services.ocr_consensus import compare_ocr, single_provider_result
 from app.services.science_diagrams import DiagramSpec, render, validate_spec
+from app.services.lesson_pdf_renderer import render_lesson_pdf, lesson_html
 
 
 class OCRConsensusTests(unittest.TestCase):
@@ -50,6 +51,40 @@ class ScienceDiagramTests(unittest.TestCase):
         svg = render(spec)['svg']
         self.assertIn('A &lt; B', svg)
         self.assertIn('C &amp; D', svg)
+
+
+class LessonPDFTests(unittest.TestCase):
+    def sample(self, long=False):
+        text = ('شرح علمي منظم. ' * 180) if long else 'شرح علمي منظم.'
+        diagram = render(DiagramSpec('simple_circuit', 'دائرة', ('مصدر', 'مقاومة')))['svg']
+        return {
+            'title': 'درس تجريبي',
+            'subject': 'physics',
+            'grade_label': 'الثالث الثانوي',
+            'mode': 'teacher_notes',
+            'learning_objectives': ['فهم الفكرة'],
+            'sections': [{'heading': 'الفكرة', 'body': text, 'source_only': True, 'source_refs': ['مصدر 1']}],
+            'equations_or_rules': [{'label': 'قانون', 'expression': 'V = IR', 'notes': 'من المصدر'}],
+            'diagram_specs': [{'title': 'دائرة', 'description': 'رسم', 'scientific_labels': ['مصدر', 'مقاومة'], 'diagram_engine': {'svg': diagram, 'review_required': False}}],
+            'teacher_warnings': [],
+            'uncertain_items': [],
+            'summary': 'ملخص',
+        }
+
+    def test_html_preserves_provenance(self):
+        out = lesson_html(self.sample())
+        self.assertIn('مصدر 1', out)
+        self.assertIn('V = IR', out)
+
+    def test_pdf_is_valid(self):
+        data = render_lesson_pdf(self.sample())
+        self.assertTrue(data.startswith(b'%PDF'))
+        self.assertGreater(len(data), 1000)
+
+    def test_long_lesson_renders_without_single_page_compression_failure(self):
+        data = render_lesson_pdf(self.sample(long=True))
+        self.assertTrue(data.startswith(b'%PDF'))
+        self.assertGreater(len(data), 1000)
 
 
 if __name__ == '__main__':

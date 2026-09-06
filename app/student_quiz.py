@@ -9,7 +9,8 @@ from pydantic import BaseModel
 from .main import app
 from .db import connect
 from .security import require_admin
-from .parent_notifications import queue_attempt_notifications\nfrom .services.grading import grade_answer
+from .parent_notifications import queue_attempt_notifications
+from .services.grading import grade_answer
 
 class AnswerIn(BaseModel):
     question_id: int

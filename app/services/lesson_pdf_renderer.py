@@ -143,6 +143,20 @@ def lesson_css(mode: str | None = None, *, preset: str = 'a4') -> str:
     '''
 
 
+def _stamp_pages(data: bytes, *, preset: str) -> bytes:
+    doc = fitz.open(stream=data, filetype='pdf')
+    total = doc.page_count
+    cfg = PDF_PRESETS[preset]
+    font_size = 7.5 if preset == 'mobile' else 8.5
+    for i, page in enumerate(doc, 1):
+        page.insert_text((cfg['margin_x'], 15), 'Smart Science Lesson Studio', fontsize=font_size, color=(0.4, 0.4, 0.4))
+        label = f'{i} / {total}'
+        page.insert_text((page.rect.width - cfg['margin_x'] - 28, page.rect.height - 12), label, fontsize=font_size, color=(0.4, 0.4, 0.4))
+    out = doc.tobytes(garbage=3, deflate=True)
+    doc.close()
+    return out
+
+
 def render_lesson_pdf(structured: dict, *, preset: str = 'a4') -> bytes:
     """Render a multi-page lesson PDF for print (A4) or mobile reading."""
     if preset not in PDF_PRESETS:
@@ -173,4 +187,7 @@ def render_lesson_pdf(structured: dict, *, preset: str = 'a4') -> bytes:
     data = output.getvalue()
     if not data.startswith(b'%PDF'):
         raise RuntimeError('Invalid PDF render output')
+    data = _stamp_pages(data, preset=preset)
+    if not data.startswith(b'%PDF'):
+        raise RuntimeError('Invalid stamped PDF output')
     return data

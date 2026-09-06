@@ -107,12 +107,12 @@ def _gemini_source_query(pdf_bytes: bytes, prompt: str, page_start: int, page_en
         'هذه النتيجة استشارية ولا تعني اعتماد المحتوى في بنك الأسئلة.'
     )
     body = {
-        'system_instruction': {'parts': [{'text': system_instruction}]},
+        'systemInstruction': {'parts': [{'text': system_instruction}]},
         'contents': [{
             'role': 'user',
             'parts': [
                 {'text': f'نوع المهمة: {task}\nالمطلوب: {prompt}'},
-                {'inline_data': {'mime_type': 'application/pdf', 'data': base64.b64encode(pdf_bytes).decode('ascii')}},
+                {'inlineData': {'mimeType': 'application/pdf', 'data': base64.b64encode(pdf_bytes).decode('ascii')}},
             ],
         }],
         'generationConfig': {'temperature': 0.1},
@@ -124,7 +124,10 @@ def _gemini_source_query(pdf_bytes: bytes, prompt: str, page_start: int, page_en
     except httpx.HTTPError as exc:
         raise HTTPException(502, 'Gemini research provider is temporarily unavailable') from exc
     if response.status_code >= 400:
-        detail = response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text[:500]
+        try:
+            detail = response.json()
+        except ValueError:
+            detail = response.text[:500]
         raise HTTPException(502, {'message': 'Gemini provider request failed', 'provider_status': response.status_code, 'provider_detail': detail})
     payload = response.json()
     texts = []
@@ -135,6 +138,18 @@ def _gemini_source_query(pdf_bytes: bytes, prompt: str, page_start: int, page_en
     if not texts:
         raise HTTPException(502, 'Gemini provider returned no grounded text')
     return '\n'.join(texts).strip(), payload.get('usageMetadata', {})
+
+
+@app.get('/api/research-engine/status')
+def public_research_engine_status():
+    status = research_engine_status()
+    return {
+        'active_secondary_provider': status['active_secondary_provider'],
+        'configured': status['configured'],
+        'model': status['model'],
+        'source_only': True,
+        'auto_publish': False,
+    }
 
 
 @app.get('/api/admin/research-engine/status', dependencies=[Depends(require_admin)])

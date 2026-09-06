@@ -1,9 +1,11 @@
 import unittest
 from io import BytesIO
 
+import fitz
 from PIL import Image
 
 from app.lesson_studio_source_editor import _render_adjusted
+from app.science_reference_library import _normalize_tokens, _score_page
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
 from app.services.lesson_pdf_renderer import lesson_html, render_lesson_pdf
@@ -79,6 +81,21 @@ class ScienceNotationTests(unittest.TestCase):
     def test_unclear_notation_requires_review(self):
         item = classify_notation('V = [غير واضح] R')
         self.assertTrue(item.requires_review)
+
+
+class ScientificReferenceMatchingTests(unittest.TestCase):
+    def test_reference_page_with_lesson_terms_scores_higher(self):
+        q = _normalize_tokens('قانون أوم فرق الجهد شدة التيار المقاومة')
+        relevant = _score_page(q, 'ينص قانون أوم على العلاقة بين فرق الجهد وشدة التيار والمقاومة')
+        unrelated = _score_page(q, 'يتناول هذا الفصل تركيب الذرة ومستويات الطاقة')
+        self.assertGreater(relevant, unrelated)
+        self.assertGreater(relevant, 0)
+
+    def test_reference_tokens_ignore_common_stop_words(self):
+        tokens = _normalize_tokens('هذا هو قانون أوم في الدائرة')
+        self.assertIn('قانون', tokens)
+        self.assertNotIn('هذا', tokens)
+        self.assertNotIn('في', tokens)
 
 
 class IntegrityTests(unittest.TestCase):
@@ -181,10 +198,16 @@ class LessonPDFTests(unittest.TestCase):
         self.assertIn('المحتويات', out)
         self.assertIn('الفكرة 5', out)
 
-    def test_pdf_is_valid(self):
+    def test_pdf_is_valid_and_stamped(self):
         data = render_lesson_pdf(self.sample())
         self.assertTrue(data.startswith(b'%PDF'))
         self.assertGreater(len(data), 1000)
+        doc = fitz.open(stream=data, filetype='pdf')
+        self.assertGreaterEqual(doc.page_count, 1)
+        text = '\n'.join(page.get_text() for page in doc)
+        doc.close()
+        self.assertIn('Smart Science Lesson Studio', text)
+        self.assertIn('1 /', text)
 
     def test_mobile_pdf_is_valid(self):
         data = render_lesson_pdf(self.sample(sections=5), preset='mobile')

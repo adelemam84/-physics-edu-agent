@@ -11,25 +11,43 @@ from .storage import get_bytes
 _DRIVE_RE = re.compile(r"/file/d/([^/]+)")
 
 
+def _drive_file_id(storage_url: str) -> str | None:
+    m = _DRIVE_RE.search(storage_url)
+    return m.group(1) if m else None
+
+
 def _download_url(storage_url: str) -> str:
+    """Resolve a source URL to a direct download URL.
+
+    Large Google Drive files are served through drive.usercontent.google.com.
+    Passing confirm=t avoids the browser virus-scan interstitial that otherwise
+    returns HTML instead of the authoritative PDF bytes.
+    """
     if "drive.google.com" not in storage_url:
         return storage_url
-    m = _DRIVE_RE.search(storage_url)
-    if not m:
+    file_id = _drive_file_id(storage_url)
+    if not file_id:
         return storage_url
-    return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    return f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
 
 
 @lru_cache(maxsize=4)
 def _source_pdf(storage_url: str) -> bytes:
     url = _download_url(storage_url)
-    req = urllib.request.Request(url, headers={"User-Agent": "PhysicsEduAgent/1.4"})
-    with urllib.request.urlopen(req, timeout=35) as response:
-        raw = response.read(40 * 1024 * 1024 + 1)
-    if len(raw) > 40 * 1024 * 1024:
-        raise RuntimeError("Source PDF exceeds 40 MB runtime limit")
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 PhysicsEduAgent/1.4",
+            "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.1",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=55) as response:
+        raw = response.read(90 * 1024 * 1024 + 1)
+        content_type = (response.headers.get("Content-Type") or "").lower()
+    if len(raw) > 90 * 1024 * 1024:
+        raise RuntimeError("Source PDF exceeds 90 MB runtime limit")
     if not raw.startswith(b"%PDF"):
-        raise RuntimeError("Source URL did not return a PDF")
+        raise RuntimeError(f"Source URL did not return a PDF ({content_type or 'unknown content type'})")
     return raw
 
 

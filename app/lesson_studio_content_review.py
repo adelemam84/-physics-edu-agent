@@ -8,6 +8,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
+from .services.science_notation import classify_notation
 
 
 def _load_structured(job_id: str) -> tuple[dict, dict]:
@@ -29,20 +30,32 @@ def _save_structured(job_id: str, structured: dict) -> None:
           WHERE id=%s''', (json.dumps(structured, ensure_ascii=False), job_id))
 
 
+def _recount_notation_quality(structured: dict) -> None:
+    items = list(structured.get('equations_or_rules') or [])
+    pending = sum(1 for x in items if (x.get('notation') or {}).get('requires_review'))
+    quality = dict(structured.get('notation_quality') or {})
+    quality['review_required'] = pending
+    quality['policy'] = quality.get('policy') or 'classification_only_no_semantic_rewrite'
+    structured['notation_quality'] = quality
+
+
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/content-review', dependencies=[Depends(require_admin)])
 def content_review(job_id: str):
     _, structured = _load_structured(job_id)
     diagrams = structured.get('diagram_specs') or []
     uncertain = structured.get('uncertain_items') or []
     sections = structured.get('sections') or []
+    notations = structured.get('equations_or_rules') or []
     return {
         'job_id': job_id,
         'sections': sections,
         'uncertain_items': uncertain,
         'diagram_specs': diagrams,
+        'equations_or_rules': notations,
         'summary': {
             'sections': len(sections),
             'uncertain_items': len(uncertain),
+            'notations_pending_review': sum(1 for x in notations if (x.get('notation') or {}).get('requires_review')),
             'diagrams_pending_review': sum(1 for d in diagrams if (d.get('diagram_engine') or {}).get('review_required')),
             'sections_without_source_refs': sum(1 for s in sections if not (s.get('source_refs') or [])),
         },
@@ -85,6 +98,46 @@ def resolve_uncertain_item(job_id: str, item_index: int, resolution: str = Form(
     structured['resolved_review_items'] = resolved
     _save_structured(job_id, structured)
     return {'resolved': True, 'remaining_uncertain_items': len(uncertain)}
+
+
+@app.post('/api/admin/lesson-studio/jobs/{job_id}/notations/{notation_index}/approve', dependencies=[Depends(require_admin)])
+def approve_notation(
+    job_id: str,
+    notation_index: int,
+    approved_expression: str = Form(...),
+    teacher_note: str = Form(''),
+):
+    expression = approved_expression.strip()
+    if not expression:
+        raise HTTPException(400, 'Approved expression cannot be empty')
+    _, structured = _load_structured(job_id)
+    items = list(structured.get('equations_or_rules') or [])
+    if notation_index < 0 or notation_index >= len(items):
+        raise HTTPException(404, 'Notation item not found')
+    item = dict(items[notation_index])
+    original_expression = str(item.get('expression') or '')
+    classification = classify_notation(expression).as_dict()
+    classification['requires_review'] = False
+    classification['teacher_reviewed'] = True
+    classification['teacher_note'] = teacher_note.strip()
+    item['expression'] = expression
+    item['notation'] = classification
+    item['teacher_review'] = {
+        'original_expression': original_expression,
+        'approved_expression': expression,
+        'teacher_note': teacher_note.strip(),
+        'approved': True,
+    }
+    items[notation_index] = item
+    structured['equations_or_rules'] = items
+    _recount_notation_quality(structured)
+    _save_structured(job_id, structured)
+    return {
+        'approved': True,
+        'notation_index': notation_index,
+        'item': item,
+        'remaining_notation_reviews': structured['notation_quality']['review_required'],
+    }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sections/{section_index}/update', dependencies=[Depends(require_admin)])

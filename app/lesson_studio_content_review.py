@@ -9,6 +9,7 @@ from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
 from .services.science_notation import classify_notation
+from .services.science_diagram_parameterized import PARAMETERIZED_KINDS, render_parameterized
 
 
 def _content_review_schema() -> None:
@@ -67,6 +68,41 @@ def content_review(job_id: str):
             'diagrams_pending_review': sum(1 for d in diagrams if (d.get('diagram_engine') or {}).get('review_required')),
             'sections_without_source_refs': sum(1 for s in sections if not (s.get('source_refs') or [])),
         },
+    }
+
+
+@app.post('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/parameters', dependencies=[Depends(require_admin)])
+def update_diagram_parameters(job_id: str, diagram_index: int, parameters_json: str = Form(...)):
+    try:
+        parameters = json.loads(parameters_json or '{}')
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, 'parameters_json must be valid JSON') from exc
+    if not isinstance(parameters, dict):
+        raise HTTPException(400, 'parameters_json must be a JSON object')
+    _, structured = _load_structured(job_id)
+    diagrams = list(structured.get('diagram_specs') or [])
+    if diagram_index < 0 or diagram_index >= len(diagrams):
+        raise HTTPException(404, 'Diagram not found')
+    diagram = dict(diagrams[diagram_index])
+    kind = str(diagram.get('normalized_kind') or diagram.get('kind') or '')
+    if kind not in PARAMETERIZED_KINDS:
+        raise HTTPException(400, 'This diagram kind does not support explicit parameter editing')
+    rendered = render_parameterized(kind, str(diagram.get('title') or 'رسم توضيحي'), parameters)
+    if rendered is None:
+        raise HTTPException(400, 'Unable to render diagram parameters')
+    diagram['parameters'] = parameters
+    diagram['diagram_engine'] = rendered
+    diagram['teacher_parameter_edit'] = True
+    diagrams[diagram_index] = diagram
+    structured['diagram_specs'] = diagrams
+    _save_structured(job_id, structured)
+    return {
+        'updated': True,
+        'diagram_index': diagram_index,
+        'diagram': diagram,
+        'valid': bool(rendered.get('valid')),
+        'issues': rendered.get('issues') or [],
+        'teacher_approval_invalidated': True,
     }
 
 

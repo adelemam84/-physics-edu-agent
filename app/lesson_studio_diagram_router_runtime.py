@@ -24,7 +24,7 @@ def _attach_with_smart_routing(structured: dict, subject: str) -> dict:
         item['routing'] = route.as_dict()
         specs.append(item)
         labels = tuple(str(x) for x in (item.get('scientific_labels') or []))
-        if route.kind in ADVANCED_KINDS:
+        if route.kind in ADVANCED_KINDS or route.kind in PARAMETERIZED_KINDS:
             advanced_indexes[idx] = (route.kind, labels, str(item.get('title') or 'رسم توضيحي'), dict(item.get('parameters') or {}))
     routed['diagram_specs'] = specs
     out = _BASE_ATTACH(routed, subject)

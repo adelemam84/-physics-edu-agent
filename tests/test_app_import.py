@@ -28,6 +28,9 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/lesson-studio/jobs/{job_id}/approval-state",
             "/api/admin/lesson-studio/release-readiness",
             "/api/admin/completion-audit",
+            "/api/admin/current-corpus/visual-review/queue",
+            "/api/admin/current-corpus/visual-review/{question_id}/suggest",
+            "/api/admin/current-corpus/visual-review/batch-suggest",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 

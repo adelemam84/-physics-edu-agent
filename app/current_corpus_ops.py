@@ -93,6 +93,6 @@ def current_corpus_ops_page():
 <div class='card'><div class='muted'>QA مفتوح</div><div class='n'>{snapshot.get('qa_open',0)}</div></div>
 <div class='card'><div class='muted'>اختبارات منشورة</div><div class='n'>{snapshot.get('published_quizzes',0)}</div></div>
 </div>
-<div class='box'><h2>المرحلة الحالية</h2><p><b>{snapshot.get('phase','not_configured')}</b> · الحالة: <b>{snapshot.get('status','active')}</b></p><h3>الإجراءات التالية</h3><ul>{rows}</ul></div>
+<div class='box'><h2>مساعد المراجعة البصرية</h2><p class='muted'>يولد Draft من القصاصة الأصلية فقط بدون اعتماد تلقائي.</p><p><a href='/admin/workflow?quality_issue=any'>فتح مسار مراجعة الأسئلة</a> · <a href='/admin/research-engine'>محرك المصادر</a></p><button onclick="fetch('/api/admin/current-corpus/visual-review/batch-suggest?limit=5',{method:'POST'}).then(r=>r.json()).then(x=>alert('تم تجهيز '+x.processed+' اقتراحات للمراجعة')).catch(e=>alert(e))">تجهيز 5 اقتراحات بصرية</button></div><div class='box'><h2>المرحلة الحالية</h2><p><b>{snapshot.get('phase','not_configured')}</b> · الحالة: <b>{snapshot.get('status','active')}</b></p><h3>الإجراءات التالية</h3><ul>{rows}</ul></div>
 <div class='box'><h2>قاعدة النزاهة</h2><p class='warn'>{snapshot.get('integrity_rule','')}</p></div></main></html>"""
     )

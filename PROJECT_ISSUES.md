@@ -18,7 +18,7 @@ This file records non-blocking or deferred issues discovered during implementati
 - The module is registered by `index.py`, and mapping/approval gates use one schema only.
 
 ### EDU-003 — Visual transcription review queue
-- Status: human source review required; not a code blocker
+- Status: human source review required; AI-assisted source transcription is now available, but final approval remains human-only
 - Source-backed visual assets are already attached to the current 2026/2027 candidates.
 - Phase-2 manual source review increased current-curriculum approvals from 41 to 71.
 - 50 source-image candidates still have `visual_transcription_required`; they remain deliberately unapproved until their exact question text, answer, academic mapping, concept, skill and difficulty are verified from the source image.

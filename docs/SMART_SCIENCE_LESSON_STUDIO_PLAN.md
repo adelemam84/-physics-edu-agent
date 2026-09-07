@@ -225,6 +225,13 @@ Implemented checks:
 - Completion audit reports approved explanatory-source mappings, visual transcription queue, source-candidate mismatch count, approved questions and published quizzes.
 - Missing theory/reference content is never mislabeled as a software defect and is never filled from model memory.
 
+### Phase U — AI-assisted Visual Source Review
+- Pending `visual_transcription_required` questions can be processed from their exact source-backed crop.
+- Gemini produces a stored draft with verbatim question text, visible options, uncertainty list, visual description and confidence.
+- The assistant never solves the question from general knowledge and never auto-approves a question.
+- `visible_answer` is allowed only when an answer is explicitly visible in the source crop.
+- Batch generation is capped at five items per request for serverless safety; final academic mapping and approval remain human gates.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

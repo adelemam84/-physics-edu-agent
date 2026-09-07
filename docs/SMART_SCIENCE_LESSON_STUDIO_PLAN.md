@@ -218,6 +218,13 @@ Implemented checks:
 - A release can never be `ready` without real-source acceptance and a final PDF bound to the current content hash.
 - Admin surface: `/admin/lesson-studio/release-readiness`.
 
+### Phase T — Completion Audit & Freshness Hardening
+- Acceptance counts only fresh curriculum maps, fresh reference reviews and final PDFs bound to the current lesson content hash.
+- Stale artifacts remain visible for audit but never satisfy release acceptance.
+- `/admin/completion-audit` separates code/runtime blockers from external-source and human-review work.
+- Completion audit reports approved explanatory-source mappings, visual transcription queue, source-candidate mismatch count, approved questions and published quizzes.
+- Missing theory/reference content is never mislabeled as a software defect and is never filled from model memory.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

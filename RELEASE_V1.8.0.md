@@ -99,6 +99,8 @@ All relationship-sensitive diagrams remain teacher-review-required even when det
 - `/admin/lesson-studio/references`
 - `/admin/lesson-studio/reference-workspace`
 - `/admin/lesson-studio/acceptance`
+- `/admin/lesson-studio/release-readiness`
+- `/admin/completion-audit`
 
 ## Important production configuration
 Already supported:
@@ -137,6 +139,10 @@ v1.8.0 is deployed to Vercel production and the automated deployment gate is ope
 - `/api/research-engine/status` returned HTTP 200 with Gemini configured and the orchestrator active.
 - A Vercel-entrypoint import regression test is now part of the `unittest` CI suite.
 - `/admin/lesson-studio/acceptance` now provides a single acceptance gate for runtime, reference ingestion, curriculum mapping, handwritten lesson processing, OCR review, reference review, teacher approval, and final PDF export.
+
+### Completion audit
+- Acceptance now requires fresh curriculum maps, fresh scientific-reference review evidence, and a final PDF generated from the current content hash.
+- `/admin/completion-audit` separates remaining code/runtime defects from external-source and human-review work.
 
 ### Acceptance work that still requires real source material / authenticated teacher review
 - Verify Lesson Studio admin routes in an authenticated teacher session.

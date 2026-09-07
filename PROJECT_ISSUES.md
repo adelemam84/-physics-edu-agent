@@ -5,7 +5,7 @@ This file records non-blocking or deferred issues discovered during implementati
 ## Open
 
 ### EDU-001 — Dedicated theory/textbook source is not yet approved
-- Status: non-blocking content expansion
+- Status: external source / human approval required; not a code blocker
 - Current production has a fully mapped legacy-2020 question source plus a registered 2026 final-review source from Google Drive.
 - The 2026/2027 academic hierarchy is present and active.
 - Student lesson reading remains source-grounded and will not invent explanations when no approved textbook/lesson page range is linked.
@@ -18,7 +18,7 @@ This file records non-blocking or deferred issues discovered during implementati
 - The module is registered by `index.py`, and mapping/approval gates use one schema only.
 
 ### EDU-003 — Visual transcription review queue
-- Status: operational review queue; non-blocking
+- Status: human source review required; not a code blocker
 - Source-backed visual assets are already attached to the current 2026/2027 candidates.
 - Phase-2 manual source review increased current-curriculum approvals from 41 to 71.
 - 50 source-image candidates still have `visual_transcription_required`; they remain deliberately unapproved until their exact question text, answer, academic mapping, concept, skill and difficulty are verified from the source image.

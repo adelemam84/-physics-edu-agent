@@ -101,6 +101,7 @@ All relationship-sensitive diagrams remain teacher-review-required even when det
 - `/admin/lesson-studio/acceptance`
 - `/admin/lesson-studio/release-readiness`
 - `/admin/completion-audit`
+- `/admin/project-closure`
 
 ## Important production configuration
 Already supported:
@@ -151,3 +152,8 @@ v1.8.0 is deployed to Vercel production and the automated deployment gate is ope
 - Build and inspect its source-grounded curriculum map.
 - Run reference alignment against the handwritten lesson.
 - Export A4 and mobile PDFs and visually inspect Arabic layout, diagrams and page numbering.
+
+
+### Final closure
+- Phase V adds a canonical project-closure manifest and sign-off matrix.
+- Production code readiness is never conflated with source/content completion.

@@ -232,6 +232,13 @@ Implemented checks:
 - `visible_answer` is allowed only when an answer is explicitly visible in the source crop.
 - Batch generation is capped at five items per request for serverless safety; final academic mapping and approval remain human gates.
 
+### Phase V — Final Production Closure & Handover
+- Adds a single Project Closure Manifest that consolidates runtime readiness, research guardrails, current-curriculum corpus state, Lesson Studio release state and completion audit.
+- Explicitly distinguishes `code_complete` from `content_complete` so missing teacher/source work is never hidden behind a technical success state.
+- Generates a sign-off matrix for runtime, research engine, question bank, explanatory lesson sources, Lesson Studio and production release line.
+- External/human gates are preserved with direct action links and are never auto-closed.
+- Admin surface: `/admin/project-closure`; API: `/api/admin/project-closure`.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

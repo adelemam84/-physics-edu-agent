@@ -37,3 +37,9 @@ This file records non-blocking or deferred issues discovered during implementati
 - Visual questions must preserve the authoritative source image/diagram.
 - Do not close transcription QA merely because an image asset exists; text, answer and academic classification must be independently reviewed.
 - Record newly discovered non-blocking problems here and continue implementation when safe.
+
+
+## Final Production Closure
+- Phase V provides `/admin/project-closure` as the canonical final handover view.
+- Project code/runtime completion and curriculum/content completion are deliberately reported separately.
+- Remaining EDU-001 and EDU-003 work stays external/human-gated until a real explanatory source and teacher review are supplied.

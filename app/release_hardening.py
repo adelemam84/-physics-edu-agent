@@ -29,6 +29,14 @@ def _sync_summary() -> dict:
         return {'total':0,'active':0,'processing':0,'failed':0}
 
 
+def _classify_release_state(runtime_blockers: list[str], content_gates: list[str]) -> str:
+    if runtime_blockers:
+        return 'code_ready_pending_runtime_activation'
+    if content_gates:
+        return 'runtime_ready_content_gate_open'
+    return 'runtime_ready'
+
+
 def next_release_status() -> dict:
     research=research_engine_status()
     blueprint=blueprint_readiness()

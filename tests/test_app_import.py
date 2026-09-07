@@ -54,11 +54,10 @@ class VercelEntrypointTests(unittest.TestCase):
         self.assertTrue(required.issubset(paths), required-paths)
 
     def test_release_state_distinguishes_runtime_from_content_gates(self):
-        from app.release_hardening import next_release_status
-        # Runtime activation and curriculum content feasibility are distinct axes.
-        data=next_release_status()
-        self.assertIn(data['release_state'], {'runtime_ready','runtime_ready_content_gate_open','code_ready_pending_runtime_activation'})
-        self.assertIn('content_gates', data)
+        from app.release_hardening import _classify_release_state
+        self.assertEqual(_classify_release_state([], []), 'runtime_ready')
+        self.assertEqual(_classify_release_state([], ['essay gap']), 'runtime_ready_content_gate_open')
+        self.assertEqual(_classify_release_state(['missing key'], ['essay gap']), 'code_ready_pending_runtime_activation')
 
 
 if __name__ == "__main__":

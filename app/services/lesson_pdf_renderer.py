@@ -6,6 +6,8 @@ import os
 
 import fitz
 
+from .science_notation_presentation import notation_html
+
 
 MODE_LABELS = {
     'teacher_notes': 'مذكرة مدرس',
@@ -77,7 +79,7 @@ def _equations_html(items: list[dict], *, anchor_id: str = 'equations') -> str:
         rows.append(
             '<div class="equation">'
             f'<div class="eq-label">{_esc(x.get("label"))}</div>'
-            f'<div class="eq-expression" dir="ltr"><bdi dir="ltr">{_esc(x.get("expression"))}</bdi></div>'
+            f'<div class="eq-expression" dir="ltr"><bdi dir="ltr">{notation_html(str(x.get("expression") or ""), str((x.get("notation") or {}).get("kind") or "plain_text"))}</bdi></div>'
             f'<div class="eq-notes">{_esc(x.get("notes"))}</div>'
             '</div>'
         )

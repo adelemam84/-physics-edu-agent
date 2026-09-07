@@ -93,7 +93,7 @@ Further renderer depth:
 - Preserve ambiguous symbols for review.
 - Detect physics/math equations, quantities with units, chemical formula candidates and chemical reactions including stoichiometric coefficients.
 - Teacher can approve/correct a notation item explicitly; the original expression is retained in review metadata.
-- Further typography work for advanced subscripts, charges and states can be layered into the PDF renderer without altering source text.
+- Advanced PDF notation typography is implemented as presentation-only markup: explicit chemical subscripts, explicit charges, explicit matter states and explicit caret exponents, while preserving the raw source expression unchanged.
 
 ### Phase G — Original vs Organized review UI
 - Unified mobile-responsive workspace at `/admin/lesson-studio/workspace`.

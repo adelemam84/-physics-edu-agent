@@ -14,6 +14,7 @@ from app.services.ocr_consensus import compare_ocr, single_provider_result
 from app.services.science_diagram_extensions import render_advanced
 from app.services.science_diagrams import DiagramSpec, render, validate_spec
 from app.services.science_notation import classify_notation
+from app.services.science_notation_presentation import notation_html, presentation_contract
 
 
 class OCRConsensusTests(unittest.TestCase):
@@ -99,6 +100,34 @@ class ScienceNotationTests(unittest.TestCase):
         item = classify_notation('2H2 + O2 → 2H2O')
         self.assertEqual(item.raw, '2H2 + O2 → 2H2O')
         self.assertEqual(item.kind, 'chemical_equation')
+
+    def test_chemical_formula_typography_preserves_raw(self):
+        out = notation_html('H2O', 'chemical_formula_candidate')
+        self.assertIn('data-raw="H2O"', out)
+        self.assertIn('H<sub>2</sub>O', out)
+
+    def test_chemical_equation_styles_only_explicit_notation(self):
+        out = notation_html('2H2 + O2 → 2H2O', 'chemical_equation')
+        self.assertIn('2H<sub>2</sub>', out)
+        self.assertIn('O<sub>2</sub>', out)
+        self.assertIn('→', out)
+
+    def test_state_and_charge_are_presentation_only(self):
+        out = notation_html('SO4^2-(aq)', 'chemical_formula_candidate')
+        self.assertIn('SO<sub>4</sub>', out)
+        self.assertIn('<sup class="chem-charge">2-</sup>', out)
+        self.assertIn('(aq)', out)
+
+    def test_physics_superscript_requires_explicit_caret(self):
+        out = notation_html('v^2 = u^2 + 2as', 'physics_or_math_equation')
+        self.assertIn('v<sup>2</sup>', out)
+        self.assertIn('u<sup>2</sup>', out)
+        self.assertIn('2as', out)
+
+    def test_notation_presentation_contract_forbids_semantic_rewrite(self):
+        contract = presentation_contract()
+        self.assertFalse(contract['semantic_rewrite'])
+        self.assertEqual(contract['policy'], 'presentation_only_preserve_raw')
 
     def test_unclear_notation_requires_review(self):
         item = classify_notation('V = [غير واضح] R')

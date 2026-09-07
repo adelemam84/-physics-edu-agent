@@ -2,6 +2,7 @@ import unittest
 
 from app.science_lesson_studio import OUTPUT_MODES, SUBJECTS, _render_pdf, _safe_filename
 from app.services.lesson_pdf_renderer import PDF_THEMES, render_lesson_pdf
+import fitz
 
 
 class ScienceLessonStudioTests(unittest.TestCase):
@@ -34,6 +35,49 @@ class ScienceLessonStudioTests(unittest.TestCase):
                 data = render_lesson_pdf(structured, theme=theme)
                 self.assertTrue(data.startswith(b'%PDF'))
                 self.assertGreater(len(data), 500)
+
+    def test_toc_contains_real_page_numbers_after_stabilized_layout(self):
+        structured = {
+            'title': 'درس طويل',
+            'subject': 'physics',
+            'grade_label': 'الثالث الثانوي',
+            'mode': 'teacher_notes',
+            'sections': [
+                {'heading': f'القسم {i}', 'body': ('شرح عربي طويل. ' * 180), 'source_refs': [f'مصدر {i}']}
+                for i in range(1, 6)
+            ],
+            'equations_or_rules': [{'label': 'قانون', 'expression': 'V = I R', 'notes': 'علاقة تجريبية'}],
+            'summary': 'ملخص نهائي',
+        }
+        data = render_lesson_pdf(structured)
+        doc = fitz.open(stream=data, filetype='pdf')
+        self.assertGreater(doc.page_count, 2)
+        first_pages = '\n'.join(page.get_text() for page in doc[:2])
+        self.assertIn('المحتويات', first_pages)
+        self.assertRegex(first_pages, r'القسم 1[\s\S]*?\b[1-9]\d*\b')
+        doc.close()
+
+    def test_arabic_and_equation_text_survive_pdf_extraction(self):
+        structured = {
+            'title': 'قانون أوم',
+            'subject': 'physics',
+            'grade_label': 'الثالث الثانوي',
+            'mode': 'teacher_notes',
+            'sections': [
+                {'heading': 'العلاقة بين الجهد والتيار', 'body': 'يزداد فرق الجهد بزيادة شدة التيار.', 'source_refs': ['ص 1']},
+                {'heading': 'تعريف', 'body': 'نص عربي واضح.', 'source_refs': ['ص 2']},
+                {'heading': 'مثال', 'body': 'مثال تطبيقي.', 'source_refs': ['ص 3']},
+                {'heading': 'ملاحظة', 'body': 'ملاحظة مهمة.', 'source_refs': ['ص 4']},
+            ],
+            'equations_or_rules': [{'label': 'قانون أوم', 'expression': 'V = I × R', 'notes': 'V بالفولت'}],
+            'summary': 'ملخص عربي',
+        }
+        data = render_lesson_pdf(structured)
+        doc = fitz.open(stream=data, filetype='pdf')
+        text = '\n'.join(page.get_text() for page in doc)
+        self.assertIn('قانون أوم', text)
+        self.assertIn('V = I', text)
+        doc.close()
 
     def test_pdf_renderer_returns_pdf_bytes(self):
         data = _render_pdf({

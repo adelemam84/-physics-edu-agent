@@ -48,7 +48,7 @@ def _callout_role(heading: str) -> str:
     return 'normal'
 
 
-def _section_html(section: dict) -> str:
+def _section_html(section: dict, *, anchor_id: str = '') -> str:
     refs = section.get('source_refs') or []
     source_html = ''
     if refs:
@@ -57,7 +57,8 @@ def _section_html(section: dict) -> str:
     heading = str(section.get('heading') or '')
     role = _callout_role(heading)
     cls = 'section-block' if role == 'normal' else f'section-block callout callout-{role}'
-    return f'<section class="{cls}"><h2>{_esc(heading)}</h2><p>{body}</p>{source_html}</section>'
+    anchor = f' id="{_esc(anchor_id)}"' if anchor_id else ''
+    return f'<section class="{cls}"><h2{anchor}>{_esc(heading)}</h2><p>{body}</p>{source_html}</section>'
 
 
 def _list_block(title: str, values: list, *, css_class: str = '') -> str:
@@ -68,7 +69,7 @@ def _list_block(title: str, values: list, *, css_class: str = '') -> str:
     return f'<section class="list-block{extra}"><h2>{_esc(title)}</h2><ul>{items}</ul></section>'
 
 
-def _equations_html(items: list[dict]) -> str:
+def _equations_html(items: list[dict], *, anchor_id: str = 'equations') -> str:
     if not items:
         return ''
     rows = []
@@ -76,14 +77,14 @@ def _equations_html(items: list[dict]) -> str:
         rows.append(
             '<div class="equation">'
             f'<div class="eq-label">{_esc(x.get("label"))}</div>'
-            f'<div class="eq-expression" dir="ltr">{_esc(x.get("expression"))}</div>'
+            f'<div class="eq-expression" dir="ltr"><bdi dir="ltr">{_esc(x.get("expression"))}</bdi></div>'
             f'<div class="eq-notes">{_esc(x.get("notes"))}</div>'
             '</div>'
         )
-    return '<section class="equation-section"><h2>القوانين والمعادلات</h2>' + ''.join(rows) + '</section>'
+    return f'<section class="equation-section"><h2 id="{_esc(anchor_id)}">القوانين والمعادلات</h2>' + ''.join(rows) + '</section>'
 
 
-def _diagrams_html(items: list[dict]) -> str:
+def _diagrams_html(items: list[dict], *, anchor_id: str = 'diagrams') -> str:
     if not items:
         return ''
     rows = []
@@ -101,24 +102,39 @@ def _diagrams_html(items: list[dict]) -> str:
             f'<div class="diagram-status">{_esc(status)}</div>{svg_html}'
             '</div>'
         )
-    return '<section class="diagram-section"><h2>الرسومات التوضيحية</h2>' + ''.join(rows) + '</section>'
+    return f'<section class="diagram-section"><h2 id="{_esc(anchor_id)}">الرسومات التوضيحية</h2>' + ''.join(rows) + '</section>'
 
 
-def _toc_html(structured: dict) -> str:
+def _toc_entries(structured: dict) -> list[tuple[str, str]]:
+    sections = list(structured.get('sections') or [])
+    entries = [
+        (f'section-{i}', str(section.get('heading') or f'قسم {i}'))
+        for i, section in enumerate(sections, 1)
+    ]
+    if structured.get('equations_or_rules'):
+        entries.append(('equations', 'القوانين والمعادلات'))
+    if structured.get('diagram_specs'):
+        entries.append(('diagrams', 'الرسومات التوضيحية'))
+    entries.append(('summary', 'الملخص'))
+    return entries
+
+
+def _toc_html(structured: dict, page_map: dict[str, int] | None = None) -> str:
     sections = list(structured.get('sections') or [])
     if len(sections) < 4:
         return ''
-    items = ''.join(f'<li>{_esc(section.get("heading") or f"قسم {i}")}</li>' for i, section in enumerate(sections, 1))
-    extras = []
-    if structured.get('equations_or_rules'):
-        extras.append('<li>القوانين والمعادلات</li>')
-    if structured.get('diagram_specs'):
-        extras.append('<li>الرسومات التوضيحية</li>')
-    extras.append('<li>الملخص</li>')
-    return '<section class="toc"><h2>المحتويات</h2><ol>' + items + ''.join(extras) + '</ol></section>'
+    page_map = page_map or {}
+    rows = []
+    for anchor, label in _toc_entries(structured):
+        page = page_map.get(anchor)
+        page_html = f'<span class="toc-page">{page}</span>' if page else '<span class="toc-page">—</span>'
+        rows.append(
+            f'<li><a href="#{_esc(anchor)}"><span class="toc-label">{_esc(label)}</span>{page_html}</a></li>'
+        )
+    return '<section class="toc"><h2>المحتويات</h2><ol>' + ''.join(rows) + '</ol></section>'
 
 
-def lesson_html(structured: dict, *, mode: str | None = None, theme: str = DEFAULT_THEME) -> str:
+def lesson_html(structured: dict, *, mode: str | None = None, theme: str = DEFAULT_THEME, page_map: dict[str, int] | None = None) -> str:
     title = _esc(structured.get('title') or 'درس علوم')
     grade = _esc(structured.get('grade_label') or '')
     subject = _esc(structured.get('subject') or '')
@@ -126,20 +142,20 @@ def lesson_html(structured: dict, *, mode: str | None = None, theme: str = DEFAU
     mode_label = MODE_LABELS.get(output_mode, output_mode)
     if theme not in PDF_THEMES:
         raise ValueError('Unsupported PDF theme')
-    toc = _toc_html(structured)
+    toc = _toc_html(structured, page_map)
     objectives = _list_block('أهداف التعلم', structured.get('learning_objectives') or [], css_class='objectives')
-    sections = ''.join(_section_html(x) for x in (structured.get('sections') or []))
+    sections = ''.join(_section_html(x, anchor_id=f'section-{i}') for i, x in enumerate(structured.get('sections') or [], 1))
     equations = _equations_html(structured.get('equations_or_rules') or [])
     diagrams = _diagrams_html(structured.get('diagram_specs') or [])
     warnings = _list_block('ملاحظات للمدرس', structured.get('teacher_warnings') or [], css_class='teacher-notes') if output_mode == 'teacher_notes' else ''
     uncertain = _list_block('عناصر تحتاج مراجعة', structured.get('uncertain_items') or [], css_class='review-items')
     summary = _esc(structured.get('summary') or '')
-    return f'''<article class="mode-{_esc(output_mode)}" dir="rtl">
+    return f'''<article class="mode-{_esc(output_mode)}" dir="rtl" lang="ar">
       <header class="cover"><div class="brand">{_esc(BRAND_NAME)}</div><div class="eyebrow">{_esc(BRAND_TAGLINE)}</div><h1>{title}</h1>
       <div class="meta">{subject} {('· ' + grade) if grade else ''} · {_esc(mode_label)}</div>
       <div class="cover-rule"></div></header>
       {toc}{objectives}{sections}{equations}{diagrams}{warnings}{uncertain}
-      <section class="summary"><h2>الملخص</h2><p>{summary}</p></section>
+      <section class="summary"><h2 id="summary">الملخص</h2><p>{summary}</p></section>
       <footer>نسخة تعليمية مُنشأة من مصدر المدرس — المحتوى العلمي لا يُعدّل تلقائيًا.</footer>
     </article>'''
 
@@ -210,38 +226,63 @@ def _stamp_pages(data: bytes, *, preset: str, title: str = '', theme: str = DEFA
     return out
 
 
-def render_lesson_pdf(structured: dict, *, preset: str = 'a4', theme: str = DEFAULT_THEME) -> bytes:
-    """Render a multi-page lesson PDF for print (A4) or mobile reading."""
-    if preset not in PDF_PRESETS:
-        raise ValueError('Unsupported PDF preset')
-    if theme not in PDF_THEMES:
-        raise ValueError('Unsupported PDF theme')
-    mode = str(structured.get('mode') or 'teacher_notes')
+def _page_map_from_positions(positions) -> dict[str, int]:
+    result: dict[str, int] = {}
+    wanted = set()
+    for position in positions or []:
+        anchor = getattr(position, 'id', None)
+        if anchor and (getattr(position, 'open_close', 0) & 1):
+            wanted.add(anchor)
+            page_num = int(getattr(position, 'page_num', 0) or 0)
+            if page_num > 0:
+                result[anchor] = page_num
+    return result
+
+
+def _render_stabilized_pdf(structured: dict, *, preset: str, theme: str, mode: str) -> bytes:
     cfg = PDF_PRESETS[preset]
-    story = fitz.Story(html=lesson_html(structured, mode=mode, theme=theme), user_css=lesson_css(mode, preset=preset, theme=theme), em=11)
     media = fitz.Rect(0, 0, cfg['width'], cfg['height'])
     content = fitz.Rect(
         media.x0 + cfg['margin_x'], media.y0 + cfg['margin_y'],
         media.x1 - cfg['margin_x'], media.y1 - cfg['margin_y'],
     )
+
+    def rectfn(rect_num, filled):
+        if rect_num > 300:
+            raise RuntimeError('Lesson PDF exceeded safe page limit')
+        return media, content, None
+
+    def contentfn(positions):
+        page_map = _page_map_from_positions(positions)
+        return lesson_html(structured, mode=mode, theme=theme, page_map=page_map)
+
     output = io.BytesIO()
     writer = fitz.DocumentWriter(output)
-    more = 1
-    page_count = 0
     try:
-        while more:
-            page_count += 1
-            if page_count > 300:
-                raise RuntimeError('Lesson PDF exceeded safe page limit')
-            device = writer.begin_page(media)
-            more, _ = story.place(content)
-            story.draw(device)
-            writer.end_page()
+        fitz.Story.write_stabilized(
+            writer,
+            contentfn,
+            rectfn,
+            user_css=lesson_css(mode, preset=preset, theme=theme),
+            em=11,
+            add_header_ids=False,
+        )
     finally:
         writer.close()
     data = output.getvalue()
     if not data.startswith(b'%PDF'):
-        raise RuntimeError('Invalid PDF render output')
+        raise RuntimeError('Invalid stabilized PDF render output')
+    return data
+
+
+def render_lesson_pdf(structured: dict, *, preset: str = 'a4', theme: str = DEFAULT_THEME) -> bytes:
+    """Render a stabilized multi-page lesson PDF with real TOC page mapping."""
+    if preset not in PDF_PRESETS:
+        raise ValueError('Unsupported PDF preset')
+    if theme not in PDF_THEMES:
+        raise ValueError('Unsupported PDF theme')
+    mode = str(structured.get('mode') or 'teacher_notes')
+    data = _render_stabilized_pdf(structured, preset=preset, theme=theme, mode=mode)
     data = _stamp_pages(data, preset=preset, title=str(structured.get('title') or ''), theme=theme)
     if not data.startswith(b'%PDF'):
         raise RuntimeError('Invalid stamped PDF output')

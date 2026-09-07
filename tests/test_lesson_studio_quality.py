@@ -7,6 +7,7 @@ from PIL import Image
 from app.lesson_studio_source_editor import _render_adjusted
 from app.science_reference_library import _normalize_tokens, _score_page
 from app.services.reference_retrieval import rank_reference_pages, retrieval_contract
+from app.lesson_studio_version_diff import structured_diff
 from app.services.diagram_router import route_diagram
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
@@ -171,6 +172,31 @@ class ScientificReferenceMatchingTests(unittest.TestCase):
         ranked = rank_reference_pages('اوم الجهد التيار', pages, 1)
         self.assertEqual(ranked[0]['page_number'], 1)
         self.assertGreater(ranked[0]['score'], 0)
+
+    def test_version_diff_detects_section_equation_and_diagram_changes(self):
+        before = {
+            'sections': [{'heading':'قانون أوم','body':'النص الأول','source_refs':['ص1']}],
+            'equations_or_rules': [{'label':'قانون','expression':'V=IR'}],
+            'diagram_specs': [{'title':'دائرة','kind':'circuit','description':'قديم'}],
+            'summary': 'قديم',
+        }
+        after = {
+            'sections': [{'heading':'قانون أوم','body':'النص المعدل','source_refs':['ص1']}],
+            'equations_or_rules': [{'label':'قانون','expression':'V = I R'}],
+            'diagram_specs': [{'title':'دائرة','kind':'circuit','description':'جديد'}],
+            'summary': 'جديد',
+        }
+        diff = structured_diff(before, after)
+        self.assertEqual(diff['summary']['sections'], 1)
+        self.assertEqual(diff['summary']['equations'], 1)
+        self.assertEqual(diff['summary']['diagrams'], 1)
+        self.assertGreaterEqual(diff['summary']['fields'], 1)
+
+    def test_version_diff_is_empty_for_identical_content(self):
+        payload = {'sections':[{'heading':'أ','body':'ب'}], 'summary':'س'}
+        diff = structured_diff(payload, payload)
+        self.assertEqual(diff['summary']['total_changes'], 0)
+        self.assertEqual(diff['changes'], [])
 
     def test_reference_tokens_ignore_common_stop_words(self):
         tokens = _normalize_tokens('هذا هو قانون أوم في الدائرة')

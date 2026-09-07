@@ -61,4 +61,5 @@ from app import lesson_studio_quality  # noqa: F401,E402
 from app import lesson_studio_export_presets  # noqa: F401,E402
 from app import lesson_studio_acceptance  # noqa: F401,E402
 from app import lesson_studio_version_history  # noqa: F401,E402
+from app import lesson_studio_version_diff  # noqa: F401,E402
 from app import release_hardening  # noqa: F401,E402

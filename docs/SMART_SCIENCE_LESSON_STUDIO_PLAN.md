@@ -187,6 +187,13 @@ Implemented checks:
 - Restoring a prior version preserves original source uploads but invalidates teacher approval, independent review, scientific reference review, cached quality state and prior final PDF.
 - Restored content must pass the full current quality gate again before export.
 
+### Phase P — Lesson Diff & Change Review
+- Read-only comparison between any saved version and the current lesson, or between two saved versions.
+- Structured differences are grouped into transcript, sections, equations, diagrams, core fields and approved additions.
+- Diff output shows before/after values without inferring whether a scientific change is correct.
+- Comparison never approves, restores or mutates source files.
+- Version history UI exposes a one-click compare-to-current view before restore decisions.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

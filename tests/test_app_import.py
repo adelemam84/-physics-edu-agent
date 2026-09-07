@@ -23,6 +23,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/lesson-studio/jobs/{job_id}/versions",
             "/api/admin/lesson-studio/jobs/{job_id}/versions/{version_no}",
             "/api/admin/lesson-studio/jobs/{job_id}/versions/{version_no}/restore",
+            "/api/admin/lesson-studio/jobs/{job_id}/versions/{from_version}/diff",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 

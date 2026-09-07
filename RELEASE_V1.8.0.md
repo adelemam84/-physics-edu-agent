@@ -126,3 +126,8 @@ Before production promotion:
 
 ## Current deployment status
 The accumulated v1.8.0 code is on `main` but must not be considered production-live until Vercel successfully builds and the live acceptance checks above pass.
+
+### Deployment retry
+- 2026-09-07: GitHub CI for `8728dd513ce0af537bf9aee0fff13f07e663e3d8` was verified green.
+- A documentation-only main commit is used to retrigger the linked Vercel Git deployment after the earlier build-rate-limit condition.
+- Production remains gated until the new deployment and live endpoint checks pass.

@@ -14,6 +14,7 @@ from .main import app
 from .science_lesson_studio import _gemini_text
 from .security import require_admin
 from .services.storage import get_bytes, put_bytes, storage_configured
+from .services.reference_retrieval import rank_reference_pages, retrieval_contract, token_set
 
 MAX_REFERENCE_BYTES = 100 * 1024 * 1024
 
@@ -49,9 +50,7 @@ def _schema() -> None:
 
 
 def _normalize_tokens(text: str) -> set[str]:
-    words = re.findall(r'[\w\u0600-\u06ff]+', (text or '').lower(), flags=re.UNICODE)
-    stop = {'من','في','على','إلى','الى','عن','هو','هي','هذا','هذه','the','and','of','to','a','an'}
-    return {w for w in words if len(w) > 2 and w not in stop}
+    return token_set(text)
 
 
 def _score_page(query_tokens: set[str], page_text: str) -> float:
@@ -77,26 +76,21 @@ def reference_context(subject: str, grade_label: str, query: str, limit: int = 8
         doc_ids = [d['id'] for d in docs]
         pages = list(con.execute('''SELECT document_id,page_number,page_text,extraction_method FROM science_reference_pages
           WHERE document_id=ANY(%s) AND length(btrim(page_text))>0''', (doc_ids,)).fetchall())
-    tokens = _normalize_tokens(query)
-    ranked = []
     title_by_id = {str(d['id']): d['title'] for d in docs}
-    for p in pages:
-        score = _score_page(tokens, p['page_text'])
-        if score <= 0:
-            continue
-        ranked.append({
-            'document_id': str(p['document_id']),
-            'document_title': title_by_id.get(str(p['document_id']), ''),
-            'page_number': int(p['page_number']),
-            'score': round(score, 4),
-            'text': p['page_text'],
-            'extraction_method': p.get('extraction_method'),
-        })
-    ranked.sort(key=lambda x: (-x['score'], x['page_number']))
+    candidates = [{
+        'document_id': str(p['document_id']),
+        'document_title': title_by_id.get(str(p['document_id']), ''),
+        'page_number': int(p['page_number']),
+        'page_text': p['page_text'],
+        'text': p['page_text'],
+        'extraction_method': p.get('extraction_method'),
+    } for p in pages]
+    ranked = rank_reference_pages(query, candidates, limit)
     return {
         'available': True,
         'documents': [dict(d) for d in docs],
-        'pages': ranked[:limit],
+        'pages': ranked,
+        'retrieval': retrieval_contract(),
         'policy': 'reference_only_no_silent_rewrite',
     }
 

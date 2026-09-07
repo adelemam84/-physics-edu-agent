@@ -6,6 +6,7 @@ from PIL import Image
 
 from app.lesson_studio_source_editor import _render_adjusted
 from app.science_reference_library import _normalize_tokens, _score_page
+from app.services.reference_retrieval import rank_reference_pages, retrieval_contract
 from app.services.diagram_router import route_diagram
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
@@ -141,6 +142,35 @@ class ScientificReferenceMatchingTests(unittest.TestCase):
         unrelated = _score_page(q, 'يتناول هذا الفصل تركيب الذرة ومستويات الطاقة')
         self.assertGreater(relevant, unrelated)
         self.assertGreater(relevant, 0)
+
+    def test_hybrid_reference_ranking_rewards_phrase_and_coverage(self):
+        pages = [
+            {'document_id':'d','page_number':1,'page_text':'المقاومة الكهربية كمية في الدائرة ولا يوجد ذكر لقانون أوم'},
+            {'document_id':'d','page_number':2,'page_text':'ينص قانون أوم على أن فرق الجهد يتناسب مع شدة التيار عند ثبوت درجة الحرارة'},
+            {'document_id':'d','page_number':3,'page_text':'تركيب الذرة ومستويات الطاقة'},
+        ]
+        ranked = rank_reference_pages('قانون أوم فرق الجهد شدة التيار', pages, 3)
+        self.assertEqual(ranked[0]['page_number'], 2)
+        self.assertEqual(ranked[0]['retrieval']['method'], 'deterministic_hybrid_v1')
+        self.assertGreater(ranked[0]['retrieval']['coverage'], ranked[-1]['retrieval']['coverage'])
+
+    def test_hybrid_retrieval_preserves_page_provenance(self):
+        pages = [
+            {'document_id':'book-1','document_title':'مرجع','page_number':7,'page_text':'قانون نيوتن الثاني القوة تساوي الكتلة في العجلة'},
+        ]
+        ranked = rank_reference_pages('قانون نيوتن الثاني القوة الكتلة العجلة', pages, 1)
+        self.assertEqual(ranked[0]['document_id'], 'book-1')
+        self.assertEqual(ranked[0]['page_number'], 7)
+        self.assertTrue(retrieval_contract()['page_provenance_preserved'])
+        self.assertFalse(retrieval_contract()['external_knowledge'])
+
+    def test_arabic_normalization_matches_alef_variants(self):
+        pages = [
+            {'document_id':'d','page_number':1,'page_text':'ينص قانون أوم على العلاقة بين الجهد والتيار'},
+        ]
+        ranked = rank_reference_pages('اوم الجهد التيار', pages, 1)
+        self.assertEqual(ranked[0]['page_number'], 1)
+        self.assertGreater(ranked[0]['score'], 0)
 
     def test_reference_tokens_ignore_common_stop_words(self):
         tokens = _normalize_tokens('هذا هو قانون أوم في الدائرة')

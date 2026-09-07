@@ -160,7 +160,7 @@ Second-review integrity:
 - Native PDF text is extracted page-by-page and page numbers are preserved.
 - Scanned/image-only pages are marked `ocr_required` or `partial_ocr` instead of being rejected.
 - Scanned pages can be OCRed via Gemini in small serverless-safe batches of 1–5 pages.
-- Reference context selects relevant pages for a lesson using deterministic lexical matching before sending evidence to the AI reviewer.
+- Reference context selects relevant pages with deterministic hybrid retrieval (BM25 + query coverage + phrase order + term density + adjacent-page continuity) before sending evidence to the AI reviewer; exact document/page provenance is preserved.
 - Reference alignment review compares teacher transcript + organized lesson only against selected reference excerpts.
 - Findings must retain reference document/page provenance.
 - `not_covered` means the reference did not cover a statement; it is not automatically treated as scientifically wrong.
@@ -247,4 +247,4 @@ Secrets must be configured through production environment variables, never commi
 - richer Arabic typography and branded lesson templates
 - more precise parameterized circuit/optics/molecular renderers
 - optional Biology/Mathematics subject expansion when desired
-- reference semantic retrieval can later be upgraded from deterministic lexical matching to embeddings/File Search while retaining exact page provenance
+- optional embeddings/File Search can later be layered on top of deterministic hybrid retrieval, but only if exact page provenance and source-only evidence constraints remain enforced

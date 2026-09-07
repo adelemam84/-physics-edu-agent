@@ -8,6 +8,7 @@ from app.lesson_studio_source_editor import _render_adjusted
 from app.science_reference_library import _normalize_tokens, _score_page
 from app.services.reference_retrieval import rank_reference_pages, retrieval_contract
 from app.lesson_studio_version_diff import structured_diff
+from app.lesson_studio_change_impact import change_impact
 from app.services.diagram_router import route_diagram
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
@@ -197,6 +198,38 @@ class ScientificReferenceMatchingTests(unittest.TestCase):
         diff = structured_diff(payload, payload)
         self.assertEqual(diff['summary']['total_changes'], 0)
         self.assertEqual(diff['changes'], [])
+
+    def test_change_impact_title_only_requires_teacher_and_pdf(self):
+        diff = {
+            'transcript': {'changed': False},
+            'structured': {'changes': [{'kind':'field','key':'title','changed':True}]},
+        }
+        impact = change_impact(diff)
+        self.assertEqual(impact['severity'], 'low')
+        self.assertTrue(impact['required_gates']['teacher_approval'])
+        self.assertTrue(impact['required_gates']['final_pdf_export'])
+        self.assertFalse(impact['required_gates']['ocr_review'])
+        self.assertFalse(impact['required_gates']['scientific_reference_review'])
+
+    def test_change_impact_equation_requires_scientific_reruns(self):
+        diff = {
+            'transcript': {'changed': False},
+            'structured': {'changes': [{'kind':'equation','key':'قانون','changed':True}]},
+        }
+        impact = change_impact(diff)
+        self.assertEqual(impact['severity'], 'high')
+        self.assertTrue(impact['required_gates']['notation_review'])
+        self.assertTrue(impact['required_gates']['scientific_reference_review'])
+        self.assertTrue(impact['required_gates']['independent_second_review'])
+        self.assertFalse(impact['required_gates']['ocr_review'])
+
+    def test_change_impact_transcript_requires_ocr_and_scientific_reruns(self):
+        diff = {'transcript': {'changed': True}, 'structured': {'changes': []}}
+        impact = change_impact(diff)
+        self.assertTrue(impact['required_gates']['ocr_review'])
+        self.assertTrue(impact['required_gates']['notation_review'])
+        self.assertTrue(impact['required_gates']['scientific_reference_review'])
+        self.assertTrue(impact['required_gates']['teacher_approval'])
 
     def test_reference_tokens_ignore_common_stop_words(self):
         tokens = _normalize_tokens('هذا هو قانون أوم في الدائرة')

@@ -194,6 +194,15 @@ Implemented checks:
 - Comparison never approves, restores or mutates source files.
 - Version history UI exposes a one-click compare-to-current view before restore decisions.
 
+### Phase Q — Change Impact & Re-approval Matrix
+- Deterministic mapping from lesson differences to the exact review gates that must be rerun.
+- Transcript changes require OCR + notation + scientific reference + independent review before teacher approval.
+- Equation changes require notation + scientific reference + independent review.
+- Diagram changes require diagram + scientific reference + independent review.
+- Section/approved-addition/science-sensitive field changes require scientific reference + independent review.
+- Title-only changes require teacher approval and final PDF regeneration without unnecessarily forcing OCR/reference review.
+- The workspace shows severity and required gates next to each version comparison; the matrix never infers scientific correctness.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

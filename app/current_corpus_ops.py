@@ -3,12 +3,13 @@ from __future__ import annotations
 from fastapi import Depends
 from fastapi.responses import HTMLResponse
 
-from .main import app, current_curriculum_status
+from .corpus_public_status import current_curriculum_phase2_status
+from .main import app
 from .security import require_admin
 
 
 def _completion_snapshot() -> dict:
-    status = current_curriculum_status()
+    status = current_curriculum_phase2_status()
     if not status.get("active"):
         return {
             "active": False,
@@ -16,11 +17,19 @@ def _completion_snapshot() -> dict:
             "next_actions": ["Configure an active third-secondary physics curriculum source."],
         }
 
-    total = int(status.get("total_questions") or 0)
-    approved = int(status.get("approved_questions") or 0)
-    qa_open = int(status.get("qa_open") or 0)
-    pending_pages = int(status.get("pending_visual_pages") or 0)
-    published = int(status.get("published_quizzes") or 0)
+    questions = status.get("questions") or {}
+    quizzes = status.get("quizzes") or {}
+    qa_rows = status.get("qa_open_by_reason") or []
+
+    total = int(questions.get("total_questions") or 0)
+    approved = int(questions.get("approved_questions") or 0)
+    qa_open = sum(int(row.get("total") or 0) for row in qa_rows)
+    pending_pages = sum(
+        int(row.get("total") or 0)
+        for row in qa_rows
+        if row.get("reason_code") == "visual_transcription_required"
+    )
+    published = int(quizzes.get("published") or 0)
 
     remaining = max(total - approved, 0)
     approval_pct = round((approved / total) * 100, 1) if total else 0.0
@@ -49,6 +58,11 @@ def _completion_snapshot() -> dict:
 
     return {
         **status,
+        "total_questions": total,
+        "approved_questions": approved,
+        "qa_open": qa_open,
+        "pending_visual_pages": pending_pages,
+        "published_quizzes": published,
         "phase": phase,
         "remaining_questions": remaining,
         "approval_percentage": approval_pct,
@@ -79,6 +93,6 @@ def current_corpus_ops_page():
 <div class='card'><div class='muted'>QA مفتوح</div><div class='n'>{snapshot.get('qa_open',0)}</div></div>
 <div class='card'><div class='muted'>اختبارات منشورة</div><div class='n'>{snapshot.get('published_quizzes',0)}</div></div>
 </div>
-<div class='box'><h2>المرحلة الحالية</h2><p><b>{snapshot.get('phase','not_configured')}</b> · الحالة: <b>{snapshot.get('status','not_configured')}</b></p><h3>الإجراءات التالية</h3><ul>{rows}</ul></div>
+<div class='box'><h2>المرحلة الحالية</h2><p><b>{snapshot.get('phase','not_configured')}</b> · الحالة: <b>{snapshot.get('status','active')}</b></p><h3>الإجراءات التالية</h3><ul>{rows}</ul></div>
 <div class='box'><h2>قاعدة النزاهة</h2><p class='warn'>{snapshot.get('integrity_rule','')}</p></div></main></html>"""
     )

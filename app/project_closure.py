@@ -32,7 +32,7 @@ def project_closure_snapshot() -> dict:
         'source_only_guardrail': research.get('guardrails',{}).get('source_only') is True,
         'question_bank_auto_write_disabled': research.get('guardrails',{}).get('question_bank_auto_write') is False,
         'lesson_release_engine_operational': lesson.get('reason') != 'approval_state_error',
-        'next_release_runtime_ready': release.get('release_state') == 'runtime_ready',
+        'next_release_runtime_ready': release.get('release_state') in {'runtime_ready','runtime_ready_content_gate_open'},
     }
 
     if not code_complete:
@@ -48,7 +48,7 @@ def project_closure_snapshot() -> dict:
         {'id':'question_bank','label':'Current curriculum question bank','status':'complete' if not any(x.get('id') in {'visual_transcription_review','source_candidate_mismatch'} for x in external) else 'human_gate'},
         {'id':'lesson_sources','label':'Approved explanatory lesson source','status':'complete' if not any(x.get('id')=='approved_explanatory_source' for x in external) else 'external_gate'},
         {'id':'lesson_studio','label':'Lesson Studio release workflow','status':'complete' if runtime_checks['lesson_release_engine_operational'] else 'blocked'},
-        {'id':'production_release','label':'Production deployment line','status':'complete' if release.get('release_state')=='runtime_ready' else 'attention'},
+        {'id':'production_release','label':'Production deployment line','status':'complete' if release.get('release_state') in {'runtime_ready','runtime_ready_content_gate_open'} else 'attention'},
     ]
 
     return {

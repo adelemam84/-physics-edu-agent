@@ -10,6 +10,7 @@ from .security import require_admin
 from .science_lesson_studio import _job, _schema
 from .services.science_notation import classify_notation
 from .services.science_diagram_parameterized import PARAMETERIZED_KINDS, render_parameterized
+from .lesson_studio_version_history import snapshot_job
 
 
 def _content_review_schema() -> None:
@@ -33,6 +34,7 @@ def _load_structured(job_id: str) -> tuple[dict, dict]:
 
 def _save_structured(job_id: str, structured: dict) -> None:
     _content_review_schema()
+    snapshot_job(job_id, 'structured_content_edit')
     with connect() as con:
         con.execute('''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,
           teacher_approved=FALSE,teacher_approved_at=NULL,status='content_review_required',updated_at=now()

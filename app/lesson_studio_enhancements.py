@@ -10,6 +10,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import OUTPUT_MODES, _gemini_text, _organize, _schema
+from .lesson_studio_version_history import snapshot_job
 
 STYLE_KEY = 'lesson_studio_style_profile'
 
@@ -118,6 +119,7 @@ def approve_lesson_suggestion(job_id: str, suggestion_index: int, teacher_note: 
     suggestions = (job['ai_suggestions'] or {}).get('suggestions') or []
     if suggestion_index < 0 or suggestion_index >= len(suggestions):
         raise HTTPException(404, 'Suggestion not found')
+    snapshot_job(job_id, 'approved_ai_suggestion', metadata={'suggestion_index': suggestion_index})
     selected = dict(suggestions[suggestion_index])
     selected['teacher_approved'] = True
     selected['teacher_note'] = teacher_note.strip()

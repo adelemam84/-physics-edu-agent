@@ -9,10 +9,12 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _organize, _schema
+from .lesson_studio_version_history import snapshot_job
 
 
 def _refresh_transcript_and_structure(job_id: str) -> dict:
     _schema()
+    snapshot_job(job_id, 'ocr_transcript_refresh')
     with connect() as con:
         job = con.execute('SELECT * FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
         if not job:

@@ -125,9 +125,21 @@ Before production promotion:
 10. Export A4 and mobile PDF and visually inspect diagrams, Arabic layout and page numbering.
 
 ## Current deployment status
-The accumulated v1.8.0 code is on `main` but must not be considered production-live until Vercel successfully builds and the live acceptance checks above pass.
+v1.8.0 is deployed to Vercel production and the automated deployment gate is operational.
 
-### Deployment retry
-- 2026-09-07: GitHub CI for `8728dd513ce0af537bf9aee0fff13f07e663e3d8` was verified green.
-- A documentation-only main commit is used to retrigger the linked Vercel Git deployment after the earlier build-rate-limit condition.
-- Production remains gated until the new deployment and live endpoint checks pass.
+### Automated production verification — 2026-09-07
+- Vercel build-rate-limit cleared and Git deployments are building again.
+- GitHub CI passed on the production release line.
+- Production deployment completed successfully.
+- `/health` returned HTTP 200 with `version: 1.8.0`.
+- `/api/next-release/status` returned HTTP 200 with `version: 1.8.0`.
+- `/api/research-engine/status` returned HTTP 200 with Gemini configured and the orchestrator active.
+- A Vercel-entrypoint import regression test is now part of the `unittest` CI suite.
+
+### Acceptance work that still requires real source material / authenticated teacher review
+- Verify Lesson Studio admin routes in an authenticated teacher session.
+- Run a real handwritten lesson through the full workflow.
+- Upload a real scientific reference PDF and verify page extraction/OCR.
+- Build and inspect its source-grounded curriculum map.
+- Run reference alignment against the handwritten lesson.
+- Export A4 and mobile PDFs and visually inspect Arabic layout, diagrams and page numbering.

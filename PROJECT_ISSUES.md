@@ -26,10 +26,10 @@ This file records non-blocking or deferred issues discovered during implementati
 - No missing visual asset is currently being treated as permission to recreate or invent a diagram.
 
 ### EDU-004 — Broad-quiz legacy quality-check SQL
-- Status: non-blocking hardening
-- The legacy request-layer `quiz_quality_check` path can hit PostgreSQL parameter type ambiguity for a broad quiz whose `lesson_id` is null.
-- Phase-2 automatic quiz publication does not use that ambiguous path; it uses a strict source/QA/composition gate and production is operational.
-- Follow-up hardening should explicitly cast nullable lesson parameters in the legacy query before relying on that endpoint for broad-quiz admin review.
+- Status: resolved
+- The broad-quiz `quiz_quality_check` query now explicitly casts both nullable lesson placeholders to `bigint`.
+- PostgreSQL can therefore resolve the parameter type even when a quiz has no single `lesson_id`.
+- The existing source/QA/composition publication gates remain unchanged.
 
 ## Policy
 - Scientific lesson content and questions must remain grounded in user-provided/approved source PDFs.

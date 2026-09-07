@@ -285,7 +285,7 @@ def quiz_quality_check(quiz_id:int):
           LEFT JOIN question_skills qs ON qs.question_id=q.id
           WHERE q.approved=TRUE AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
             AND q.subject_id=%s AND q.grade_level_id=%s AND q.curriculum_version_id=%s AND q.term_id=%s
-            AND (%s IS NULL OR q.lesson_id=%s)
+            AND (%s::bigint IS NULL OR q.lesson_id=%s::bigint)
             AND NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=q.id AND qr.status='open')""",
           (quiz['subject_id'],quiz['grade_level_id'],quiz['curriculum_version_id'],quiz['term_id'],scope_lesson,scope_lesson)).fetchone()
     n=len(rows)

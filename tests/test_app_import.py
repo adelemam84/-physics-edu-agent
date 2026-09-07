@@ -16,6 +16,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/next-release/status",
             "/api/research-engine/status",
             "/api/current-curriculum/phase2-status",
+            "/api/admin/lesson-studio/acceptance",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -29,6 +30,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/admin/lesson-studio/tools",
             "/admin/lesson-studio/references",
             "/admin/lesson-studio/reference-workspace",
+            "/admin/lesson-studio/acceptance",
         }
         self.assertTrue(required.issubset(paths), required-paths)
 

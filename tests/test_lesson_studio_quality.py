@@ -9,6 +9,7 @@ from app.science_reference_library import _normalize_tokens, _score_page
 from app.services.reference_retrieval import rank_reference_pages, retrieval_contract
 from app.lesson_studio_version_diff import structured_diff
 from app.lesson_studio_change_impact import change_impact
+from app.lesson_studio_approval_state import approval_state_from_snapshot
 from app.services.diagram_router import route_diagram
 from app.services.handwriting_preprocess import preprocess_handwriting
 from app.services.lesson_integrity import review_source_hash
@@ -230,6 +231,39 @@ class ScientificReferenceMatchingTests(unittest.TestCase):
         self.assertTrue(impact['required_gates']['notation_review'])
         self.assertTrue(impact['required_gates']['scientific_reference_review'])
         self.assertTrue(impact['required_gates']['teacher_approval'])
+
+    def test_approval_state_marks_stale_pdf_pending(self):
+        snapshot = {
+            'checks': [
+                {'id':'ocr_review_clear','ok':True,'value':0},
+                {'id':'notation_review_clear','ok':True,'value':0},
+                {'id':'diagram_review_clear','ok':True,'value':0},
+                {'id':'scientific_reference_alignment','ok':True,'value':{'required':False,'present':False}},
+                {'id':'independent_second_review','ok':True,'value':'optional_not_configured'},
+            ],
+            'preapproval_ready': True,
+            'teacher_approved': True,
+            'final_ready': True,
+        }
+        state = approval_state_from_snapshot(snapshot,pdf_object_key='x.pdf',pdf_source_hash='old',current_hash='new')
+        pdf = next(x for x in state['gates'] if x['gate']=='final_pdf_export')
+        self.assertEqual(pdf['state'],'pending')
+
+    def test_approval_state_marks_current_pdf_complete(self):
+        snapshot = {
+            'checks': [
+                {'id':'ocr_review_clear','ok':True,'value':0},
+                {'id':'notation_review_clear','ok':True,'value':0},
+                {'id':'diagram_review_clear','ok':True,'value':0},
+                {'id':'scientific_reference_alignment','ok':True,'value':{'required':False,'present':False}},
+                {'id':'independent_second_review','ok':True,'value':'optional_not_configured'},
+            ],
+            'preapproval_ready': True,
+            'teacher_approved': True,
+            'final_ready': True,
+        }
+        state = approval_state_from_snapshot(snapshot,pdf_object_key='x.pdf',pdf_source_hash='same',current_hash='same')
+        self.assertTrue(state['summary']['all_required_complete'])
 
     def test_reference_tokens_ignore_common_stop_words(self):
         tokens = _normalize_tokens('هذا هو قانون أوم في الدائرة')

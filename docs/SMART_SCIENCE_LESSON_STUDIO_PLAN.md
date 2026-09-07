@@ -203,6 +203,13 @@ Implemented checks:
 - Title-only changes require teacher approval and final PDF regeneration without unnecessarily forcing OCR/reference review.
 - The workspace shows severity and required gates next to each version comparison; the matrix never infers scientific correctness.
 
+### Phase R — Approval State Engine
+- Gate state is persisted per lesson content hash, so historical approval state cannot be mistaken for the current version.
+- Gates expose `complete`, `pending`, `blocked`, or `not_required` states.
+- Current state covers OCR, notation, diagrams, scientific-reference review, independent review, teacher approval, and final PDF export.
+- Final PDFs are bound to the exact content hash used to generate them; a stale PDF never counts as complete after a content change.
+- The unified workspace displays the current gate state alongside the quality checks.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

@@ -108,10 +108,14 @@ def quality_snapshot(job_id: str) -> dict:
     uncertain = list(structured.get('uncertain_items') or [])
     diagrams = list(structured.get('diagram_specs') or [])
     diagram_pending = 0
+    visual_provenance_pending = 0
     for d in diagrams:
         engine = d.get('diagram_engine') or {}
+        provenance = d.get('visual_provenance') or {}
         if not engine.get('svg') or engine.get('review_required'):
             diagram_pending += 1
+        if engine.get('svg') and not provenance.get('origin'):
+            visual_provenance_pending += 1
     notation_pending = int((structured.get('notation_quality') or {}).get('review_required') or 0)
     sections = list(structured.get('sections') or [])
     sections_without_source_refs = sum(1 for s in sections if not (s.get('source_refs') or []))
@@ -122,6 +126,7 @@ def quality_snapshot(job_id: str) -> dict:
         {'id': 'uncertainty_clear', 'ok': len(uncertain) == 0, 'value': len(uncertain)},
         {'id': 'notation_review_clear', 'ok': notation_pending == 0, 'value': notation_pending},
         {'id': 'diagram_review_clear', 'ok': diagram_pending == 0, 'value': diagram_pending},
+        {'id': 'visual_provenance_clear', 'ok': visual_provenance_pending == 0, 'value': visual_provenance_pending},
         {'id': 'section_provenance', 'ok': sections_without_source_refs == 0 if sections else True, 'value': sections_without_source_refs},
         _reference_review_check(row, structured),
         _second_review_check(row, structured),
@@ -137,6 +142,7 @@ def quality_snapshot(job_id: str) -> dict:
             'no_silent_scientific_correction': True,
             'teacher_is_final_gate': True,
             'precise_diagrams_require_deterministic_or_reviewed_output': True,
+            'visual_assets_require_provenance': True,
             'ambiguous_scientific_notation_requires_review': True,
             'fresh_independent_review_required_when_provider_configured': True,
             'scientific_reference_is_validation_context_not_authoring_source': True,

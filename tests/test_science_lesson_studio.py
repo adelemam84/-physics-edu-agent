@@ -80,6 +80,15 @@ class ScienceLessonStudioTests(unittest.TestCase):
         self.assertGreater(len(text.strip()), 100)
         doc.close()
 
+    def test_diagram_attachment_has_visual_provenance_contract(self):
+        from app.science_lesson_studio import _attach_diagram_engine
+        structured={'diagram_specs':[{'kind':'circuit','title':'دائرة','scientific_labels':['بطارية','مقاومة']}]}
+        out=_attach_diagram_engine(structured,'physics')
+        p=out['diagram_specs'][0]['visual_provenance']
+        self.assertEqual(p['origin'],'source_derived_spec')
+        self.assertFalse(p['ai_generated_image'])
+        self.assertTrue(p['source_labels_preserved'])
+
     def test_pdf_renderer_returns_pdf_bytes(self):
         data = _render_pdf({
             'title': 'درس تجريبي',

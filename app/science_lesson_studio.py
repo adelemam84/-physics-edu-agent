@@ -184,7 +184,14 @@ def _attach_diagram_engine(structured: dict, subject: str) -> dict:
             subject=subject,
         )
         engine = render_science_diagram(spec)
-        rendered.append({**raw, 'normalized_kind': kind, 'diagram_engine': engine})
+        provenance = {
+            'origin': 'source_derived_spec',
+            'renderer': 'deterministic_svg' if engine.get('svg') else 'unrendered_review_required',
+            'ai_generated_image': False,
+            'teacher_review_required': bool(engine.get('review_required')),
+            'source_labels_preserved': True,
+        }
+        rendered.append({**raw, 'normalized_kind': kind, 'diagram_engine': engine, 'visual_provenance': provenance})
     out['diagram_specs'] = rendered
     out['diagram_engine_summary'] = {
         'supported_kinds': list(supported_kinds()),
@@ -277,8 +284,8 @@ def lesson_studio_status():
         'gemini_configured': bool(GEMINI_API_KEY),
         'mathpix_configured': bool(MATHPIX_APP_ID and MATHPIX_APP_KEY),
         'storage_configured': storage_configured(),
-        'diagram_engine': {'deterministic': True, 'supported_kinds': list(supported_kinds())},
-        'policy': {'preserve_original': True, 'no_silent_scientific_correction': True, 'uncertain_items_require_review': True, 'deterministic_science_diagrams': True},
+        'diagram_engine': {'deterministic': True, 'supported_kinds': list(supported_kinds()), 'visual_provenance_required': True},
+        'policy': {'preserve_original': True, 'no_silent_scientific_correction': True, 'uncertain_items_require_review': True, 'deterministic_science_diagrams': True, 'unlabeled_ai_visuals_forbidden': True},
     }
 
 

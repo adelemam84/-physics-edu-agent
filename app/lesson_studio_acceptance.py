@@ -11,6 +11,8 @@ from .science_reference_library import _schema as reference_schema
 from .science_reference_curriculum_map import _map_schema
 from .lesson_studio_reference_review import _reference_review_schema
 from .lesson_studio_quality import _quality_schema
+from .services.lesson_integrity import review_source_hash
+from .science_reference_curriculum_map import _pages_hash
 
 
 def _counts() -> dict:
@@ -20,30 +22,61 @@ def _counts() -> dict:
     _reference_review_schema()
     _quality_schema()
     with connect() as con:
-        refs = con.execute("""SELECT
-          count(*) FILTER (WHERE active=TRUE) active,
-          count(*) FILTER (WHERE active=TRUE AND ingestion_status='ready') ingestion_ready,
-          count(*) FILTER (WHERE active=TRUE AND curriculum_map IS NOT NULL) with_curriculum_map,
-          count(*) FILTER (WHERE active=TRUE AND curriculum_map IS NOT NULL
-            AND curriculum_map_source_hash IS NOT NULL) mapped
-          FROM science_reference_documents""").fetchone()
-        jobs = con.execute("""SELECT
-          count(*) total,
-          count(*) FILTER (WHERE structured_json IS NOT NULL) structured,
-          count(*) FILTER (WHERE reference_review IS NOT NULL) reference_reviewed,
-          count(*) FILTER (WHERE teacher_approved=TRUE) teacher_approved,
-          count(*) FILTER (WHERE status='final_pdf_ready' AND pdf_object_key IS NOT NULL) final_pdf_ready
-          FROM science_lesson_jobs""").fetchone()
+        ref_rows = list(con.execute("""SELECT id,active,ingestion_status,curriculum_map,curriculum_map_source_hash
+          FROM science_reference_documents""").fetchall())
+        page_rows = list(con.execute("""SELECT document_id,page_number,page_text
+          FROM science_reference_pages WHERE btrim(page_text)<>'' ORDER BY document_id,page_number""").fetchall())
+        job_rows = list(con.execute("""SELECT id,raw_transcript,structured_json,reference_review,
+          reference_review_hash,teacher_approved,status,pdf_object_key,pdf_source_hash
+          FROM science_lesson_jobs""").fetchall())
         ocr = con.execute("""SELECT
           count(*) FILTER (WHERE requires_review=TRUE) unresolved,
           count(*) total
           FROM science_lesson_sources""").fetchone()
+
+    pages_by_doc: dict[str, list[dict]] = {}
+    for row in page_rows:
+        pages_by_doc.setdefault(str(row['document_id']), []).append(dict(row))
+
+    refs = {'active':0,'ingestion_ready':0,'with_curriculum_map':0,'mapped':0,'fresh_curriculum_map':0}
+    for row in ref_rows:
+        if not row.get('active'):
+            continue
+        refs['active'] += 1
+        if row.get('ingestion_status') == 'ready':
+            refs['ingestion_ready'] += 1
+        if row.get('curriculum_map'):
+            refs['with_curriculum_map'] += 1
+        if row.get('curriculum_map') and row.get('curriculum_map_source_hash'):
+            refs['mapped'] += 1
+            current = _pages_hash(pages_by_doc.get(str(row['id']), []))
+            if current == row.get('curriculum_map_source_hash'):
+                refs['fresh_curriculum_map'] += 1
+
+    jobs = {'total':0,'structured':0,'reference_reviewed':0,'fresh_reference_reviewed':0,
+            'teacher_approved':0,'final_pdf_ready':0,'fresh_final_pdf_ready':0}
+    for row in job_rows:
+        jobs['total'] += 1
+        structured = dict(row.get('structured_json') or {})
+        if structured:
+            jobs['structured'] += 1
+        current_hash = review_source_hash(str(row.get('raw_transcript') or ''), structured)
+        if row.get('reference_review'):
+            jobs['reference_reviewed'] += 1
+            if row.get('reference_review_hash') == current_hash:
+                jobs['fresh_reference_reviewed'] += 1
+        if row.get('teacher_approved'):
+            jobs['teacher_approved'] += 1
+        if row.get('status') == 'final_pdf_ready' and row.get('pdf_object_key'):
+            jobs['final_pdf_ready'] += 1
+            if row.get('pdf_source_hash') == current_hash:
+                jobs['fresh_final_pdf_ready'] += 1
+
     return {
-        'references': {k:int(refs[k] or 0) for k in ('active','ingestion_ready','with_curriculum_map','mapped')},
-        'jobs': {k:int(jobs[k] or 0) for k in ('total','structured','reference_reviewed','teacher_approved','final_pdf_ready')},
+        'references': refs,
+        'jobs': jobs,
         'ocr': {k:int(ocr[k] or 0) for k in ('unresolved','total')},
     }
-
 
 def acceptance_snapshot() -> dict:
     status = lesson_studio_status()
@@ -68,8 +101,8 @@ def acceptance_snapshot() -> dict:
         {
             'id':'curriculum_map',
             'label':'Curriculum Map مبني من المرجع',
-            'ok':refs['with_curriculum_map'] > 0,
-            'detail':f"{refs['with_curriculum_map']} مرجع لديه خريطة منهج مصدرية",
+            'ok':refs['fresh_curriculum_map'] > 0,
+            'detail':f"{refs['fresh_curriculum_map']} خريطة حديثة من {refs['with_curriculum_map']} خريطة موجودة",
             'owner':'teacher',
         },
         {
@@ -89,8 +122,8 @@ def acceptance_snapshot() -> dict:
         {
             'id':'reference_review',
             'label':'Scientific Reference Review تم تشغيله',
-            'ok':jobs['reference_reviewed'] > 0,
-            'detail':f"{jobs['reference_reviewed']} مشروع تمت مراجعته مقابل مرجع علمي",
+            'ok':jobs['fresh_reference_reviewed'] > 0,
+            'detail':f"{jobs['fresh_reference_reviewed']} مراجعة حديثة من {jobs['reference_reviewed']} مراجعة موجودة",
             'owner':'teacher',
         },
         {
@@ -103,8 +136,8 @@ def acceptance_snapshot() -> dict:
         {
             'id':'final_pdf',
             'label':'Final PDF تم تصديره بعد بوابة الجودة',
-            'ok':jobs['final_pdf_ready'] > 0,
-            'detail':f"{jobs['final_pdf_ready']} ملف نهائي جاهز",
+            'ok':jobs['fresh_final_pdf_ready'] > 0,
+            'detail':f"{jobs['fresh_final_pdf_ready']} PDF حديث من {jobs['final_pdf_ready']} ملف موجود",
             'owner':'teacher',
         },
     ]
@@ -137,7 +170,7 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" conten
 <div id=out class=box>جارٍ فحص جاهزية v1.8...</div>
 <script>
 const e=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-async function load(){let r=await fetch('/api/admin/lesson-studio/acceptance');if(r.status===401){location.href='/admin/login';return}let x=await r.json();let c=x.counts;out.innerHTML='<h1>Acceptance Gate — Lesson Studio v'+e(x.version)+'</h1><p class="'+(x.acceptance_ready?'ok':'bad')+'"><b>'+(x.acceptance_ready?'✅ جاهز لاختبار القبول الكامل':'⚠️ ما زالت هناك خطوات قبول بمصدر حقيقي')+'</b></p><div class=grid><div class=card><div class=muted>المراجع النشطة</div><div class=n>'+c.references.active+'</div></div><div class=card><div class=muted>خرائط المنهج</div><div class=n>'+c.references.with_curriculum_map+'</div></div><div class=card><div class=muted>مشاريع الدروس</div><div class=n>'+c.jobs.total+'</div></div><div class=card><div class=muted>PDF نهائي</div><div class=n>'+c.jobs.final_pdf_ready+'</div></div></div><h2>بوابات القبول</h2>'+x.checks.map(v=>'<div class="item '+(v.ok?'ok':'bad')+'">'+(v.ok?'✅ ':'⚠️ ')+e(v.label)+'<div class=muted>'+e(v.detail)+'</div></div>').join('')+'<h2>السياسة</h2><p class=muted>'+e(x.policy)+'</p>'}
+async function load(){let r=await fetch('/api/admin/lesson-studio/acceptance');if(r.status===401){location.href='/admin/login';return}let x=await r.json();let c=x.counts;out.innerHTML='<h1>Acceptance Gate — Lesson Studio v'+e(x.version)+'</h1><p class="'+(x.acceptance_ready?'ok':'bad')+'"><b>'+(x.acceptance_ready?'✅ جاهز لاختبار القبول الكامل':'⚠️ ما زالت هناك خطوات قبول بمصدر حقيقي')+'</b></p><div class=grid><div class=card><div class=muted>المراجع النشطة</div><div class=n>'+c.references.active+'</div></div><div class=card><div class=muted>خرائط المنهج</div><div class=n>'+c.references.fresh_curriculum_map+'</div></div><div class=card><div class=muted>مشاريع الدروس</div><div class=n>'+c.jobs.total+'</div></div><div class=card><div class=muted>PDF نهائي</div><div class=n>'+c.jobs.fresh_final_pdf_ready+'</div></div></div><h2>بوابات القبول</h2>'+x.checks.map(v=>'<div class="item '+(v.ok?'ok':'bad')+'">'+(v.ok?'✅ ':'⚠️ ')+e(v.label)+'<div class=muted>'+e(v.detail)+'</div></div>').join('')+'<h2>السياسة</h2><p class=muted>'+e(x.policy)+'</p>'}
 load();
 </script></main></html>'''
 

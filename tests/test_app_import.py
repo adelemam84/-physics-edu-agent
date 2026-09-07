@@ -30,6 +30,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/completion-audit",
             "/api/admin/current-corpus/visual-review/queue",
             "/api/admin/current-corpus/visual-review/{question_id}/suggest",
+            "/api/admin/current-corpus/visual-review/{question_id}",
             "/api/admin/current-corpus/visual-review/batch-suggest",
         }
         self.assertTrue(required.issubset(paths), required - paths)

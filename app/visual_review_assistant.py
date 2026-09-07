@@ -173,3 +173,15 @@ def visual_review_batch_suggest(limit: int = 5):
         except HTTPException as exc:
             results.append({'question_id':int(row['id']),'error':exc.detail})
     return {'processed':len(results),'results':results,'auto_approved':False}
+
+
+@app.get('/api/admin/current-corpus/visual-review/{question_id}', dependencies=[Depends(require_admin)])
+def visual_review_get(question_id: int):
+    _schema()
+    with connect() as con:
+        row=con.execute("""SELECT question_id,source_document_id,source_page,suggestion,confidence,model,
+          source_asset_fingerprint,created_at,updated_at
+          FROM question_visual_suggestions WHERE question_id=%s""",(question_id,)).fetchone()
+    if not row:
+        raise HTTPException(404,'Visual suggestion not found')
+    return dict(row)

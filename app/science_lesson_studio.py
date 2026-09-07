@@ -202,7 +202,7 @@ def _organize(transcript: str, subject: str, grade_label: str, title: str, outpu
         'sections': [{'heading': 'string', 'body': 'string', 'source_only': True, 'source_refs': ['string']}],
         'key_terms': [{'term': 'string', 'definition': 'string'}],
         'equations_or_rules': [{'label': 'string', 'expression': 'string', 'notes': 'string'}],
-        'diagram_specs': [{'kind': 'circuit|graph|apparatus|process|comparison|classification|vector|other', 'title': 'string', 'description': 'string', 'scientific_labels': ['string'], 'deterministic_required': True}],
+        'diagram_specs': [{'kind': 'circuit|resistor_network|series_parallel_circuit|ray_diagram|magnetic_field|molecule_bond|graph|apparatus|process|comparison|classification|vector|other', 'title': 'string', 'description': 'string', 'scientific_labels': ['string'], 'parameters': {'source_explicit_only': True}, 'deterministic_required': True}],
         'teacher_warnings': ['string'],
         'uncertain_items': ['string'],
         'summary': 'string'
@@ -211,7 +211,7 @@ def _organize(transcript: str, subject: str, grade_label: str, title: str, outpu
         'نظم النص فقط ولا تغيّر المعنى العلمي ولا تضف معلومة علمية جديدة غير موجودة في النص. '
         'يمكنك تحسين ترتيب العناوين وتقسيم الفقرات فقط. أي جزء محتمل الخطأ أو غير الواضح ضعه في uncertain_items. '
         'اربط كل قسم بالمصدر/المصادر الظاهرة في النص قدر الإمكان داخل source_refs. '
-        'حدد الرسومات التي ستوضح الشرح في diagram_specs، لكن لا تعتبر وصف الرسم حقيقة علمية إضافية. '
+        'حدد الرسومات التي ستوضح الشرح في diagram_specs، لكن لا تعتبر وصف الرسم حقيقة علمية إضافية. إذا كانت بيانات الرسم الدقيقة ظاهرة صراحة في المصدر، ضعها في parameters فقط؛ لا تستنتج عقدًا أو اتجاهات أو مسارات أشعة أو روابط كيميائية غير مكتوبة/مرسومة بوضوح. عند نقص البيانات اترك parameters فارغة. '
         'أخرج JSON صالحًا فقط يطابق القالب المرفق.'
     )
     raw = _gemini_text([{'text': f'العنوان: {title}\nالمادة: {subject}\nالصف: {grade_label}\nنمط الإخراج: {output_mode}\nقالب JSON: {json.dumps(schema, ensure_ascii=False)}\n\nالنص الأصلي:\n{transcript}'}], instruction, json_mode=True)

@@ -9,7 +9,7 @@ from .main import app
 from .research_engine import research_engine_status
 from .security import require_admin
 
-NEXT_RELEASE = '1.7.0'
+NEXT_RELEASE = '1.8.0'
 app.version = NEXT_RELEASE
 
 

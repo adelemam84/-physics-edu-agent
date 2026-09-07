@@ -12,6 +12,7 @@ from app.lesson_studio_change_impact import change_impact
 from app.lesson_studio_approval_state import approval_state_from_snapshot
 from app.services.diagram_router import route_diagram
 from app.services.handwriting_preprocess import preprocess_handwriting
+from app.services.handwriting_confidence import build_confidence_map, golden_page_contract, subject_profile
 from app.services.lesson_integrity import review_source_hash
 from app.services.lesson_pdf_renderer import lesson_html, render_lesson_pdf
 from app.services.ocr_consensus import compare_ocr, single_provider_result
@@ -285,6 +286,27 @@ class IntegrityTests(unittest.TestCase):
         c = review_source_hash('أصل معدل', {'summary': 'أ'})
         self.assertNotEqual(a, b)
         self.assertNotEqual(a, c)
+
+
+class HandwritingConfidenceTests(unittest.TestCase):
+    def test_confidence_map_marks_scientific_conflict_red(self):
+        result=build_confidence_map('قانون أوم\nV = IR',0.96,[{'line_number':2,'severity':'critical','kind':'scientific_notation_conflict'}])
+        self.assertEqual(result['zones'][1]['band'],'red')
+        self.assertTrue(result['zones'][1]['requires_review'])
+
+    def test_unclear_marker_is_never_green(self):
+        result=build_confidence_map('القيمة [غير واضح] أمبير',0.99,[])
+        self.assertEqual(result['zones'][0]['band'],'red')
+
+    def test_subject_profiles_cover_all_supported_sciences(self):
+        self.assertIn('ray_diagram',subject_profile('physics')['preferred_visuals'])
+        self.assertIn('molecule_bond',subject_profile('chemistry')['preferred_visuals'])
+        self.assertIn('classification',subject_profile('science')['preferred_visuals'])
+
+    def test_golden_contract_blocks_unreadable_science(self):
+        contract=golden_page_contract()
+        self.assertIn('unreadable_scientific_value',contract['must_block_on'])
+        self.assertFalse(contract['auto_publish'])
 
 
 class HandwritingPreprocessTests(unittest.TestCase):

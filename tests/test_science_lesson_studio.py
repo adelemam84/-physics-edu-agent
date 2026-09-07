@@ -3,6 +3,7 @@ import re
 
 from app.science_lesson_studio import OUTPUT_MODES, SUBJECTS, _render_pdf, _safe_filename
 from app.services.lesson_pdf_renderer import PDF_THEMES, render_lesson_pdf
+from app.services.visual_summary import build_visual_summary, render_flowchart_svg, render_mindmap_svg, render_slides_pptx
 import fitz
 
 
@@ -88,6 +89,24 @@ class ScienceLessonStudioTests(unittest.TestCase):
         self.assertEqual(p['origin'],'source_derived_spec')
         self.assertFalse(p['ai_generated_image'])
         self.assertTrue(p['source_labels_preserved'])
+
+    def test_visual_summary_preserves_source_refs(self):
+        structured={'title':'قانون أوم','subject':'physics','sections':[{'heading':'القانون','body':'V = IR','source_refs':['مصدر 1']}],'summary':'ملخص'}
+        out=build_visual_summary(structured)
+        self.assertEqual(out['sections'][0]['source_refs'],['مصدر 1'])
+        self.assertTrue(out['policy']['source_grounded_only'])
+
+    def test_visual_summary_svg_outputs_are_valid(self):
+        summary=build_visual_summary({'title':'درس','sections':[{'heading':'أ','body':'ب','source_refs':['ص1']}],'summary':'س'})
+        self.assertIn('<svg',render_mindmap_svg(summary))
+        self.assertIn('<svg',render_flowchart_svg(summary))
+        self.assertIn('ص1',render_mindmap_svg(summary))
+
+    def test_visual_summary_pptx_is_valid_zip(self):
+        summary=build_visual_summary({'title':'درس','subject':'physics','sections':[{'heading':'أ','body':'ب','source_refs':['ص1']}],'summary':'س'})
+        data=render_slides_pptx(summary)
+        self.assertTrue(data.startswith(b'PK'))
+        self.assertGreater(len(data),1000)
 
     def test_pdf_renderer_returns_pdf_bytes(self):
         data = _render_pdf({

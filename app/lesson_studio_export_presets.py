@@ -10,6 +10,7 @@ from .lesson_studio_quality import quality_snapshot
 from .science_lesson_studio import _job
 from .services.lesson_pdf_renderer import DEFAULT_THEME, PDF_PRESETS, PDF_THEMES, render_lesson_pdf
 from .services.storage import put_bytes, storage_configured
+from .services.lesson_integrity import review_source_hash
 
 
 @app.get('/api/admin/lesson-studio/pdf-presets', dependencies=[Depends(require_admin)])
@@ -44,6 +45,7 @@ def export_lesson_pdf_preset(job_id: str, preset: str, theme: str = DEFAULT_THEM
     if storage_configured():
         put_bytes(key, data, 'application/pdf')
         with connect() as con:
-            con.execute("UPDATE science_lesson_jobs SET pdf_object_key=%s,status='final_pdf_ready',updated_at=now() WHERE id=%s", (key, job_id))
+            current_hash = review_source_hash(row.get('raw_transcript') or '', row.get('structured_json') or {})
+            con.execute("UPDATE science_lesson_jobs SET pdf_object_key=%s,pdf_source_hash=%s,status='final_pdf_ready',updated_at=now() WHERE id=%s", (key, current_hash, job_id))
     filename = f'science-lesson-{job_id}-{preset}-{theme}.pdf'
     return Response(data, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="{filename}"'})

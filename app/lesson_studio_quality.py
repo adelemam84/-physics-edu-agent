@@ -31,6 +31,7 @@ def _quality_schema() -> None:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_hash text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
 
 
 def _second_review_check(row: dict, structured: dict) -> dict:
@@ -189,5 +190,6 @@ def export_final_lesson_pdf(job_id: str):
     if storage_configured():
         put_bytes(key, data, 'application/pdf')
         with connect() as con:
-            con.execute("UPDATE science_lesson_jobs SET pdf_object_key=%s,status='final_pdf_ready',updated_at=now() WHERE id=%s", (key, job_id))
+            current_hash = review_source_hash(row.get('raw_transcript') or '', row.get('structured_json') or {})
+            con.execute("UPDATE science_lesson_jobs SET pdf_object_key=%s,pdf_source_hash=%s,status='final_pdf_ready',updated_at=now() WHERE id=%s", (key, current_hash, job_id))
     return Response(data, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="science-lesson-{job_id}.pdf"'})

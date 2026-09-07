@@ -239,6 +239,14 @@ Implemented checks:
 - External/human gates are preserved with direct action links and are never auto-closed.
 - Admin surface: `/admin/project-closure`; API: `/api/admin/project-closure`.
 
+### Phase W — Handwritten Lesson → Smart Study Note Completion
+- Adds a line-level Confidence Map over OCR output so low-confidence scientific lines are surfaced even when the page-level score looks acceptable.
+- Science-sensitive lines involving numbers, units, equations, symbols or chemical notation are treated conservatively and remain reviewable.
+- Adds subject-aware study-note profiles for Physics, Chemistry and General Science, including preferred visual families, priority review categories and recommended PDF section structure.
+- Adds a Golden Page contract covering Arabic handwriting, shadows, scientific equations, chemistry reactions, hand-drawn diagrams and mixed Arabic/Latin notation.
+- Adds `/api/admin/lesson-studio/jobs/{job_id}/handwriting-pipeline` and a new `تحليل خط اليد` tab in the unified workspace.
+- Pipeline remains source-preserving: original upload → OCR derivative → multimodal transcription → optional dual-provider consensus → line confidence → organization → diagrams → teacher review → quality gate → A4/mobile PDF.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

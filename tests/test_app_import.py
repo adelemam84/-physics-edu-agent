@@ -33,6 +33,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/current-corpus/visual-review/{question_id}",
             "/api/admin/current-corpus/visual-review/batch-suggest",
             "/api/admin/project-closure",
+            "/api/admin/lesson-studio/jobs/{job_id}/handwriting-pipeline",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 

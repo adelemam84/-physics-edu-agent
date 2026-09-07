@@ -20,6 +20,9 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/lesson-studio/pdf-presets",
             "/api/admin/lesson-studio/jobs/{job_id}/final-pdf/{preset}",
             "/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/parameters",
+            "/api/admin/lesson-studio/jobs/{job_id}/versions",
+            "/api/admin/lesson-studio/jobs/{job_id}/versions/{version_no}",
+            "/api/admin/lesson-studio/jobs/{job_id}/versions/{version_no}/restore",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 

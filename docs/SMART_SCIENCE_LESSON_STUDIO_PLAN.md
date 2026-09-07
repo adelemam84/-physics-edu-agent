@@ -180,6 +180,13 @@ Implemented checks:
 - final teacher approval
 - final PDF export blocked until all applicable gates pass
 
+### Phase O — Version History & Audit Trail
+- Immutable pre-change lesson snapshots with sequential version numbers and SHA-256 content hashes.
+- Snapshots are created before structured-content edits, OCR transcript rebuilds and approved AI-suggestion merges.
+- Version history is visible inside the unified Lesson Studio workspace.
+- Restoring a prior version preserves original source uploads but invalidates teacher approval, independent review, scientific reference review, cached quality state and prior final PDF.
+- Restored content must pass the full current quality gate again before export.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

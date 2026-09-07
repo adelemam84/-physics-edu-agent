@@ -210,6 +210,14 @@ Implemented checks:
 - Final PDFs are bound to the exact content hash used to generate them; a stale PDF never counts as complete after a content change.
 - The unified workspace displays the current gate state alongside the quality checks.
 
+### Phase S — Release Readiness Orchestrator
+- Combines platform acceptance, the latest structured lesson, hash-bound gate state, teacher approval and final PDF freshness into one release decision.
+- Decision states: `ready`, `action_required`, or `blocked`, each with an explicit machine-readable reason.
+- Automatically selects the latest structured lesson when no job id is supplied, while still supporting a specific job id.
+- Returns exactly one next action and links directly to the relevant admin surface.
+- A release can never be `ready` without real-source acceptance and a final PDF bound to the current content hash.
+- Admin surface: `/admin/lesson-studio/release-readiness`.
+
 ## Admin surfaces
 - `/admin/lesson-studio` — create/upload a lesson project.
 - `/admin/lesson-studio/review` — focused OCR review.

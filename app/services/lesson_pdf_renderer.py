@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import io
+import os
 
 import fitz
 
@@ -11,6 +12,16 @@ MODE_LABELS = {
     'student_simple': 'شرح مبسط للطالب',
     'quick_revision': 'مراجعة سريعة',
 }
+
+PDF_THEMES = {
+    'classic_academic': {'label':'Classic Academic','accent':'#344054','soft':'#f8fafc','cover':'#ffffff','summary':'#f2f4f7','border':'#d0d5dd'},
+    'modern_classroom': {'label':'Modern Classroom','accent':'#175cd3','soft':'#eff8ff','cover':'#f5faff','summary':'#eef4ff','border':'#b2ccff'},
+    'exam_revision': {'label':'Exam Revision','accent':'#7a2e0e','soft':'#fff7ed','cover':'#fffbeb','summary':'#fef3c7','border':'#fed7aa'},
+}
+
+DEFAULT_THEME = os.getenv('LESSON_STUDIO_PDF_THEME', 'classic_academic').strip() or 'classic_academic'
+BRAND_NAME = os.getenv('LESSON_STUDIO_BRAND_NAME', 'Science Education Platform').strip() or 'Science Education Platform'
+BRAND_TAGLINE = os.getenv('LESSON_STUDIO_BRAND_TAGLINE', 'Smart Science Lesson Studio').strip() or 'Smart Science Lesson Studio'
 
 PDF_PRESETS = {
     'a4': {'width': 595.0, 'height': 842.0, 'margin_x': 40.0, 'margin_y': 40.0, 'font_scale': 1.0},
@@ -107,12 +118,14 @@ def _toc_html(structured: dict) -> str:
     return '<section class="toc"><h2>المحتويات</h2><ol>' + items + ''.join(extras) + '</ol></section>'
 
 
-def lesson_html(structured: dict, *, mode: str | None = None) -> str:
+def lesson_html(structured: dict, *, mode: str | None = None, theme: str = DEFAULT_THEME) -> str:
     title = _esc(structured.get('title') or 'درس علوم')
     grade = _esc(structured.get('grade_label') or '')
     subject = _esc(structured.get('subject') or '')
     output_mode = mode or str(structured.get('mode') or 'teacher_notes')
     mode_label = MODE_LABELS.get(output_mode, output_mode)
+    if theme not in PDF_THEMES:
+        raise ValueError('Unsupported PDF theme')
     toc = _toc_html(structured)
     objectives = _list_block('أهداف التعلم', structured.get('learning_objectives') or [], css_class='objectives')
     sections = ''.join(_section_html(x) for x in (structured.get('sections') or []))
@@ -122,7 +135,7 @@ def lesson_html(structured: dict, *, mode: str | None = None) -> str:
     uncertain = _list_block('عناصر تحتاج مراجعة', structured.get('uncertain_items') or [], css_class='review-items')
     summary = _esc(structured.get('summary') or '')
     return f'''<article class="mode-{_esc(output_mode)}" dir="rtl">
-      <header class="cover"><div class="eyebrow">Smart Science Lesson Studio</div><h1>{title}</h1>
+      <header class="cover"><div class="brand">{_esc(BRAND_NAME)}</div><div class="eyebrow">{_esc(BRAND_TAGLINE)}</div><h1>{title}</h1>
       <div class="meta">{subject} {('· ' + grade) if grade else ''} · {_esc(mode_label)}</div>
       <div class="cover-rule"></div></header>
       {toc}{objectives}{sections}{equations}{diagrams}{warnings}{uncertain}
@@ -131,9 +144,12 @@ def lesson_html(structured: dict, *, mode: str | None = None) -> str:
     </article>'''
 
 
-def lesson_css(mode: str | None = None, *, preset: str = 'a4') -> str:
+def lesson_css(mode: str | None = None, *, preset: str = 'a4', theme: str = DEFAULT_THEME) -> str:
     if preset not in PDF_PRESETS:
         raise ValueError('Unsupported PDF preset')
+    if theme not in PDF_THEMES:
+        raise ValueError('Unsupported PDF theme')
+    palette = PDF_THEMES[theme]
     compact = mode == 'quick_revision'
     scale = PDF_PRESETS[preset]['font_scale']
     base = (10.8 if compact else 12.0) * scale
@@ -179,12 +195,12 @@ def lesson_css(mode: str | None = None, *, preset: str = 'a4') -> str:
     '''
 
 
-def _stamp_pages(data: bytes, *, preset: str, title: str = '') -> bytes:
+def _stamp_pages(data: bytes, *, preset: str, title: str = '', theme: str = DEFAULT_THEME) -> bytes:
     doc = fitz.open(stream=data, filetype='pdf')
     total = doc.page_count
     cfg = PDF_PRESETS[preset]
     font_size = 7.5 if preset == 'mobile' else 8.5
-    header = (title or 'Smart Science Lesson Studio')[:48]
+    header = f'{BRAND_NAME} · {title or BRAND_TAGLINE}'[:64]
     for i, page in enumerate(doc, 1):
         page.insert_text((cfg['margin_x'], 15), header, fontsize=font_size, color=(0.4, 0.4, 0.4))
         label = f'{i} / {total}'
@@ -194,13 +210,15 @@ def _stamp_pages(data: bytes, *, preset: str, title: str = '') -> bytes:
     return out
 
 
-def render_lesson_pdf(structured: dict, *, preset: str = 'a4') -> bytes:
+def render_lesson_pdf(structured: dict, *, preset: str = 'a4', theme: str = DEFAULT_THEME) -> bytes:
     """Render a multi-page lesson PDF for print (A4) or mobile reading."""
     if preset not in PDF_PRESETS:
         raise ValueError('Unsupported PDF preset')
+    if theme not in PDF_THEMES:
+        raise ValueError('Unsupported PDF theme')
     mode = str(structured.get('mode') or 'teacher_notes')
     cfg = PDF_PRESETS[preset]
-    story = fitz.Story(html=lesson_html(structured, mode=mode), user_css=lesson_css(mode, preset=preset), em=11)
+    story = fitz.Story(html=lesson_html(structured, mode=mode, theme=theme), user_css=lesson_css(mode, preset=preset, theme=theme), em=11)
     media = fitz.Rect(0, 0, cfg['width'], cfg['height'])
     content = fitz.Rect(
         media.x0 + cfg['margin_x'], media.y0 + cfg['margin_y'],
@@ -224,7 +242,7 @@ def render_lesson_pdf(structured: dict, *, preset: str = 'a4') -> bytes:
     data = output.getvalue()
     if not data.startswith(b'%PDF'):
         raise RuntimeError('Invalid PDF render output')
-    data = _stamp_pages(data, preset=preset, title=str(structured.get('title') or ''))
+    data = _stamp_pages(data, preset=preset, title=str(structured.get('title') or ''), theme=theme)
     if not data.startswith(b'%PDF'):
         raise RuntimeError('Invalid stamped PDF output')
     return data

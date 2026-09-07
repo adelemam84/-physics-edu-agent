@@ -139,7 +139,7 @@ Further renderer depth:
 Further composition upgrades:
 - richer Arabic font handling/typographic tuning
 - richer printed table-of-contents page-number mapping
-- branded templates/themes without changing scientific content
+- branded templates/themes without changing scientific content — implemented with Classic Academic, Modern Classroom and Exam Revision themes, configurable brand name/tagline, and identical scientific content across themes.
 
 ### Phase L — Multi-model quality architecture
 Roles implemented/scaffolded:

@@ -1,6 +1,7 @@
 import unittest
 
 from app.science_lesson_studio import OUTPUT_MODES, SUBJECTS, _render_pdf, _safe_filename
+from app.services.lesson_pdf_renderer import PDF_THEMES, render_lesson_pdf
 
 
 class ScienceLessonStudioTests(unittest.TestCase):
@@ -15,6 +16,24 @@ class ScienceLessonStudioTests(unittest.TestCase):
         self.assertNotIn('/', name)
         self.assertNotIn(' ', name)
         self.assertTrue(name.endswith('.png'))
+
+    def test_pdf_themes_are_available(self):
+        self.assertEqual(set(PDF_THEMES), {'classic_academic', 'modern_classroom', 'exam_revision'})
+
+    def test_all_pdf_themes_render_valid_pdf(self):
+        structured = {
+            'title': 'درس تجريبي',
+            'subject': 'physics',
+            'grade_label': 'الثالث الثانوي',
+            'mode': 'teacher_notes',
+            'sections': [{'heading': 'قانون', 'body': 'شرح مبسط للمحتوى.', 'source_refs': ['مصدر 1']}],
+            'summary': 'ملخص الدرس',
+        }
+        for theme in PDF_THEMES:
+            with self.subTest(theme=theme):
+                data = render_lesson_pdf(structured, theme=theme)
+                self.assertTrue(data.startswith(b'%PDF'))
+                self.assertGreater(len(data), 500)
 
     def test_pdf_renderer_returns_pdf_bytes(self):
         data = _render_pdf({

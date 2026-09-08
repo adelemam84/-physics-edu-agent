@@ -20,7 +20,6 @@ GEMINI_NOTEBOOK_LOCATION = os.getenv('GEMINI_NOTEBOOK_LOCATION', 'global').strip
 
 CANVA_CLIENT_ID = os.getenv('CANVA_CLIENT_ID', '').strip()
 CANVA_CLIENT_SECRET = os.getenv('CANVA_CLIENT_SECRET', '').strip()
-CANVA_REFRESH_TOKEN = os.getenv('CANVA_REFRESH_TOKEN', '').strip()
 CANVA_BRAND_TEMPLATE_ID = os.getenv('CANVA_BRAND_TEMPLATE_ID', '').strip()
 CANVA_FIELD_MAP_JSON = os.getenv('CANVA_FIELD_MAP_JSON', '').strip()
 
@@ -42,27 +41,13 @@ def _google_access_token(scopes: list[str]) -> str:
 
 
 def _canva_access_token() -> str:
-    if not (CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and CANVA_REFRESH_TOKEN):
-        raise HTTPException(503, 'Canva OAuth is not configured')
-    with httpx.Client(timeout=30) as client:
-        r = client.post(
-            'https://api.canva.com/rest/v1/oauth/token',
-            data={'grant_type':'refresh_token','refresh_token':CANVA_REFRESH_TOKEN},
-            auth=(CANVA_CLIENT_ID, CANVA_CLIENT_SECRET),
-            headers={'Content-Type':'application/x-www-form-urlencoded'},
-        )
-    if r.status_code >= 400:
-        raise HTTPException(502, f'Canva token refresh failed: {r.text[:400]}')
-    data = r.json()
-    token = data.get('access_token')
-    if not token:
-        raise HTTPException(502, 'Canva token refresh returned no access token')
-    return str(token)
+    from .canva_oauth import canva_access_token
+    return canva_access_token()
 
 
 def integration_status() -> dict:
     notebook_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GEMINI_NOTEBOOK_PROJECT_NUMBER)
-    canva_ready = bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and CANVA_REFRESH_TOKEN and CANVA_BRAND_TEMPLATE_ID)
+    canva_ready = bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and CANVA_BRAND_TEMPLATE_ID)
     slides_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SLIDES_FOLDER_ID)
     return {
         'gemini_notebook_enterprise': {
@@ -74,7 +59,7 @@ def integration_status() -> dict:
         'canva': {
             'configured': canva_ready,
             'mode': 'connect_api_brand_template_autofill',
-            'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','CANVA_REFRESH_TOKEN','CANVA_BRAND_TEMPLATE_ID'],
+            'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','Canva OAuth authorization','CANVA_BRAND_TEMPLATE_ID'],
             'note': 'Autofill capability depends on Canva plan/capabilities.',
         },
         'google_slides': {

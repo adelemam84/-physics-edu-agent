@@ -21,7 +21,7 @@ CANVA_REDIRECT_URI=os.getenv("CANVA_REDIRECT_URI","").strip()
 CANVA_PRODUCTION_REDIRECT="https://physics-edu-agent.vercel.app/api/integrations/canva/oauth/callback"
 CANVA_SCOPES=os.getenv(
     "CANVA_SCOPES",
-    "brandtemplate:content:read brandtemplate:meta:read design:meta:read",
+    "design:content:read design:content:write design:meta:read brandtemplate:content:read brandtemplate:meta:read",
 ).strip()
 
 

@@ -23,6 +23,7 @@ CANVA_CLIENT_ID = os.getenv('CANVA_CLIENT_ID', '').strip()
 CANVA_CLIENT_SECRET = os.getenv('CANVA_CLIENT_SECRET', '').strip()
 CANVA_BRAND_TEMPLATE_ID = os.getenv('CANVA_BRAND_TEMPLATE_ID', '').strip()
 CANVA_FIELD_MAP_JSON = os.getenv('CANVA_FIELD_MAP_JSON', '').strip()
+CANVA_MASTER_DESIGN_ENV = os.getenv('CANVA_MASTER_DESIGN_ID', '').strip()
 
 GOOGLE_SLIDES_FOLDER_ID = os.getenv('GOOGLE_SLIDES_FOLDER_ID', '').strip()
 
@@ -48,7 +49,8 @@ def _canva_access_token() -> str:
 
 def integration_status() -> dict:
     notebook_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GEMINI_NOTEBOOK_PROJECT_NUMBER)
-    canva_ready = bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and CANVA_BRAND_TEMPLATE_ID)
+    canva_source_id = CANVA_MASTER_DESIGN_ENV or CANVA_MASTER_DESIGN_ID
+    canva_ready = bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and canva_source_id)
     slides_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SLIDES_FOLDER_ID)
     return {
         'gemini_notebook_enterprise': {
@@ -59,13 +61,15 @@ def integration_status() -> dict:
         },
         'canva': {
             'configured': canva_ready,
-            'mode': 'connect_api_brand_template_autofill',
-            'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','Canva OAuth authorization','CANVA_BRAND_TEMPLATE_ID'],
-            'note': 'Autofill capability depends on Canva plan/capabilities.',
+            'mode': 'connect_api_design_autofill',
+            'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','Canva OAuth authorization','design:content:read','design:content:write'],
+            'note': 'Uses Canva create_from_design Autofill; Brand Template remains an optional fallback.',
             'master_design_id': CANVA_MASTER_DESIGN_ID,
             'master_field_count': len(CANVA_MASTER_TEXT_FIELDS),
             'master_design_ready': True,
             'brand_template_ready': bool(CANVA_BRAND_TEMPLATE_ID),
+            'design_autofill_ready': bool(canva_source_id),
+            'autofill_source': 'brand_template' if CANVA_BRAND_TEMPLATE_ID else 'design',
         },
         'google_slides': {
             'configured': slides_ready,
@@ -153,10 +157,22 @@ def create_canva_design(job_id: str) -> dict:
     row, summary, _sources = _summary_payload(job_id)
     token = _canva_access_token()
     headers = {'Authorization':f'Bearer {token}','Content-Type':'application/json'}
+    source_design_id = CANVA_MASTER_DESIGN_ENV or CANVA_MASTER_DESIGN_ID
+    use_brand_template = bool(CANVA_BRAND_TEMPLATE_ID)
+    if use_brand_template:
+        dataset_url = f'https://api.canva.com/rest/v1/brand-templates/{CANVA_BRAND_TEMPLATE_ID}/dataset'
+        autofill_type = 'create_from_brand_template'
+        source_key = 'brand_template_id'
+        source_value = CANVA_BRAND_TEMPLATE_ID
+    else:
+        dataset_url = f'https://api.canva.com/rest/v1/designs/{source_design_id}/dataset'
+        autofill_type = 'create_from_design'
+        source_key = 'design_id'
+        source_value = source_design_id
     with httpx.Client(timeout=60) as client:
-        ds = client.get(f'https://api.canva.com/rest/v1/brand-templates/{CANVA_BRAND_TEMPLATE_ID}/dataset', headers=headers)
+        ds = client.get(dataset_url, headers=headers)
         if ds.status_code >= 400:
-            raise HTTPException(502, f'Canva template dataset failed: {ds.text[:500]}')
+            raise HTTPException(502, f'Canva source dataset failed: {ds.text[:500]}')
         dataset = (ds.json().get('dataset') or {})
         semantic = _semantic_canva_values(summary)
         mapping = {}
@@ -171,20 +187,17 @@ def create_canva_design(job_id: str) -> dict:
             if target in dataset and (dataset[target] or {}).get('type') == 'text':
                 data[target] = {'type':'text','text':value}
         if not data:
-            raise HTTPException(409, 'Canva template has no matching autofill text fields; configure CANVA_FIELD_MAP_JSON or template field names')
-        r = client.post(
-            'https://api.canva.com/rest/v1/autofills',
-            headers=headers,
-            json={
-                'type':'create_from_brand_template',
-                'brand_template_id':CANVA_BRAND_TEMPLATE_ID,
-                'title':f"{row.get('title') or summary['title']} — Visual Summary",
-                'data':data,
-            },
-        )
+            raise HTTPException(409, 'Canva source has no matching autofill text fields; verify the master field labels or CANVA_FIELD_MAP_JSON')
+        payload = {
+            'type':autofill_type,
+            source_key:source_value,
+            'title':f"{row.get('title') or summary['title']} — Visual Summary",
+            'data':data,
+        }
+        r = client.post('https://api.canva.com/rest/v1/autofills',headers=headers,json=payload)
     if r.status_code >= 400:
         raise HTTPException(502, f'Canva autofill failed: {r.text[:500]}')
-    return {'provider':'canva','job':r.json(),'fields_used':sorted(data),'source_grounded':True}
+    return {'provider':'canva','job':r.json(),'fields_used':sorted(data),'source_grounded':True,'autofill_type':autofill_type,'source_id':source_value}
 
 
 def create_google_slides(job_id: str) -> dict:

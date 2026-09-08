@@ -74,6 +74,25 @@ class AtomicLessonQualityTests(unittest.TestCase):
         check = next(x for x in blocked['checks'] if x['id'] == 'ocr_review_clear')
         self.assertEqual(check['value'], 1)
 
+    def test_locked_source_text_must_match_raw_transcript(self):
+        """A source-row edit must block approval until the canonical transcript is rebuilt."""
+        row = self._base_row()
+        row['raw_transcript'] = '[مصدر 1: page.png]\nقانون أوم كما ورد في المصدر'
+        source = {
+            'id': 1,
+            'position': 1,
+            'filename': 'page.png',
+            'extracted_text': 'قانون أوم كما ورد في المصدر',
+            'requires_review': False,
+        }
+        bound = _build_quality_snapshot('job-1', row, [source])
+        self.assertTrue(bound['preapproval_ready'])
+        changed_source = {**source, 'extracted_text': 'نص مصدر تغيّر بعد بناء النسخة'}
+        stale = _build_quality_snapshot('job-1', row, [changed_source])
+        self.assertFalse(stale['preapproval_ready'])
+        check = next(x for x in stale['checks'] if x['id'] == 'source_transcript_binding')
+        self.assertFalse(check['ok'])
+
     def test_diagram_change_changes_export_contract(self):
         """Diagram parameter edits must alter the manifest hash used by export approval."""
         row = self._base_row()

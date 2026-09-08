@@ -32,6 +32,7 @@ class AtomicLessonQualityTests(unittest.TestCase):
         self.assertFalse(snap['teacher_approval_fresh'])
         self.assertFalse(snap['final_ready'])
         self.assertTrue(snap['policy']['approval_and_export_recheck_locked_state'])
+        self.assertTrue(snap['policy']['quality_cache_written_from_locked_state'])
 
     def test_teacher_approval_is_fresh_only_for_exact_locked_contract(self):
         row = self._base_row()

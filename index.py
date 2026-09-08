@@ -72,4 +72,5 @@ from app import lesson_studio_handwriting_pipeline  # noqa: F401,E402
 from app import lesson_studio_visual_summary  # noqa: F401,E402
 from app import external_creative_integrations  # noqa: F401,E402
 from app import canva_oauth  # noqa: F401,E402
+from app import canva_diagnostics  # noqa: F401,E402
 from app import release_hardening  # noqa: F401,E402

@@ -80,6 +80,12 @@ class VercelEntrypointTests(unittest.TestCase):
         self.assertEqual(values["EXAMPLE_PROBLEM"], "")
         self.assertEqual(values["COMMON_MISTAKE"], "")
 
+    def test_canva_oauth_requests_design_autofill_scopes(self):
+        from app.canva_oauth import CANVA_SCOPES
+        scopes=set(CANVA_SCOPES.split())
+        self.assertIn("design:content:read", scopes)
+        self.assertIn("design:content:write", scopes)
+
     def test_canva_redirect_is_canonical_production_url(self):
         from app.canva_oauth import CANVA_PRODUCTION_REDIRECT
         self.assertEqual(

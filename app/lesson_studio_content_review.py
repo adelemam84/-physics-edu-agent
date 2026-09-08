@@ -15,17 +15,20 @@ from .lesson_studio_version_history import snapshot_job
 
 
 def _content_review_schema() -> None:
+    """Ensure content-review persistence columns exist before any review edit."""
     _schema()
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_source_hash text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_diagram_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
 
 
 def _load_structured(job_id: str) -> tuple[dict, dict]:
+    """Load a lesson job and require structured content to be present."""
     _content_review_schema()
     with connect() as con:
         row = con.execute('SELECT * FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
@@ -38,6 +41,7 @@ def _load_structured(job_id: str) -> tuple[dict, dict]:
 
 
 def _save_structured(job_id: str, structured: dict) -> None:
+    """Persist a teacher edit and invalidate every approval/export bound to old content."""
     _content_review_schema()
     snapshot_job(job_id, 'structured_content_edit')
     with connect() as con:
@@ -51,6 +55,7 @@ def _save_structured(job_id: str, structured: dict) -> None:
 
 
 def _recount_notation_quality(structured: dict) -> None:
+    """Recompute the count of notation items still awaiting teacher review."""
     items = list(structured.get('equations_or_rules') or [])
     pending = sum(1 for x in items if (x.get('notation') or {}).get('requires_review'))
     quality = dict(structured.get('notation_quality') or {})
@@ -61,6 +66,7 @@ def _recount_notation_quality(structured: dict) -> None:
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/content-review', dependencies=[Depends(require_admin)])
 def content_review(job_id: str):
+    """Return the teacher-review workspace for structured lesson content."""
     _, structured = _load_structured(job_id)
     diagrams = structured.get('diagram_specs') or []
     uncertain = structured.get('uncertain_items') or []
@@ -84,6 +90,7 @@ def content_review(job_id: str):
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/parameters', dependencies=[Depends(require_admin)])
 def update_diagram_parameters(job_id: str, diagram_index: int, parameters_json: str = Form(...)):
+    """Save reviewed deterministic diagram parameters without auto-approving them."""
     try:
         parameters = json.loads(parameters_json or '{}')
     except json.JSONDecodeError as exc:
@@ -101,6 +108,7 @@ def update_diagram_parameters(job_id: str, diagram_index: int, parameters_json: 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/approve', dependencies=[Depends(require_admin)])
 def approve_diagram(job_id: str, diagram_index: int, teacher_note: str = Form('')):
+    """Bind teacher approval to the exact deterministic diagram specification hash."""
     _, structured = _load_structured(job_id)
     diagrams = list(structured.get('diagram_specs') or [])
     if diagram_index < 0 or diagram_index >= len(diagrams):
@@ -130,6 +138,7 @@ def approve_diagram(job_id: str, diagram_index: int, teacher_note: str = Form(''
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/uncertain/{item_index}/resolve', dependencies=[Depends(require_admin)])
 def resolve_uncertain_item(job_id: str, item_index: int, resolution: str = Form(...)):
+    """Record a teacher resolution for one uncertain extracted item."""
     resolution = resolution.strip()
     if not resolution:
         raise HTTPException(400, 'Resolution is required')
@@ -153,6 +162,7 @@ def approve_notation(
     approved_expression: str = Form(...),
     teacher_note: str = Form(''),
 ):
+    """Persist a teacher-approved notation expression and its review metadata."""
     expression = approved_expression.strip()
     if not expression:
         raise HTTPException(400, 'Approved expression cannot be empty')
@@ -194,6 +204,7 @@ def update_lesson_section(
     body: str = Form(...),
     source_refs_json: str = Form('[]'),
 ):
+    """Save a teacher-edited lesson section while preserving explicit source references."""
     heading = heading.strip()
     body = body.strip()
     if not heading or not body:

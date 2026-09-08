@@ -25,6 +25,10 @@ CANVA_SCOPES=os.getenv(
 ).strip()
 
 
+def _requested_scopes() -> set[str]:
+    return {x for x in CANVA_SCOPES.split() if x}
+
+
 def _init_store():
     with connect() as con:
         con.execute("""CREATE TABLE IF NOT EXISTS external_oauth_tokens(
@@ -60,8 +64,38 @@ def _save_tokens(data: dict):
           ON CONFLICT(provider) DO UPDATE SET
             access_token=excluded.access_token,
             refresh_token=COALESCE(excluded.refresh_token,external_oauth_tokens.refresh_token),
-            token_type=excluded.token_type,scope=excluded.scope,expires_at=excluded.expires_at,updated_at=now()""",
+            token_type=COALESCE(excluded.token_type,external_oauth_tokens.token_type),
+            scope=COALESCE(excluded.scope,external_oauth_tokens.scope),
+            expires_at=excluded.expires_at,updated_at=now()""",
           (data.get("access_token"),data.get("refresh_token"),data.get("token_type"),data.get("scope"),expires))
+
+
+def _stored_authorization() -> dict:
+    if not os.getenv("DATABASE_URL"):
+        return {
+            "authorized":False,
+            "granted_scopes":set(),
+            "missing_scopes":_requested_scopes(),
+            "needs_reauthorization":False,
+        }
+    _init_store()
+    with connect() as con:
+        row=con.execute("SELECT * FROM external_oauth_tokens WHERE provider='canva'").fetchone()
+    if not row or not row.get("refresh_token"):
+        return {
+            "authorized":False,
+            "granted_scopes":set(),
+            "missing_scopes":_requested_scopes(),
+            "needs_reauthorization":False,
+        }
+    granted={x for x in str(row.get("scope") or "").split() if x}
+    missing=_requested_scopes()-granted
+    return {
+        "authorized":True,
+        "granted_scopes":granted,
+        "missing_scopes":missing,
+        "needs_reauthorization":bool(missing),
+    }
 
 
 def canva_access_token() -> str:
@@ -72,6 +106,10 @@ def canva_access_token() -> str:
         row=con.execute("SELECT * FROM external_oauth_tokens WHERE provider='canva'").fetchone()
     if not row:
         raise HTTPException(503,"Canva account is not authorized yet")
+    granted={x for x in str(row.get("scope") or "").split() if x}
+    missing=_requested_scopes()-granted
+    if missing:
+        raise HTTPException(503,"Canva authorization is missing required scopes; authorize Canva again: "+", ".join(sorted(missing)))
     now=datetime.now(timezone.utc)
     if row.get("access_token") and row.get("expires_at") and row["expires_at"]>now:
         return str(row["access_token"])
@@ -126,9 +164,16 @@ def canva_oauth_callback(request: Request,code: str|None=None,state: str|None=No
     if r.status_code>=400:
         raise HTTPException(502,f"Canva token exchange failed: {r.text[:500]}")
     _save_tokens(r.json())
-    response=HTMLResponse("""<!doctype html><html lang='ar' dir='rtl'><meta charset='utf-8'><title>Canva connected</title>
-    <body style='font-family:sans-serif;max-width:700px;margin:60px auto'><h1>تم ربط Canva بنجاح</h1>
-    <p>يمكنك إغلاق هذه الصفحة والعودة إلى Lesson Studio.</p></body></html>""")
+    state_info=_stored_authorization()
+    missing=sorted(state_info["missing_scopes"])
+    if missing:
+        body=("<h1>تم ربط Canva لكن الصلاحيات غير مكتملة</h1>"
+              "<p>الصلاحيات الناقصة: "+", ".join(missing)+"</p>"
+              "<p>فعّلها في Canva Developers ثم أعد التفويض.</p>")
+    else:
+        body="<h1>تم ربط Canva بنجاح</h1><p>يمكنك إغلاق هذه الصفحة والعودة إلى Lesson Studio.</p>"
+    response=HTMLResponse("<!doctype html><html lang='ar' dir='rtl'><meta charset='utf-8'><title>Canva connected</title>"
+                         "<body style='font-family:sans-serif;max-width:700px;margin:60px auto'>"+body+"</body></html>")
     response.delete_cookie("canva_oauth_state")
     response.delete_cookie("canva_oauth_verifier")
     return response
@@ -137,16 +182,20 @@ def canva_oauth_callback(request: Request,code: str|None=None,state: str|None=No
 @app.get("/api/admin/integrations/canva/oauth/status",dependencies=[Depends(require_admin)])
 def canva_oauth_status(request: Request):
     configured=bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET)
-    authorized=False
-    if os.getenv("DATABASE_URL"):
-        _init_store()
-        with connect() as con:
-            authorized=bool(con.execute("SELECT 1 FROM external_oauth_tokens WHERE provider='canva' AND refresh_token IS NOT NULL").fetchone())
+    state=_stored_authorization()
+    requested=sorted(_requested_scopes())
+    granted=sorted(state["granted_scopes"])
+    missing=sorted(state["missing_scopes"])
     return {
         "configured":configured,
-        "authorized":authorized,
+        "authorized":state["authorized"],
+        "authorized_for_requested_scopes":bool(state["authorized"] and not missing),
+        "needs_reauthorization":state["needs_reauthorization"],
         "redirect_uri":_redirect_uri(request),
-        "scopes":CANVA_SCOPES.split(),
+        "scopes":requested,
+        "requested_scopes":requested,
+        "granted_scopes":granted,
+        "missing_scopes":missing,
         "token_storage":"database_rotating_refresh_token",
         "authorize_url":"/api/admin/integrations/canva/oauth/start",
         "production_redirect_uri":CANVA_PRODUCTION_REDIRECT,

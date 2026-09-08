@@ -81,6 +81,7 @@ def update_diagram_parameters(job_id: str, diagram_index: int, parameters_json: 
         raise HTTPException(400, 'parameters_json must be valid JSON') from exc
     if not isinstance(parameters, dict):
         raise HTTPException(400, 'parameters_json must be a JSON object')
+    _content_review_schema()
     return save_diagram_spec(
         job_id,
         diagram_index,

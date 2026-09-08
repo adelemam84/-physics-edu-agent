@@ -108,12 +108,23 @@ def _reference_review_check(row: dict, structured: dict) -> dict:
     }
 
 
+def _canonical_source_transcript(sources: list[dict]) -> str | None:
+    """Reconstruct the transcript from locked source rows when full source fields are available."""
+    if not sources or any('position' not in s or 'filename' not in s or 'extracted_text' not in s for s in sources):
+        return None
+    return '\n\n'.join(
+        f"[مصدر {s['position']}: {s['filename']}]\n{s.get('extracted_text') or ''}" for s in sources
+    )
+
+
 def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict:
     """Evaluate every release gate from one coherent job/source state without I/O."""
     row = dict(row)
     sources = [dict(x) for x in sources]
     structured = dict(row.get('structured_json') or {})
     source_pending = sum(1 for s in sources if s.get('requires_review'))
+    source_transcript = _canonical_source_transcript(sources)
+    source_transcript_bound = source_transcript is None or source_transcript == str(row.get('raw_transcript') or '')
     uncertain = list(structured.get('uncertain_items') or [])
     diagrams = list(structured.get('diagram_specs') or [])
     manifest = diagram_manifest(structured)
@@ -143,6 +154,7 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
     )
     checks = [
         {'id': 'source_preserved', 'ok': int(row.get('source_count') or 0) == len(sources) and len(sources) > 0, 'value': len(sources)},
+        {'id': 'source_transcript_binding', 'ok': source_transcript_bound, 'value': source_transcript_bound},
         {'id': 'ocr_review_clear', 'ok': source_pending == 0, 'value': source_pending},
         {'id': 'structured_content_ready', 'ok': bool(structured), 'value': bool(structured)},
         {'id': 'uncertainty_clear', 'ok': len(uncertain) == 0, 'value': len(uncertain)},
@@ -182,6 +194,7 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
             'scientific_reference_review_required': REFERENCE_REVIEW_REQUIRED,
             'approval_and_export_recheck_locked_state': True,
             'quality_cache_written_from_locked_state': True,
+            'raw_transcript_must_match_locked_source_rows': True,
         },
     }
 
@@ -194,7 +207,7 @@ def _locked_job_state(con, job_id: str) -> tuple[dict, list[dict]]:
     ).fetchone()
     if not row:
         raise HTTPException(404, 'Lesson studio job not found')
-    sources = list(con.execute('''SELECT id,requires_review
+    sources = list(con.execute('''SELECT id,position,filename,extracted_text,requires_review
       FROM science_lesson_sources WHERE job_id=%s ORDER BY position FOR UPDATE''',
       (job_id,)).fetchall())
     return dict(row), [dict(x) for x in sources]
@@ -223,6 +236,23 @@ def _require_snapshot_state(snapshot: dict, *, final: bool) -> None:
         })
     message = 'Final PDF export blocked by quality gate' if final else 'Lesson failed quality gate'
     raise HTTPException(409, {'message': message, 'failed': failed})
+
+
+def _delete_unpromoted_pdf(job_id: str, key: str) -> None:
+    """Delete a failed export only while a locked row proves the object is not currently promoted."""
+    try:
+        with connect() as con:
+            row = con.execute(
+                'SELECT pdf_object_key FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+                (job_id,),
+            ).fetchone()
+            if row and row.get('pdf_object_key') == key:
+                return
+            delete_object(key)
+    except Exception:
+        # An orphan is safer than deleting an object whose live reference could
+        # not be verified because the database or storage cleanup failed.
+        logger.exception('Failed to safely delete unpromoted lesson PDF object %s', key)
 
 
 def quality_snapshot(job_id: str) -> dict:
@@ -316,15 +346,19 @@ def export_final_lesson_pdf(job_id: str):
         f'{verified_content_hash[:16]}-{verified_diagram_hash[:16]}.pdf'
     )
     persist_to_storage = storage_configured()
+    already_promoted = bool(
+        persist_to_storage
+        and row.get('pdf_object_key') == key
+        and row.get('pdf_source_hash') == verified_content_hash
+        and row.get('pdf_diagram_manifest_hash') == verified_diagram_hash
+    )
     uploaded = False
-    if persist_to_storage:
+    if persist_to_storage and not already_promoted:
         put_bytes(key, data, 'application/pdf')
         uploaded = True
 
     # Re-lock and re-evaluate after rendering/upload. Only the exact state
-    # verified above can become the current final PDF. Any uploaded blob that
-    # fails this promotion step is deleted so repeated races cannot accumulate
-    # unreferenced objects.
+    # verified above can become the current final PDF.
     try:
         with connect() as con:
             current_row, current_sources = _locked_job_state(con, job_id)
@@ -356,10 +390,7 @@ def export_final_lesson_pdf(job_id: str):
                   ))
     except Exception:
         if uploaded:
-            try:
-                delete_object(key)
-            except Exception:
-                logger.exception('Failed to delete unpromoted lesson PDF object %s', key)
+            _delete_unpromoted_pdf(job_id, key)
         raise
 
     return Response(

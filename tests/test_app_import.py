@@ -38,6 +38,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/integrations/canva/oauth/start",
             "/api/integrations/canva/oauth/callback",
             "/api/admin/integrations/canva/oauth/status",
+            "/api/admin/integrations/canva/master-contract",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -57,6 +58,27 @@ class VercelEntrypointTests(unittest.TestCase):
             "/admin/project-closure",
         }
         self.assertTrue(required.issubset(paths), required-paths)
+
+    def test_canva_master_contract_is_complete_and_source_grounded(self):
+        from app.services.canva_master_contract import CANVA_MASTER_TEXT_FIELDS, canva_master_values
+        summary={
+            "title":"قانون أوم",
+            "subject":"فيزياء",
+            "grade_label":"الثالث الثانوي",
+            "summary":"العلاقة بين الجهد والتيار والمقاومة.",
+            "sections":[
+                {"title":"الجهد","summary":"فرق الجهد الكهربائي."},
+                {"title":"التيار","summary":"معدل سريان الشحنة."},
+            ],
+            "equations":[{"label":"قانون أوم","expression":"V = I × R","notes":"الوحدات القياسية"}],
+            "diagrams":[{"title":"دائرة كهربائية","description":"مقاومة ومصدر جهد","labels":["V","I","R"]}],
+        }
+        values=canva_master_values(summary)
+        self.assertEqual(set(values), set(CANVA_MASTER_TEXT_FIELDS))
+        self.assertEqual(values["LESSON_TITLE"], "قانون أوم")
+        self.assertIn("V = I × R", values["EQUATIONS_BODY"])
+        self.assertEqual(values["EXAMPLE_PROBLEM"], "")
+        self.assertEqual(values["COMMON_MISTAKE"], "")
 
     def test_canva_redirect_is_canonical_production_url(self):
         from app.canva_oauth import CANVA_PRODUCTION_REDIRECT

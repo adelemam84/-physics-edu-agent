@@ -40,6 +40,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/integrations/canva/oauth/status",
             "/api/admin/integrations/canva/master-contract",
             "/api/admin/integrations/canva/diagnostics",
+            "/api/admin/lesson-studio/integrations/summary",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -55,6 +56,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/admin/lesson-studio/reference-workspace",
             "/admin/lesson-studio/acceptance",
             "/admin/lesson-studio/release-readiness",
+            "/admin/lesson-studio/integrations",
             "/admin/completion-audit",
             "/admin/project-closure",
         }

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 from . import lesson_studio_workspace as workspace
 
+
+log = logging.getLogger(__name__)
 
 _PATCH = r'''
 
@@ -17,6 +21,6 @@ async function restoreDiagramSpec(i,v){if(!window.confirm('استرجاع Diagra
 
 _MARKER = '</script></main></html>'
 if _MARKER not in workspace.WORKSPACE:
-    raise RuntimeError('Lesson Studio Workspace closing marker not found for diagram editor patch')
-if 'function previewDiagramSpec(i)' not in workspace.WORKSPACE:
+    log.warning('Lesson Studio Workspace closing marker not found; diagram editor patch skipped')
+elif 'function previewDiagramSpec(i)' not in workspace.WORKSPACE:
     workspace.WORKSPACE = workspace.WORKSPACE.replace(_MARKER, _PATCH + '\n' + _MARKER)

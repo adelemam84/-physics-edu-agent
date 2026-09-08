@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from .db import connect
 from .main import app
 from .security import require_admin
-from .science_lesson_studio import _job, _schema
+from .science_lesson_studio import _schema
 from .services.lesson_diagram_integrity import diagram_manifest
 from .services.lesson_integrity import review_source_hash
 from .services.lesson_pdf_renderer import render_lesson_pdf
@@ -103,10 +103,10 @@ def _reference_review_check(row: dict, structured: dict) -> dict:
     }
 
 
-def quality_snapshot(job_id: str) -> dict:
-    _quality_schema()
-    row, sources = _job(job_id)
+def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict:
+    """Evaluate every release gate from one coherent job/source state without I/O."""
     row = dict(row)
+    sources = [dict(x) for x in sources]
     structured = dict(row.get('structured_json') or {})
     source_pending = sum(1 for s in sources if s.get('requires_review'))
     uncertain = list(structured.get('uncertain_items') or [])
@@ -150,7 +150,7 @@ def quality_snapshot(job_id: str) -> dict:
         _second_review_check(row, structured),
     ]
     preapproval_ready = all(x['ok'] for x in checks)
-    snapshot = {
+    return {
         'job_id': job_id,
         'checks': checks,
         'preapproval_ready': preapproval_ready,
@@ -175,9 +175,56 @@ def quality_snapshot(job_id: str) -> dict:
             'fresh_independent_review_required_when_provider_configured': True,
             'scientific_reference_is_validation_context_not_authoring_source': True,
             'scientific_reference_review_required': REFERENCE_REVIEW_REQUIRED,
+            'approval_and_export_recheck_locked_state': True,
+            'quality_cache_written_from_locked_state': True,
         },
     }
+
+
+def _locked_job_state(con, job_id: str) -> tuple[dict, list[dict]]:
+    """Lock the lesson and its OCR-source review rows before a final gate mutation."""
+    row = con.execute(
+        'SELECT * FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+        (job_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, 'Lesson studio job not found')
+    sources = list(con.execute('''SELECT id,requires_review
+      FROM science_lesson_sources WHERE job_id=%s ORDER BY position FOR UPDATE''',
+      (job_id,)).fetchall())
+    return dict(row), [dict(x) for x in sources]
+
+
+def _snapshot_contract(snapshot: dict) -> tuple[str, str]:
+    """Return the immutable content and diagram identities verified by a snapshot."""
+    binding = snapshot.get('teacher_approval_binding') or {}
+    return (
+        str(binding.get('current_content_hash') or ''),
+        str((snapshot.get('diagram_manifest') or {}).get('hash') or ''),
+    )
+
+
+def _require_snapshot_state(snapshot: dict, *, final: bool) -> None:
+    """Raise a stable quality-gate response for approval or final export."""
+    ready_key = 'final_ready' if final else 'preapproval_ready'
+    if snapshot.get(ready_key):
+        return
+    failed = [x for x in snapshot.get('checks') or [] if not x.get('ok')]
+    if final and not snapshot.get('teacher_approval_fresh'):
+        failed.append({
+            'id': 'teacher_approval_fresh',
+            'ok': False,
+            'value': snapshot.get('teacher_approval_binding'),
+        })
+    message = 'Final PDF export blocked by quality gate' if final else 'Lesson failed quality gate'
+    raise HTTPException(409, {'message': message, 'failed': failed})
+
+
+def quality_snapshot(job_id: str) -> dict:
+    _quality_schema()
     with connect() as con:
+        row, sources = _locked_job_state(con, job_id)
+        snapshot = _build_quality_snapshot(job_id, row, sources)
         con.execute('UPDATE science_lesson_jobs SET quality_snapshot=%s::jsonb WHERE id=%s',
                     (json.dumps(snapshot, ensure_ascii=False), job_id))
     return snapshot
@@ -190,24 +237,35 @@ def lesson_quality(job_id: str):
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/approve-content', dependencies=[Depends(require_admin)])
 def approve_lesson_content(job_id: str):
-    snap = quality_snapshot(job_id)
-    if not snap['preapproval_ready']:
-        failed = [x for x in snap['checks'] if not x['ok']]
-        raise HTTPException(409, {'message': 'Lesson failed quality gate', 'failed': failed})
-    content_hash = snap['teacher_approval_binding']['current_content_hash']
-    diagram_hash = snap['diagram_manifest']['hash']
+    _quality_schema()
     with connect() as con:
+        row, sources = _locked_job_state(con, job_id)
+        snapshot = _build_quality_snapshot(job_id, row, sources)
+        _require_snapshot_state(snapshot, final=False)
+        content_hash, diagram_hash = _snapshot_contract(snapshot)
+        approved_snapshot = dict(snapshot)
+        approved_binding = dict(snapshot.get('teacher_approval_binding') or {})
+        approved_binding['approved_content_hash'] = content_hash
+        approved_binding['approved_diagram_manifest_hash'] = diagram_hash
+        approved_snapshot.update({
+            'teacher_approved': True,
+            'teacher_approval_fresh': True,
+            'teacher_approval_binding': approved_binding,
+            'final_ready': True,
+        })
         con.execute('''UPDATE science_lesson_jobs SET
           teacher_approved=TRUE,teacher_approved_at=now(),
           teacher_approval_source_hash=%s,teacher_approval_diagram_hash=%s,
+          quality_snapshot=%s::jsonb,
           status='approved_for_export',updated_at=now() WHERE id=%s''',
-          (content_hash, diagram_hash, job_id))
+          (content_hash, diagram_hash, json.dumps(approved_snapshot, ensure_ascii=False), job_id))
     return {
         'approved': True,
         'job_id': job_id,
         'final_ready': True,
         'content_hash': content_hash,
         'diagram_manifest_hash': diagram_hash,
+        'atomic_gate': True,
     }
 
 
@@ -215,38 +273,82 @@ def approve_lesson_content(job_id: str):
 def revoke_lesson_content_approval(job_id: str):
     _quality_schema()
     with connect() as con:
-        if not con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone():
+        if not con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone():
             raise HTTPException(404, 'Lesson studio job not found')
         con.execute('''UPDATE science_lesson_jobs SET
           teacher_approved=FALSE,teacher_approved_at=NULL,
           teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
+          quality_snapshot=NULL,
+          pdf_object_key=NULL,pdf_source_hash=NULL,pdf_diagram_manifest_hash=NULL,
           status='content_review_required',updated_at=now() WHERE id=%s''', (job_id,))
-    return {'revoked': True, 'job_id': job_id}
+    return {'revoked': True, 'job_id': job_id, 'previous_pdf_invalidated': True}
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/final-pdf', dependencies=[Depends(require_admin)])
 def export_final_lesson_pdf(job_id: str):
-    snap = quality_snapshot(job_id)
-    if not snap['final_ready']:
-        failed = [x for x in snap['checks'] if not x['ok']]
-        if not snap['teacher_approval_fresh']:
-            failed.append({
-                'id': 'teacher_approval_fresh',
-                'ok': False,
-                'value': snap.get('teacher_approval_binding'),
-            })
-        raise HTTPException(409, {'message': 'Final PDF export blocked by quality gate', 'failed': failed})
-    row, _ = _job(job_id)
-    structured = dict(row.get('structured_json') or {})
+    _quality_schema()
+
+    # Capture one fully locked and verified state for rendering. Nothing is
+    # rendered from a snapshot whose source reviews or job content can change
+    # underneath the gate calculation.
+    with connect() as con:
+        row, sources = _locked_job_state(con, job_id)
+        snapshot = _build_quality_snapshot(job_id, row, sources)
+        _require_snapshot_state(snapshot, final=True)
+        verified_content_hash, verified_diagram_hash = _snapshot_contract(snapshot)
+        structured = dict(row.get('structured_json') or {})
+        con.execute('UPDATE science_lesson_jobs SET quality_snapshot=%s::jsonb WHERE id=%s',
+                    (json.dumps(snapshot, ensure_ascii=False), job_id))
+
     data = render_lesson_pdf(structured)
-    key = f'lesson-studio/{job_id}/final-approved.pdf'
+    key = (
+        f'lesson-studio/{job_id}/final-approved-'
+        f'{verified_content_hash[:16]}-{verified_diagram_hash[:16]}.pdf'
+    )
     if storage_configured():
+        # The object key is immutable for the verified state. If content changes
+        # during upload, this blob stays unreferenced instead of overwriting the
+        # currently approved PDF pointer.
         put_bytes(key, data, 'application/pdf')
-        with connect() as con:
-            current_hash = review_source_hash(row.get('raw_transcript') or '', structured)
-            current_diagram_hash = diagram_manifest(structured)['hash']
+
+    # Re-lock and re-evaluate after rendering/upload. This closes the TOCTOU
+    # window identified by code review: only the exact state verified above can
+    # become the current final PDF.
+    with connect() as con:
+        current_row, current_sources = _locked_job_state(con, job_id)
+        current_snapshot = _build_quality_snapshot(job_id, current_row, current_sources)
+        _require_snapshot_state(current_snapshot, final=True)
+        current_content_hash, current_diagram_hash = _snapshot_contract(current_snapshot)
+        if (
+            current_content_hash != verified_content_hash
+            or current_diagram_hash != verified_diagram_hash
+        ):
+            raise HTTPException(409, {
+                'message': 'Lesson changed during PDF export; generated file was not promoted',
+                'verified_content_hash': verified_content_hash,
+                'current_content_hash': current_content_hash,
+                'verified_diagram_manifest_hash': verified_diagram_hash,
+                'current_diagram_manifest_hash': current_diagram_hash,
+            })
+        if storage_configured():
             con.execute('''UPDATE science_lesson_jobs SET
               pdf_object_key=%s,pdf_source_hash=%s,pdf_diagram_manifest_hash=%s,
+              quality_snapshot=%s::jsonb,
               status='final_pdf_ready',updated_at=now() WHERE id=%s''',
-              (key, current_hash, current_diagram_hash, job_id))
-    return Response(data, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="science-lesson-{job_id}.pdf"'})
+              (
+                  key,
+                  verified_content_hash,
+                  verified_diagram_hash,
+                  json.dumps(current_snapshot, ensure_ascii=False),
+                  job_id,
+              ))
+
+    return Response(
+        data,
+        media_type='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="science-lesson-{job_id}.pdf"',
+            'X-Lesson-Content-Hash': verified_content_hash,
+            'X-Lesson-Diagram-Manifest-Hash': verified_diagram_hash,
+        },
+    )

@@ -44,6 +44,7 @@ def _save_structured(job_id: str, structured: dict) -> None:
         con.execute('''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,
           teacher_approved=FALSE,teacher_approved_at=NULL,
           teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
+          quality_snapshot=NULL,
           pdf_object_key=NULL,pdf_source_hash=NULL,pdf_diagram_manifest_hash=NULL,
           status='content_review_required',updated_at=now()
           WHERE id=%s''', (json.dumps(structured, ensure_ascii=False), job_id))

@@ -12,6 +12,7 @@ from .security import require_admin
 from .science_lesson_studio import _job
 from .services.storage import get_bytes
 from .services.visual_summary import build_visual_summary, render_slides_pptx
+from .services.canva_master_contract import CANVA_MASTER_DESIGN_ID, CANVA_MASTER_TEXT_FIELDS, canva_master_values
 
 
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '').strip()
@@ -61,6 +62,10 @@ def integration_status() -> dict:
             'mode': 'connect_api_brand_template_autofill',
             'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','Canva OAuth authorization','CANVA_BRAND_TEMPLATE_ID'],
             'note': 'Autofill capability depends on Canva plan/capabilities.',
+            'master_design_id': CANVA_MASTER_DESIGN_ID,
+            'master_field_count': len(CANVA_MASTER_TEXT_FIELDS),
+            'master_design_ready': True,
+            'brand_template_ready': bool(CANVA_BRAND_TEMPLATE_ID),
         },
         'google_slides': {
             'configured': slides_ready,
@@ -129,94 +134,15 @@ def create_gemini_notebook(job_id: str) -> dict:
 
 
 def _semantic_canva_values(summary: dict) -> dict[str, str]:
-    """Map a source-grounded visual summary to the Canva master field contract.
-
-    The master deliberately accepts sparse data: fields that cannot be supported by
-    the uploaded lesson remain empty instead of being invented.
-    """
+    values = canva_master_values(summary)
+    # Backward-compatible generic fields for older templates.
     sections = list(summary.get('sections') or [])
-    equations = list(summary.get('equations') or [])
-    diagrams = list(summary.get('diagrams') or [])
-
-    def section(index: int) -> dict:
-        return sections[index] if index < len(sections) else {}
-
-    def section_title(index: int) -> str:
-        return str(section(index).get('title') or '')
-
-    def section_body(index: int) -> str:
-        return str(section(index).get('summary') or '')
-
-    subject = str(summary.get('subject') or '')
-    grade = str(summary.get('grade_label') or '')
-    subject_grade = ' · '.join(x for x in (subject, grade) if x)
-
-    equation_lines = []
-    for item in equations[:6]:
-        label = str(item.get('label') or '').strip()
-        expression = str(item.get('expression') or '').strip()
-        notes = str(item.get('notes') or '').strip()
-        line = ': '.join(x for x in (label, expression) if x)
-        if notes:
-            line = f'{line} — {notes}' if line else notes
-        if line:
-            equation_lines.append(line)
-
-    figure = diagrams[0] if diagrams else {}
-    figure_labels = ' ← '.join(str(x) for x in (figure.get('labels') or []) if str(x).strip())
-    figure_body = str(figure.get('description') or '')
-    if figure_labels:
-        figure_body = f'{figure_body}\n{figure_labels}'.strip()
-
-    values = {
-        # Current light scientific Canva master (DAHUkN3i5p4).
-        'LESSON_TITLE': str(summary.get('title') or ''),
-        'SUBJECT_GRADE': subject_grade,
-        'OVERVIEW_TITLE': 'نظرة عامة على الدرس',
-        'OVERVIEW_BODY': '\n'.join(
-            f'{i}. {str(item.get("title") or "")}' for i, item in enumerate(sections[:6], 1)
-            if str(item.get('title') or '').strip()
-        ),
-        'MINDMAP_TITLE': 'الخريطة الذهنية',
-        'MINDMAP_BRANCH_1_TITLE': section_title(0),
-        'MINDMAP_BRANCH_1_BODY': section_body(0),
-        'MINDMAP_BRANCH_2_TITLE': section_title(1),
-        'MINDMAP_BRANCH_2_BODY': section_body(1),
-        'MINDMAP_BRANCH_3_TITLE': section_title(2),
-        'MINDMAP_BRANCH_3_BODY': section_body(2),
-        'MINDMAP_CORE': str(summary.get('summary') or ''),
-        'PROCESS_TITLE': 'تسلسل الدرس',
-        'PROCESS_STEP_1_TITLE': section_title(0),
-        'PROCESS_STEP_1_BODY': section_body(0),
-        'PROCESS_STEP_2_TITLE': section_title(1),
-        'PROCESS_STEP_2_BODY': section_body(1),
-        'COMPARISON_TITLE': 'مقارنة علمية' if len(sections) >= 2 else '',
-        'COMPARE_A_TITLE': section_title(0) if len(sections) >= 2 else '',
-        'COMPARE_A_BODY': section_body(0) if len(sections) >= 2 else '',
-        'COMPARE_B_TITLE': section_title(1) if len(sections) >= 2 else '',
-        'COMPARE_B_BODY': section_body(1) if len(sections) >= 2 else '',
-        'EQUATIONS_TITLE': 'القوانين والمعادلات' if equation_lines else '',
-        'EQUATIONS_BODY': '\n'.join(equation_lines),
-        'FIGURE_TITLE': str(figure.get('title') or ''),
-        'FIGURE_CALLOUT_1': figure_body,
-        'FIGURE_CALLOUT_2': str((diagrams[1] if len(diagrams) > 1 else {}).get('description') or ''),
-        'EXAMPLE_TITLE': '',
-        'EXAMPLE_PROBLEM': '',
-        'EXAMPLE_SOLUTION': '',
-        'EXAMPLE_METHOD': '',
-        'EXAM_NOTES': '',
-        'TIPS_TITLE': '',
-        'COMMON_MISTAKE': '',
-        'EXAM_TIP': '',
-        'GOLDEN_HINT': '',
-        'SUMMARY_TITLE': 'ملخص الإتقان',
-        'SUMMARY_FOOTER': str(summary.get('summary') or ''),
-        # Backward-compatible generic semantic fields for older templates.
+    values.update({
         'TITLE': str(summary.get('title') or ''),
-        'SUBJECT': subject,
-        'GRADE': grade,
+        'SUBJECT': str(summary.get('subject') or ''),
+        'GRADE': str(summary.get('grade_label') or ''),
         'SUMMARY': str(summary.get('summary') or ''),
-    }
+    })
     for i, item in enumerate(sections[:8], 1):
         values[f'SECTION_{i}_TITLE'] = str(item.get('title') or '')
         values[f'SECTION_{i}_BODY'] = str(item.get('summary') or '')
@@ -309,3 +235,14 @@ def external_canva(job_id: str):
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/external/google-slides', dependencies=[Depends(require_admin)])
 def external_google_slides(job_id: str):
     return create_google_slides(job_id)
+
+
+@app.get('/api/admin/integrations/canva/master-contract', dependencies=[Depends(require_admin)])
+def canva_master_contract():
+    return {
+        'design_id': CANVA_MASTER_DESIGN_ID,
+        'fields': list(CANVA_MASTER_TEXT_FIELDS),
+        'field_count': len(CANVA_MASTER_TEXT_FIELDS),
+        'source_grounded_only': True,
+        'brand_template_id_configured': bool(CANVA_BRAND_TEMPLATE_ID),
+    }

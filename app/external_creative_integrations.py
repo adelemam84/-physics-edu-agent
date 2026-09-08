@@ -129,18 +129,99 @@ def create_gemini_notebook(job_id: str) -> dict:
 
 
 def _semantic_canva_values(summary: dict) -> dict[str, str]:
+    """Map a source-grounded visual summary to the Canva master field contract.
+
+    The master deliberately accepts sparse data: fields that cannot be supported by
+    the uploaded lesson remain empty instead of being invented.
+    """
+    sections = list(summary.get('sections') or [])
+    equations = list(summary.get('equations') or [])
+    diagrams = list(summary.get('diagrams') or [])
+
+    def section(index: int) -> dict:
+        return sections[index] if index < len(sections) else {}
+
+    def section_title(index: int) -> str:
+        return str(section(index).get('title') or '')
+
+    def section_body(index: int) -> str:
+        return str(section(index).get('summary') or '')
+
+    subject = str(summary.get('subject') or '')
+    grade = str(summary.get('grade_label') or '')
+    subject_grade = ' · '.join(x for x in (subject, grade) if x)
+
+    equation_lines = []
+    for item in equations[:6]:
+        label = str(item.get('label') or '').strip()
+        expression = str(item.get('expression') or '').strip()
+        notes = str(item.get('notes') or '').strip()
+        line = ': '.join(x for x in (label, expression) if x)
+        if notes:
+            line = f'{line} — {notes}' if line else notes
+        if line:
+            equation_lines.append(line)
+
+    figure = diagrams[0] if diagrams else {}
+    figure_labels = ' ← '.join(str(x) for x in (figure.get('labels') or []) if str(x).strip())
+    figure_body = str(figure.get('description') or '')
+    if figure_labels:
+        figure_body = f'{figure_body}\n{figure_labels}'.strip()
+
     values = {
+        # Current light scientific Canva master (DAHUkN3i5p4).
+        'LESSON_TITLE': str(summary.get('title') or ''),
+        'SUBJECT_GRADE': subject_grade,
+        'OVERVIEW_TITLE': 'نظرة عامة على الدرس',
+        'OVERVIEW_BODY': '\n'.join(
+            f'{i}. {str(item.get("title") or "")}' for i, item in enumerate(sections[:6], 1)
+            if str(item.get('title') or '').strip()
+        ),
+        'MINDMAP_TITLE': 'الخريطة الذهنية',
+        'MINDMAP_BRANCH_1_TITLE': section_title(0),
+        'MINDMAP_BRANCH_1_BODY': section_body(0),
+        'MINDMAP_BRANCH_2_TITLE': section_title(1),
+        'MINDMAP_BRANCH_2_BODY': section_body(1),
+        'MINDMAP_BRANCH_3_TITLE': section_title(2),
+        'MINDMAP_BRANCH_3_BODY': section_body(2),
+        'MINDMAP_CORE': str(summary.get('summary') or ''),
+        'PROCESS_TITLE': 'تسلسل الدرس',
+        'PROCESS_STEP_1_TITLE': section_title(0),
+        'PROCESS_STEP_1_BODY': section_body(0),
+        'PROCESS_STEP_2_TITLE': section_title(1),
+        'PROCESS_STEP_2_BODY': section_body(1),
+        'COMPARISON_TITLE': 'مقارنة علمية' if len(sections) >= 2 else '',
+        'COMPARE_A_TITLE': section_title(0) if len(sections) >= 2 else '',
+        'COMPARE_A_BODY': section_body(0) if len(sections) >= 2 else '',
+        'COMPARE_B_TITLE': section_title(1) if len(sections) >= 2 else '',
+        'COMPARE_B_BODY': section_body(1) if len(sections) >= 2 else '',
+        'EQUATIONS_TITLE': 'القوانين والمعادلات' if equation_lines else '',
+        'EQUATIONS_BODY': '\n'.join(equation_lines),
+        'FIGURE_TITLE': str(figure.get('title') or ''),
+        'FIGURE_CALLOUT_1': figure_body,
+        'FIGURE_CALLOUT_2': str((diagrams[1] if len(diagrams) > 1 else {}).get('description') or ''),
+        'EXAMPLE_TITLE': '',
+        'EXAMPLE_PROBLEM': '',
+        'EXAMPLE_SOLUTION': '',
+        'EXAMPLE_METHOD': '',
+        'EXAM_NOTES': '',
+        'TIPS_TITLE': '',
+        'COMMON_MISTAKE': '',
+        'EXAM_TIP': '',
+        'GOLDEN_HINT': '',
+        'SUMMARY_TITLE': 'ملخص الإتقان',
+        'SUMMARY_FOOTER': str(summary.get('summary') or ''),
+        # Backward-compatible generic semantic fields for older templates.
         'TITLE': str(summary.get('title') or ''),
-        'SUBJECT': str(summary.get('subject') or ''),
-        'GRADE': str(summary.get('grade_label') or ''),
+        'SUBJECT': subject,
+        'GRADE': grade,
         'SUMMARY': str(summary.get('summary') or ''),
     }
-    for i, section in enumerate((summary.get('sections') or [])[:8], 1):
-        values[f'SECTION_{i}_TITLE'] = str(section.get('title') or '')
-        values[f'SECTION_{i}_BODY'] = str(section.get('summary') or '')
-        values[f'SECTION_{i}_SOURCE'] = '، '.join(section.get('source_refs') or [])
+    for i, item in enumerate(sections[:8], 1):
+        values[f'SECTION_{i}_TITLE'] = str(item.get('title') or '')
+        values[f'SECTION_{i}_BODY'] = str(item.get('summary') or '')
+        values[f'SECTION_{i}_SOURCE'] = '، '.join(item.get('source_refs') or [])
     return values
-
 
 def create_canva_design(job_id: str) -> dict:
     row, summary, _sources = _summary_payload(job_id)

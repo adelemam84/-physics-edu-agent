@@ -39,6 +39,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/integrations/canva/oauth/callback",
             "/api/admin/integrations/canva/oauth/status",
             "/api/admin/integrations/canva/master-contract",
+            "/api/admin/integrations/canva/diagnostics",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -81,10 +82,21 @@ class VercelEntrypointTests(unittest.TestCase):
         self.assertEqual(values["COMMON_MISTAKE"], "")
 
     def test_canva_oauth_requests_design_autofill_scopes(self):
-        from app.canva_oauth import CANVA_SCOPES
+        from app.canva_oauth import CANVA_SCOPES, _requested_scopes
         scopes=set(CANVA_SCOPES.split())
+        self.assertEqual(_requested_scopes(), scopes)
         self.assertIn("design:content:read", scopes)
         self.assertIn("design:content:write", scopes)
+        self.assertEqual(len(scopes), len(CANVA_SCOPES.split()))
+
+    def test_canva_diagnostics_uses_master_design_without_brand_template(self):
+        from app import canva_diagnostics
+        from app.services.canva_master_contract import CANVA_MASTER_DESIGN_ID
+        source_type, source_id, dataset_url=canva_diagnostics._source_contract()
+        self.assertIn(source_type, {"design", "brand_template"})
+        if source_type == "design":
+            self.assertEqual(source_id, CANVA_MASTER_DESIGN_ID)
+            self.assertIn(f"/designs/{CANVA_MASTER_DESIGN_ID}/dataset", dataset_url)
 
     def test_canva_redirect_is_canonical_production_url(self):
         from app.canva_oauth import CANVA_PRODUCTION_REDIRECT

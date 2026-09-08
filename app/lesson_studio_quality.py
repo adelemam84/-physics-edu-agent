@@ -10,6 +10,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
+from .services.lesson_diagram_integrity import diagram_manifest
 from .services.lesson_integrity import review_source_hash
 from .services.lesson_pdf_renderer import render_lesson_pdf
 from .services.storage import put_bytes, storage_configured
@@ -23,6 +24,8 @@ def _quality_schema() -> None:
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_source_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_diagram_hash text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
@@ -32,6 +35,7 @@ def _quality_schema() -> None:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_hash text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_at timestamptz')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
 
 
 def _second_review_check(row: dict, structured: dict) -> dict:
@@ -103,22 +107,35 @@ def quality_snapshot(job_id: str) -> dict:
     _quality_schema()
     row, sources = _job(job_id)
     row = dict(row)
-    structured = row.get('structured_json') or {}
+    structured = dict(row.get('structured_json') or {})
     source_pending = sum(1 for s in sources if s.get('requires_review'))
     uncertain = list(structured.get('uncertain_items') or [])
     diagrams = list(structured.get('diagram_specs') or [])
+    manifest = diagram_manifest(structured)
+    manifest_by_index = {x['index']: x for x in manifest['items']}
     diagram_pending = 0
+    diagram_binding_pending = 0
     visual_provenance_pending = 0
-    for d in diagrams:
+    for index, d in enumerate(diagrams):
         engine = d.get('diagram_engine') or {}
         provenance = d.get('visual_provenance') or {}
         if not engine.get('svg') or engine.get('review_required'):
             diagram_pending += 1
+        binding = manifest_by_index.get(index) or {}
+        if binding.get('version_bound') and not binding.get('approval_fresh'):
+            diagram_binding_pending += 1
         if engine.get('svg') and not provenance.get('origin'):
             visual_provenance_pending += 1
     notation_pending = int((structured.get('notation_quality') or {}).get('review_required') or 0)
     sections = list(structured.get('sections') or [])
     sections_without_source_refs = sum(1 for s in sections if not (s.get('source_refs') or []))
+    current_content_hash = review_source_hash(str(row.get('raw_transcript') or ''), structured)
+    teacher_approval_recorded = bool(row.get('teacher_approved'))
+    teacher_approval_fresh = bool(
+        teacher_approval_recorded
+        and row.get('teacher_approval_source_hash') == current_content_hash
+        and row.get('teacher_approval_diagram_hash') == manifest['hash']
+    )
     checks = [
         {'id': 'source_preserved', 'ok': int(row.get('source_count') or 0) == len(sources) and len(sources) > 0, 'value': len(sources)},
         {'id': 'ocr_review_clear', 'ok': source_pending == 0, 'value': source_pending},
@@ -126,6 +143,7 @@ def quality_snapshot(job_id: str) -> dict:
         {'id': 'uncertainty_clear', 'ok': len(uncertain) == 0, 'value': len(uncertain)},
         {'id': 'notation_review_clear', 'ok': notation_pending == 0, 'value': notation_pending},
         {'id': 'diagram_review_clear', 'ok': diagram_pending == 0, 'value': diagram_pending},
+        {'id': 'diagram_version_binding', 'ok': diagram_binding_pending == 0, 'value': diagram_binding_pending},
         {'id': 'visual_provenance_clear', 'ok': visual_provenance_pending == 0, 'value': visual_provenance_pending},
         {'id': 'section_provenance', 'ok': sections_without_source_refs == 0 if sections else True, 'value': sections_without_source_refs},
         _reference_review_check(row, structured),
@@ -136,12 +154,22 @@ def quality_snapshot(job_id: str) -> dict:
         'job_id': job_id,
         'checks': checks,
         'preapproval_ready': preapproval_ready,
-        'teacher_approved': bool(row.get('teacher_approved')),
-        'final_ready': preapproval_ready and bool(row.get('teacher_approved')),
+        'teacher_approved': teacher_approval_recorded,
+        'teacher_approval_fresh': teacher_approval_fresh,
+        'teacher_approval_binding': {
+            'current_content_hash': current_content_hash,
+            'approved_content_hash': row.get('teacher_approval_source_hash'),
+            'current_diagram_manifest_hash': manifest['hash'],
+            'approved_diagram_manifest_hash': row.get('teacher_approval_diagram_hash'),
+        },
+        'diagram_manifest': manifest,
+        'final_ready': preapproval_ready and teacher_approval_fresh,
         'policy': {
             'no_silent_scientific_correction': True,
             'teacher_is_final_gate': True,
+            'teacher_approval_bound_to_content_and_diagram_manifest': True,
             'precise_diagrams_require_deterministic_or_reviewed_output': True,
+            'versioned_diagrams_require_current_spec_hash_approval': True,
             'visual_assets_require_provenance': True,
             'ambiguous_scientific_notation_requires_review': True,
             'fresh_independent_review_required_when_provider_configured': True,
@@ -166,10 +194,21 @@ def approve_lesson_content(job_id: str):
     if not snap['preapproval_ready']:
         failed = [x for x in snap['checks'] if not x['ok']]
         raise HTTPException(409, {'message': 'Lesson failed quality gate', 'failed': failed})
+    content_hash = snap['teacher_approval_binding']['current_content_hash']
+    diagram_hash = snap['diagram_manifest']['hash']
     with connect() as con:
-        con.execute('''UPDATE science_lesson_jobs SET teacher_approved=TRUE,teacher_approved_at=now(),
-          status='approved_for_export',updated_at=now() WHERE id=%s''', (job_id,))
-    return {'approved': True, 'job_id': job_id, 'final_ready': True}
+        con.execute('''UPDATE science_lesson_jobs SET
+          teacher_approved=TRUE,teacher_approved_at=now(),
+          teacher_approval_source_hash=%s,teacher_approval_diagram_hash=%s,
+          status='approved_for_export',updated_at=now() WHERE id=%s''',
+          (content_hash, diagram_hash, job_id))
+    return {
+        'approved': True,
+        'job_id': job_id,
+        'final_ready': True,
+        'content_hash': content_hash,
+        'diagram_manifest_hash': diagram_hash,
+    }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/revoke-content-approval', dependencies=[Depends(require_admin)])
@@ -178,7 +217,10 @@ def revoke_lesson_content_approval(job_id: str):
     with connect() as con:
         if not con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone():
             raise HTTPException(404, 'Lesson studio job not found')
-        con.execute("UPDATE science_lesson_jobs SET teacher_approved=FALSE,teacher_approved_at=NULL,status='content_review_required',updated_at=now() WHERE id=%s", (job_id,))
+        con.execute('''UPDATE science_lesson_jobs SET
+          teacher_approved=FALSE,teacher_approved_at=NULL,
+          teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
+          status='content_review_required',updated_at=now() WHERE id=%s''', (job_id,))
     return {'revoked': True, 'job_id': job_id}
 
 
@@ -187,15 +229,24 @@ def export_final_lesson_pdf(job_id: str):
     snap = quality_snapshot(job_id)
     if not snap['final_ready']:
         failed = [x for x in snap['checks'] if not x['ok']]
-        if not snap['teacher_approved']:
-            failed.append({'id': 'teacher_approval', 'ok': False, 'value': False})
+        if not snap['teacher_approval_fresh']:
+            failed.append({
+                'id': 'teacher_approval_fresh',
+                'ok': False,
+                'value': snap.get('teacher_approval_binding'),
+            })
         raise HTTPException(409, {'message': 'Final PDF export blocked by quality gate', 'failed': failed})
     row, _ = _job(job_id)
-    data = render_lesson_pdf(row['structured_json'])
+    structured = dict(row.get('structured_json') or {})
+    data = render_lesson_pdf(structured)
     key = f'lesson-studio/{job_id}/final-approved.pdf'
     if storage_configured():
         put_bytes(key, data, 'application/pdf')
         with connect() as con:
-            current_hash = review_source_hash(row.get('raw_transcript') or '', row.get('structured_json') or {})
-            con.execute("UPDATE science_lesson_jobs SET pdf_object_key=%s,pdf_source_hash=%s,status='final_pdf_ready',updated_at=now() WHERE id=%s", (key, current_hash, job_id))
+            current_hash = review_source_hash(row.get('raw_transcript') or '', structured)
+            current_diagram_hash = diagram_manifest(structured)['hash']
+            con.execute('''UPDATE science_lesson_jobs SET
+              pdf_object_key=%s,pdf_source_hash=%s,pdf_diagram_manifest_hash=%s,
+              status='final_pdf_ready',updated_at=now() WHERE id=%s''',
+              (key, current_hash, current_diagram_hash, job_id))
     return Response(data, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="science-lesson-{job_id}.pdf"'})

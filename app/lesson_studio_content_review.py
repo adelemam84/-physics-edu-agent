@@ -8,6 +8,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
+from .services.lesson_diagram_integrity import diagram_spec_hash
 from .services.science_notation import classify_notation
 from .lesson_studio_diagram_spec_history import save_diagram_spec
 from .lesson_studio_version_history import snapshot_job
@@ -18,6 +19,10 @@ def _content_review_schema() -> None:
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_source_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_diagram_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
 
 
 def _load_structured(job_id: str) -> tuple[dict, dict]:
@@ -37,7 +42,10 @@ def _save_structured(job_id: str, structured: dict) -> None:
     snapshot_job(job_id, 'structured_content_edit')
     with connect() as con:
         con.execute('''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,
-          teacher_approved=FALSE,teacher_approved_at=NULL,status='content_review_required',updated_at=now()
+          teacher_approved=FALSE,teacher_approved_at=NULL,
+          teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
+          pdf_object_key=NULL,pdf_source_hash=NULL,pdf_diagram_manifest_hash=NULL,
+          status='content_review_required',updated_at=now()
           WHERE id=%s''', (json.dumps(structured, ensure_ascii=False), job_id))
 
 
@@ -100,14 +108,23 @@ def approve_diagram(job_id: str, diagram_index: int, teacher_note: str = Form(''
     engine = dict(diagram.get('diagram_engine') or {})
     if not engine.get('svg'):
         raise HTTPException(409, 'Diagram has no deterministic render to approve')
+    current_spec_hash = diagram_spec_hash(diagram)
     engine['review_required'] = False
     engine['teacher_reviewed'] = True
     engine['teacher_note'] = teacher_note.strip()
+    engine['approved_spec_hash'] = current_spec_hash
+    engine['approval_binding_version'] = 'diagram-spec-hash-v1'
     diagram['diagram_engine'] = engine
     diagrams[diagram_index] = diagram
     structured['diagram_specs'] = diagrams
     _save_structured(job_id, structured)
-    return {'approved': True, 'diagram_index': diagram_index, 'diagram': diagram}
+    return {
+        'approved': True,
+        'diagram_index': diagram_index,
+        'diagram': diagram,
+        'approved_spec_hash': current_spec_hash,
+        'approval_binding_version': 'diagram-spec-hash-v1',
+    }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/uncertain/{item_index}/resolve', dependencies=[Depends(require_admin)])

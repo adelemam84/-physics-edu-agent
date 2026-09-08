@@ -41,6 +41,8 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/integrations/canva/master-contract",
             "/api/admin/integrations/canva/diagnostics",
             "/api/admin/lesson-studio/integrations/summary",
+            "/api/admin/lesson-studio/jobs/{job_id}/external-artifacts",
+            "/api/admin/lesson-studio/jobs/{job_id}/external-artifacts/{provider}",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -99,6 +101,23 @@ class VercelEntrypointTests(unittest.TestCase):
         if source_type == "design":
             self.assertEqual(source_id, CANVA_MASTER_DESIGN_ID)
             self.assertIn(f"/designs/{CANVA_MASTER_DESIGN_ID}/dataset", dataset_url)
+
+    def test_external_artifact_identity_is_provider_specific_and_secret_free(self):
+        from app.lesson_studio_external_artifacts import _external_identity
+        external_id, external_url, metadata = _external_identity("canva", {
+            "source_grounded": True,
+            "status": "success",
+            "job_id": "autofill-job-1",
+            "design": {"id": "D123", "urls": {"edit_url": "https://www.canva.com/design/D123"}},
+            "fields_used": ["LESSON_TITLE"],
+            "source_id": "DAHUkN3i5p4",
+            "autofill_type": "create_from_design",
+        })
+        self.assertEqual(external_id, "D123")
+        self.assertTrue(external_url.startswith("https://"))
+        self.assertEqual(metadata["fields_used"], ["LESSON_TITLE"])
+        self.assertNotIn("access_token", metadata)
+        self.assertNotIn("refresh_token", metadata)
 
     def test_canva_redirect_is_canonical_production_url(self):
         from app.canva_oauth import CANVA_PRODUCTION_REDIRECT

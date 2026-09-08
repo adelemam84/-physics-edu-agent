@@ -41,12 +41,13 @@ class DiagramSpecHistoryTests(unittest.TestCase):
 
     def test_legacy_parameters_endpoint_delegates_to_strict_versioned_save(self):
         payload = '{"current_direction":"out_of_page","field_direction":"counterclockwise"}'
-        with patch(
+        with patch('app.lesson_studio_content_review._content_review_schema') as schema, patch(
             'app.lesson_studio_content_review.save_diagram_spec',
             return_value={'updated': True, 'valid': True},
         ) as save:
             result = lesson_studio_content_review.update_diagram_parameters('job-1', 2, payload)
         self.assertTrue(result['updated'])
+        schema.assert_called_once_with()
         save.assert_called_once()
         args = save.call_args.args
         self.assertEqual(args[0], 'job-1')
@@ -54,11 +55,14 @@ class DiagramSpecHistoryTests(unittest.TestCase):
         self.assertEqual(args[2]['current_direction'], 'out_of_page')
 
     def test_legacy_parameters_endpoint_rejects_invalid_json_before_save(self):
-        with patch('app.lesson_studio_content_review.save_diagram_spec') as save:
+        with patch('app.lesson_studio_content_review.save_diagram_spec') as save, patch(
+            'app.lesson_studio_content_review._content_review_schema'
+        ) as schema:
             with self.assertRaises(HTTPException) as ctx:
                 lesson_studio_content_review.update_diagram_parameters('job-1', 0, '{bad json')
         self.assertEqual(ctx.exception.status_code, 400)
         save.assert_not_called()
+        schema.assert_not_called()
 
     def test_versioned_diagram_routes_are_registered(self):
         app = importlib.import_module('index').app

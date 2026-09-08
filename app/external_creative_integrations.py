@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 import httpx
@@ -24,6 +25,8 @@ CANVA_CLIENT_SECRET = os.getenv('CANVA_CLIENT_SECRET', '').strip()
 CANVA_BRAND_TEMPLATE_ID = os.getenv('CANVA_BRAND_TEMPLATE_ID', '').strip()
 CANVA_FIELD_MAP_JSON = os.getenv('CANVA_FIELD_MAP_JSON', '').strip()
 CANVA_MASTER_DESIGN_ENV = os.getenv('CANVA_MASTER_DESIGN_ID', '').strip()
+CANVA_AUTOFILL_POLL_SECONDS = float(os.getenv('CANVA_AUTOFILL_POLL_SECONDS', '1.0') or '1.0')
+CANVA_AUTOFILL_MAX_POLLS = int(os.getenv('CANVA_AUTOFILL_MAX_POLLS', '20') or '20')
 
 GOOGLE_SLIDES_FOLDER_ID = os.getenv('GOOGLE_SLIDES_FOLDER_ID', '').strip()
 
@@ -47,9 +50,24 @@ def _canva_access_token() -> str:
     return canva_access_token()
 
 
+def _canva_source() -> tuple[str, str, str]:
+    if CANVA_BRAND_TEMPLATE_ID:
+        return (
+            'brand_template',
+            CANVA_BRAND_TEMPLATE_ID,
+            f'https://api.canva.com/rest/v1/brand-templates/{CANVA_BRAND_TEMPLATE_ID}/dataset',
+        )
+    design_id = CANVA_MASTER_DESIGN_ENV or CANVA_MASTER_DESIGN_ID
+    return (
+        'design',
+        design_id,
+        f'https://api.canva.com/rest/v1/designs/{design_id}/dataset',
+    )
+
+
 def integration_status() -> dict:
     notebook_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GEMINI_NOTEBOOK_PROJECT_NUMBER)
-    canva_source_id = CANVA_MASTER_DESIGN_ENV or CANVA_MASTER_DESIGN_ID
+    canva_source_type, canva_source_id, _ = _canva_source()
     canva_ready = bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and canva_source_id)
     slides_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SLIDES_FOLDER_ID)
     return {
@@ -62,14 +80,15 @@ def integration_status() -> dict:
         'canva': {
             'configured': canva_ready,
             'mode': 'connect_api_design_autofill',
-            'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','Canva OAuth authorization','design:content:read','design:content:write'],
-            'note': 'Uses Canva create_from_design Autofill; Brand Template remains an optional fallback.',
+            'requires': ['CANVA_CLIENT_ID','CANVA_CLIENT_SECRET','Canva OAuth authorization','design:content:read','design:content:write','design:meta:read'],
+            'note': 'Uses Canva create_from_design Autofill by default; Brand Template is an optional fallback.',
             'master_design_id': CANVA_MASTER_DESIGN_ID,
             'master_field_count': len(CANVA_MASTER_TEXT_FIELDS),
             'master_design_ready': True,
             'brand_template_ready': bool(CANVA_BRAND_TEMPLATE_ID),
             'design_autofill_ready': bool(canva_source_id),
-            'autofill_source': 'brand_template' if CANVA_BRAND_TEMPLATE_ID else 'design',
+            'autofill_source': canva_source_type,
+            'source_id': canva_source_id,
         },
         'google_slides': {
             'configured': slides_ready,
@@ -139,7 +158,6 @@ def create_gemini_notebook(job_id: str) -> dict:
 
 def _semantic_canva_values(summary: dict) -> dict[str, str]:
     values = canva_master_values(summary)
-    # Backward-compatible generic fields for older templates.
     sections = list(summary.get('sections') or [])
     values.update({
         'TITLE': str(summary.get('title') or ''),
@@ -153,27 +171,38 @@ def _semantic_canva_values(summary: dict) -> dict[str, str]:
         values[f'SECTION_{i}_SOURCE'] = '، '.join(item.get('source_refs') or [])
     return values
 
+
+def _canva_dataset(client: httpx.Client, headers: dict[str, str]) -> tuple[str, str, dict]:
+    source_type, source_id, dataset_url = _canva_source()
+    ds = client.get(dataset_url, headers=headers)
+    if ds.status_code >= 400:
+        raise HTTPException(502, f'Canva source dataset failed: {ds.text[:500]}')
+    return source_type, source_id, (ds.json().get('dataset') or {})
+
+
+def _poll_canva_autofill(client: httpx.Client, headers: dict[str, str], job_id: str) -> dict:
+    for _ in range(max(1, CANVA_AUTOFILL_MAX_POLLS)):
+        result = client.get(f'https://api.canva.com/rest/v1/autofills/{job_id}', headers=headers)
+        if result.status_code >= 400:
+            raise HTTPException(502, f'Canva autofill status failed: {result.text[:500]}')
+        payload = result.json()
+        job = payload.get('job') or {}
+        status = str(job.get('status') or '')
+        if status == 'success':
+            return job
+        if status == 'failed':
+            error = job.get('error') or {}
+            raise HTTPException(502, f"Canva autofill failed: {error.get('code','autofill_error')} — {error.get('message','unknown error')}")
+        time.sleep(max(0.2, CANVA_AUTOFILL_POLL_SECONDS))
+    return {'id': job_id, 'status': 'in_progress'}
+
+
 def create_canva_design(job_id: str) -> dict:
     row, summary, _sources = _summary_payload(job_id)
     token = _canva_access_token()
     headers = {'Authorization':f'Bearer {token}','Content-Type':'application/json'}
-    source_design_id = CANVA_MASTER_DESIGN_ENV or CANVA_MASTER_DESIGN_ID
-    use_brand_template = bool(CANVA_BRAND_TEMPLATE_ID)
-    if use_brand_template:
-        dataset_url = f'https://api.canva.com/rest/v1/brand-templates/{CANVA_BRAND_TEMPLATE_ID}/dataset'
-        autofill_type = 'create_from_brand_template'
-        source_key = 'brand_template_id'
-        source_value = CANVA_BRAND_TEMPLATE_ID
-    else:
-        dataset_url = f'https://api.canva.com/rest/v1/designs/{source_design_id}/dataset'
-        autofill_type = 'create_from_design'
-        source_key = 'design_id'
-        source_value = source_design_id
     with httpx.Client(timeout=60) as client:
-        ds = client.get(dataset_url, headers=headers)
-        if ds.status_code >= 400:
-            raise HTTPException(502, f'Canva source dataset failed: {ds.text[:500]}')
-        dataset = (ds.json().get('dataset') or {})
+        source_type, source_id, dataset = _canva_dataset(client, headers)
         semantic = _semantic_canva_values(summary)
         mapping = {}
         if CANVA_FIELD_MAP_JSON:
@@ -188,16 +217,66 @@ def create_canva_design(job_id: str) -> dict:
                 data[target] = {'type':'text','text':value}
         if not data:
             raise HTTPException(409, 'Canva source has no matching autofill text fields; verify the master field labels or CANVA_FIELD_MAP_JSON')
+
+        autofill_type = 'create_from_brand_template' if source_type == 'brand_template' else 'create_from_design'
+        source_key = 'brand_template_id' if source_type == 'brand_template' else 'design_id'
         payload = {
             'type':autofill_type,
-            source_key:source_value,
+            source_key:source_id,
             'title':f"{row.get('title') or summary['title']} — Visual Summary",
             'data':data,
         }
-        r = client.post('https://api.canva.com/rest/v1/autofills',headers=headers,json=payload)
-    if r.status_code >= 400:
-        raise HTTPException(502, f'Canva autofill failed: {r.text[:500]}')
-    return {'provider':'canva','job':r.json(),'fields_used':sorted(data),'source_grounded':True,'autofill_type':autofill_type,'source_id':source_value}
+        started = client.post('https://api.canva.com/rest/v1/autofills',headers=headers,json=payload)
+        if started.status_code >= 400:
+            raise HTTPException(502, f'Canva autofill start failed: {started.text[:500]}')
+        started_job = started.json().get('job') or {}
+        canva_job_id = str(started_job.get('id') or '')
+        if not canva_job_id:
+            raise HTTPException(502, 'Canva autofill returned no job id')
+        final_job = _poll_canva_autofill(client, headers, canva_job_id)
+
+    result = final_job.get('result') or {}
+    design = result.get('design') or {}
+    return {
+        'provider':'canva',
+        'job_id':canva_job_id,
+        'status':final_job.get('status'),
+        'design':design,
+        'fields_used':sorted(data),
+        'source_grounded':True,
+        'autofill_type':autofill_type,
+        'source_id':source_id,
+        'trial_information':result.get('trial_information'),
+    }
+
+
+def canva_readiness() -> dict:
+    status = integration_status()['canva']
+    if not (CANVA_CLIENT_ID and CANVA_CLIENT_SECRET):
+        return {**status, 'authorized': False, 'dataset_reachable': False, 'reason':'client_credentials_missing'}
+    try:
+        token = _canva_access_token()
+    except HTTPException as exc:
+        return {**status, 'authorized': False, 'dataset_reachable': False, 'reason':str(exc.detail)}
+    headers = {'Authorization':f'Bearer {token}','Content-Type':'application/json'}
+    try:
+        with httpx.Client(timeout=30) as client:
+            source_type, source_id, dataset = _canva_dataset(client, headers)
+        master_fields = set(CANVA_MASTER_TEXT_FIELDS)
+        dataset_fields = set(dataset)
+        return {
+            **status,
+            'authorized': True,
+            'dataset_reachable': True,
+            'source_type':source_type,
+            'source_id':source_id,
+            'dataset_field_count':len(dataset_fields),
+            'matching_master_fields':len(master_fields & dataset_fields),
+            'missing_master_fields':sorted(master_fields - dataset_fields),
+            'ready_for_autofill':bool(master_fields & dataset_fields),
+        }
+    except HTTPException as exc:
+        return {**status, 'authorized': True, 'dataset_reachable': False, 'ready_for_autofill':False, 'reason':str(exc.detail)}
 
 
 def create_google_slides(job_id: str) -> dict:
@@ -253,9 +332,15 @@ def external_google_slides(job_id: str):
 @app.get('/api/admin/integrations/canva/master-contract', dependencies=[Depends(require_admin)])
 def canva_master_contract():
     return {
-        'design_id': CANVA_MASTER_DESIGN_ID,
+        'design_id': CANVA_MASTER_DESIGN_ENV or CANVA_MASTER_DESIGN_ID,
         'fields': list(CANVA_MASTER_TEXT_FIELDS),
         'field_count': len(CANVA_MASTER_TEXT_FIELDS),
         'source_grounded_only': True,
         'brand_template_id_configured': bool(CANVA_BRAND_TEMPLATE_ID),
+        'default_mode':'create_from_design',
     }
+
+
+@app.get('/api/admin/integrations/canva/readiness', dependencies=[Depends(require_admin)])
+def canva_integration_readiness():
+    return canva_readiness()

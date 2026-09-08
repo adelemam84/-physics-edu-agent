@@ -1,9 +1,18 @@
 import unittest
+from unittest.mock import patch
 
 from app.lesson_studio_quality import _build_quality_snapshot, _snapshot_contract
 
 
 class AtomicLessonQualityTests(unittest.TestCase):
+    def setUp(self):
+        self.openai_patch = patch('app.lesson_studio_quality.OPENAI_REVIEW_CONFIGURED', False)
+        self.reference_patch = patch('app.lesson_studio_quality.REFERENCE_REVIEW_REQUIRED', False)
+        self.openai_patch.start()
+        self.reference_patch.start()
+        self.addCleanup(self.reference_patch.stop)
+        self.addCleanup(self.openai_patch.stop)
+
     def _base_row(self):
         return {
             'raw_transcript': 'قانون أوم كما ورد في المصدر',
@@ -95,6 +104,10 @@ class AtomicLessonQualityTests(unittest.TestCase):
         changed_structured['diagram_specs'] = changed_diagrams
         changed['structured_json'] = changed_structured
         after = _build_quality_snapshot('job-1', changed, [{'id': 1, 'requires_review': False}])
+        self.assertNotEqual(
+            before['diagram_manifest']['hash'],
+            after['diagram_manifest']['hash'],
+        )
         self.assertNotEqual(_snapshot_contract(before), _snapshot_contract(after))
 
 

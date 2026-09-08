@@ -9,13 +9,29 @@ from fastapi import Body, Depends, Form, HTTPException
 from .db import connect
 from .lesson_studio_version_history import snapshot_job
 from .main import app
+from .science_lesson_studio import _schema
 from .security import require_admin
 from .services.science_diagram_parameterized import PARAMETERIZED_KINDS
 from .services.science_diagram_specs import preview_diagram_spec, schema_catalog, validate_diagram_spec
 
 
 def _diagram_history_schema() -> None:
+    _schema()
     with connect() as con:
+        # Keep this module self-sufficient: these fields are invalidated whenever
+        # a scientific diagram changes, even if the quality/reviewer pages have
+        # not been opened yet on a fresh database.
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_source_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review jsonb')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_hash text')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_at timestamptz')
+        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
         con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_diagram_spec_versions(
           id uuid PRIMARY KEY,
           job_id uuid NOT NULL REFERENCES science_lesson_jobs(id) ON DELETE CASCADE,
@@ -33,6 +49,8 @@ def _diagram_history_schema() -> None:
         )''')
         con.execute('''CREATE INDEX IF NOT EXISTS idx_science_lesson_diagram_spec_versions
           ON science_lesson_diagram_spec_versions(job_id,diagram_index,version_no DESC)''')
+        con.execute('''CREATE INDEX IF NOT EXISTS idx_science_lesson_diagram_spec_kind_versions
+          ON science_lesson_diagram_spec_versions(job_id,diagram_index,kind,version_no DESC)''')
 
 
 def _diagram_hash(kind: str, parameters: dict) -> str:
@@ -45,13 +63,7 @@ def _diagram_hash(kind: str, parameters: dict) -> str:
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
-def _load_job_diagram(job_id: str, diagram_index: int) -> tuple[dict, dict, list[dict], dict]:
-    with connect() as con:
-        row = con.execute('''SELECT id,structured_json,status,teacher_approved
-          FROM science_lesson_jobs WHERE id=%s''', (job_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, 'Lesson studio job not found')
-    structured = dict(row.get('structured_json') or {})
+def _diagram_from_structured(structured: dict, diagram_index: int) -> tuple[list[dict], dict, str]:
     diagrams = [dict(x) for x in (structured.get('diagram_specs') or [])]
     if diagram_index < 0 or diagram_index >= len(diagrams):
         raise HTTPException(404, 'Diagram not found')
@@ -59,6 +71,18 @@ def _load_job_diagram(job_id: str, diagram_index: int) -> tuple[dict, dict, list
     kind = str(diagram.get('normalized_kind') or diagram.get('kind') or '')
     if kind not in PARAMETERIZED_KINDS:
         raise HTTPException(400, 'This diagram kind does not support explicit parameter editing')
+    return diagrams, diagram, kind
+
+
+def _load_job_diagram(job_id: str, diagram_index: int) -> tuple[dict, dict, list[dict], dict]:
+    _diagram_history_schema()
+    with connect() as con:
+        row = con.execute('''SELECT id,structured_json,status,teacher_approved
+          FROM science_lesson_jobs WHERE id=%s''', (job_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, 'Lesson studio job not found')
+    structured = dict(row.get('structured_json') or {})
+    diagrams, diagram, _ = _diagram_from_structured(structured, diagram_index)
     return dict(row), structured, diagrams, diagram
 
 
@@ -105,7 +129,8 @@ def prepare_diagram_spec(kind: str, title: str, parameters: dict | None) -> dict
     }
 
 
-def _snapshot_diagram(
+def _insert_snapshot(
+    con,
     job_id: str,
     diagram_index: int,
     diagram: dict,
@@ -113,44 +138,42 @@ def _snapshot_diagram(
     note: str = '',
     metadata: dict | None = None,
 ) -> dict:
-    _diagram_history_schema()
     kind = str(diagram.get('normalized_kind') or diagram.get('kind') or '')
     params = dict(diagram.get('parameters') or {})
     title = str(diagram.get('title') or '')
     digest = _diagram_hash(kind, params)
-    with connect() as con:
-        next_no = int(con.execute(
-            '''SELECT COALESCE(max(version_no),0)+1 n
-               FROM science_lesson_diagram_spec_versions
-               WHERE job_id=%s AND diagram_index=%s''',
-            (job_id, diagram_index),
-        ).fetchone()['n'])
-        version_id = str(uuid.uuid4())
-        engine = dict(diagram.get('diagram_engine') or {})
-        engine.pop('svg', None)
-        meta = {
-            'normalized_kind': diagram.get('normalized_kind'),
-            'teacher_parameter_edit': bool(diagram.get('teacher_parameter_edit')),
-            'engine': engine,
-            **(metadata or {}),
-        }
-        con.execute('''INSERT INTO science_lesson_diagram_spec_versions(
-          id,job_id,diagram_index,version_no,action,note,kind,title,parameters,diagram_hash,metadata)
-          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb)''',
-          (
-              version_id,
-              job_id,
-              diagram_index,
-              next_no,
-              action[:120],
-              note[:1000],
-              kind,
-              title[:500],
-              json.dumps(params, ensure_ascii=False),
-              digest,
-              json.dumps(meta, ensure_ascii=False),
-          ),
-        )
+    next_no = int(con.execute(
+        '''SELECT COALESCE(max(version_no),0)+1 n
+           FROM science_lesson_diagram_spec_versions
+           WHERE job_id=%s AND diagram_index=%s''',
+        (job_id, diagram_index),
+    ).fetchone()['n'])
+    version_id = str(uuid.uuid4())
+    engine = dict(diagram.get('diagram_engine') or {})
+    engine.pop('svg', None)
+    meta = {
+        'normalized_kind': diagram.get('normalized_kind'),
+        'teacher_parameter_edit': bool(diagram.get('teacher_parameter_edit')),
+        'engine': engine,
+        **(metadata or {}),
+    }
+    con.execute('''INSERT INTO science_lesson_diagram_spec_versions(
+      id,job_id,diagram_index,version_no,action,note,kind,title,parameters,diagram_hash,metadata)
+      VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb)''',
+      (
+          version_id,
+          job_id,
+          diagram_index,
+          next_no,
+          action[:120],
+          note[:1000],
+          kind,
+          title[:500],
+          json.dumps(params, ensure_ascii=False),
+          digest,
+          json.dumps(meta, ensure_ascii=False),
+      ),
+    )
     return {
         'id': version_id,
         'job_id': job_id,
@@ -161,22 +184,61 @@ def _snapshot_diagram(
     }
 
 
+def _snapshot_diagram(
+    job_id: str,
+    diagram_index: int,
+    diagram: dict,
+    action: str,
+    note: str = '',
+    metadata: dict | None = None,
+) -> dict:
+    _diagram_history_schema()
+    with connect() as con:
+        # Serialize allocation of version_no for all writes touching this job.
+        locked = con.execute(
+            'SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+            (job_id,),
+        ).fetchone()
+        if not locked:
+            raise HTTPException(404, 'Lesson studio job not found')
+        return _insert_snapshot(
+            con,
+            job_id,
+            diagram_index,
+            diagram,
+            action,
+            note,
+            metadata,
+        )
+
+
 def ensure_diagram_baseline(job_id: str, diagram_index: int) -> dict:
     _diagram_history_schema()
-    _, _, _, diagram = _load_job_diagram(job_id, diagram_index)
     with connect() as con:
-        row = con.execute('''SELECT id,version_no,diagram_hash FROM science_lesson_diagram_spec_versions
-          WHERE job_id=%s AND diagram_index=%s ORDER BY version_no ASC LIMIT 1''',
-          (job_id, diagram_index)).fetchone()
-    if row:
-        return dict(row)
-    return _snapshot_diagram(
-        job_id,
-        diagram_index,
-        diagram,
-        'initial_diagram_spec',
-        'Automatic baseline before diagram-spec version tracking',
-    )
+        row = con.execute(
+            'SELECT structured_json FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+            (job_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, 'Lesson studio job not found')
+        structured = dict(row.get('structured_json') or {})
+        _, diagram, kind = _diagram_from_structured(structured, diagram_index)
+        existing = con.execute('''SELECT id,version_no,diagram_hash
+          FROM science_lesson_diagram_spec_versions
+          WHERE job_id=%s AND diagram_index=%s AND kind=%s
+          ORDER BY version_no ASC LIMIT 1''',
+          (job_id, diagram_index, kind)).fetchone()
+        if existing:
+            return dict(existing)
+        return _insert_snapshot(
+            con,
+            job_id,
+            diagram_index,
+            diagram,
+            'initial_diagram_spec',
+            'Automatic baseline before diagram-spec version tracking',
+            {'baseline_for_kind': kind},
+        )
 
 
 def _persist_diagram_spec(
@@ -187,12 +249,11 @@ def _persist_diagram_spec(
     *,
     action: str,
     restored_from_version: int | None = None,
+    capture_pre_action: str | None = None,
+    capture_pre_note: str = '',
+    capture_pre_metadata: dict | None = None,
 ) -> dict:
-    _, structured, diagrams, diagram = _load_job_diagram(job_id, diagram_index)
-    kind = str(diagram.get('normalized_kind') or diagram.get('kind') or '')
-    if kind != prepared.get('kind'):
-        raise HTTPException(409, 'Diagram kind changed while editing; reload the workspace and retry')
-
+    _diagram_history_schema()
     ensure_diagram_baseline(job_id, diagram_index)
     snapshot_job(
         job_id,
@@ -200,56 +261,86 @@ def _persist_diagram_spec(
         note or f'Diagram {diagram_index} specification changed',
         {
             'diagram_index': diagram_index,
-            'diagram_kind': kind,
+            'diagram_kind': prepared.get('kind'),
             'restored_from_version': restored_from_version,
         },
     )
 
-    updated = dict(diagram)
-    updated['parameters'] = dict(prepared['normalized'] or {})
-    updated['diagram_engine'] = dict(prepared['render'] or {})
-    updated['teacher_parameter_edit'] = True
-    updated['diagram_spec_schema'] = 'diagram-specs-v1'
-    updated['diagram_spec_versioned'] = True
-    if restored_from_version is not None:
-        updated['diagram_spec_restored_from_version'] = restored_from_version
-    else:
-        updated.pop('diagram_spec_restored_from_version', None)
-    diagrams[diagram_index] = updated
-    structured['diagram_specs'] = diagrams
-
+    pre_change_version = None
     with connect() as con:
+        # One row lock protects both against lost updates while editing the same
+        # lesson and against duplicate version numbers. The job mutation and its
+        # immutable diagram-version record commit or roll back together.
+        row = con.execute(
+            'SELECT structured_json FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+            (job_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, 'Lesson studio job not found')
+        structured = dict(row.get('structured_json') or {})
+        diagrams, diagram, kind = _diagram_from_structured(structured, diagram_index)
+        if kind != prepared.get('kind'):
+            raise HTTPException(409, 'Diagram kind changed while editing; reload the workspace and retry')
+
+        if capture_pre_action:
+            pre_change_version = _insert_snapshot(
+                con,
+                job_id,
+                diagram_index,
+                diagram,
+                capture_pre_action,
+                capture_pre_note,
+                capture_pre_metadata,
+            )
+
+        updated = dict(diagram)
+        updated['parameters'] = dict(prepared['normalized'] or {})
+        updated['diagram_engine'] = dict(prepared['render'] or {})
+        updated['teacher_parameter_edit'] = True
+        updated['diagram_spec_schema'] = 'diagram-specs-v1'
+        updated['diagram_spec_versioned'] = True
+        if restored_from_version is not None:
+            updated['diagram_spec_restored_from_version'] = restored_from_version
+        else:
+            updated.pop('diagram_spec_restored_from_version', None)
+        diagrams[diagram_index] = updated
+        structured['diagram_specs'] = diagrams
+
         con.execute('''UPDATE science_lesson_jobs SET
           structured_json=%s::jsonb,
           teacher_approved=FALSE,teacher_approved_at=NULL,
           second_review=NULL,second_review_provider=NULL,second_review_at=NULL,
+          second_review_source_hash=NULL,
           reference_review=NULL,reference_review_hash=NULL,reference_review_at=NULL,
-          quality_snapshot=NULL,pdf_object_key=NULL,
+          quality_snapshot=NULL,pdf_object_key=NULL,pdf_source_hash=NULL,
           status='content_review_required',updated_at=now()
           WHERE id=%s''',
           (json.dumps(structured, ensure_ascii=False), job_id),
         )
 
-    version = _snapshot_diagram(
-        job_id,
-        diagram_index,
-        updated,
-        action,
-        note,
-        {
-            'schema_version': 'diagram-specs-v1',
-            'approval_invalidated': True,
-            'external_reviews_invalidated': True,
-            'previous_pdf_invalidated': True,
-            'restored_from_version': restored_from_version,
-        },
-    )
+        version = _insert_snapshot(
+            con,
+            job_id,
+            diagram_index,
+            updated,
+            action,
+            note,
+            {
+                'schema_version': 'diagram-specs-v1',
+                'approval_invalidated': True,
+                'external_reviews_invalidated': True,
+                'previous_pdf_invalidated': True,
+                'restored_from_version': restored_from_version,
+            },
+        )
+
     return {
         'updated': True,
         'job_id': job_id,
         'diagram_index': diagram_index,
         'diagram': updated,
         'spec_version': version,
+        'pre_change_spec_version': pre_change_version,
         'valid': True,
         'issues': [],
         'teacher_approval_invalidated': True,
@@ -294,8 +385,9 @@ def diagram_spec_history(job_id: str, diagram_index: int):
         rows = list(con.execute('''SELECT id,version_no,action,note,kind,title,parameters,
           diagram_hash,metadata,created_at
           FROM science_lesson_diagram_spec_versions
-          WHERE job_id=%s AND diagram_index=%s ORDER BY version_no DESC''',
-          (job_id, diagram_index)).fetchall())
+          WHERE job_id=%s AND diagram_index=%s AND kind=%s
+          ORDER BY version_no DESC''',
+          (job_id, diagram_index, kind)).fetchall())
     return {
         'job_id': job_id,
         'diagram_index': diagram_index,
@@ -311,7 +403,10 @@ def diagram_spec_history(job_id: str, diagram_index: int):
         'versions': [dict(x) for x in rows],
         'policy': {
             'immutable_versions': True,
-            'invalid_specs_never_persist': True,
+            'invalid_new_specs_never_persist': True,
+            'history_scoped_to_current_diagram_kind': True,
+            'serialized_version_allocation': True,
+            'job_update_and_version_insert_are_atomic': True,
             'restore_is_diagram_only': True,
             'restore_revalidates_with_current_schema': True,
             'restore_invalidates_lesson_approval_and_external_reviews': True,
@@ -357,12 +452,10 @@ def restore_diagram_spec_version(
     with connect() as con:
         row = con.execute('''SELECT version_no,kind,title,parameters,diagram_hash
           FROM science_lesson_diagram_spec_versions
-          WHERE job_id=%s AND diagram_index=%s AND version_no=%s''',
-          (job_id, diagram_index, version_no)).fetchone()
+          WHERE job_id=%s AND diagram_index=%s AND version_no=%s AND kind=%s''',
+          (job_id, diagram_index, version_no, current_kind)).fetchone()
     if not row:
-        raise HTTPException(404, 'Diagram specification version not found')
-    if str(row.get('kind') or '') != current_kind:
-        raise HTTPException(409, 'Stored diagram version belongs to a different diagram kind')
+        raise HTTPException(404, 'Diagram specification version not found for the current diagram kind')
 
     prepared = prepare_diagram_spec(
         current_kind,
@@ -378,14 +471,6 @@ def restore_diagram_spec_version(
             },
         )
 
-    current_snapshot = _snapshot_diagram(
-        job_id,
-        diagram_index,
-        current,
-        'pre_diagram_spec_restore',
-        f'Automatic snapshot before restoring diagram spec v{version_no}',
-        {'restore_target_version': version_no},
-    )
     result = _persist_diagram_spec(
         job_id,
         diagram_index,
@@ -393,11 +478,15 @@ def restore_diagram_spec_version(
         teacher_note.strip() or f'Restored diagram specification version {version_no}',
         action='diagram_spec_restored',
         restored_from_version=version_no,
+        capture_pre_action='pre_diagram_spec_restore',
+        capture_pre_note=f'Automatic snapshot before restoring diagram spec v{version_no}',
+        capture_pre_metadata={'restore_target_version': version_no},
     )
+    pre = result.get('pre_change_spec_version') or {}
     result.update({
         'restored': True,
         'restored_version': version_no,
-        'pre_restore_diagram_version': current_snapshot['version_no'],
+        'pre_restore_diagram_version': pre.get('version_no'),
         'restored_source_hash': row.get('diagram_hash'),
     })
     return result

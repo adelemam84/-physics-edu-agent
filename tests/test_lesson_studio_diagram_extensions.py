@@ -68,6 +68,28 @@ class AdvancedDiagramRoutingTests(unittest.TestCase):
         rendered = render_parameterized('magnetic_field', 'مجال', {'current_direction': 'out_of_page'})
         self.assertFalse(rendered['valid'])
 
+    def test_parameterized_solenoid_requires_direction_and_polarity(self):
+        rendered = render_parameterized('solenoid_field', 'ملف لولبي', {
+            'current_direction': 'left_to_right',
+            'field_direction': 'left_to_right',
+            'turns': 8,
+        })
+        self.assertFalse(rendered['valid'])
+        self.assertIn('explicit_solenoid_polarity_required', rendered['issues'])
+
+    def test_parameterized_solenoid_renders_only_explicit_state(self):
+        rendered = render_parameterized('solenoid_field', 'ملف لولبي', {
+            'current_direction': 'left_to_right',
+            'field_direction': 'right_to_left',
+            'north_side': 'left',
+            'turns': 8,
+            'label': 'L1',
+        })
+        self.assertTrue(rendered['valid'])
+        self.assertEqual(rendered['parameter_contract'], 'explicit_solenoid_field_v1')
+        self.assertIn('L1', rendered['svg'])
+        self.assertIn('>N<', rendered['svg'])
+
     def test_parameterized_molecule_preserves_bond_order(self):
         rendered = render_parameterized('molecule_bond', 'CO2', {
             'atoms': [
@@ -82,6 +104,32 @@ class AdvancedDiagramRoutingTests(unittest.TestCase):
         })
         self.assertTrue(rendered['valid'])
         self.assertEqual(rendered['parameter_contract'], 'explicit_molecule_graph_v1')
+
+    def test_parameterized_lab_setup_requires_explicit_flow_direction(self):
+        rendered = render_parameterized('chemistry_lab_setup', 'تحضير غاز', {
+            'vessels': [
+                {'id': 'A', 'type': 'flask', 'x': 0.15, 'y': 0.5},
+                {'id': 'B', 'type': 'gas_jar', 'x': 0.8, 'y': 0.5},
+            ],
+            'connections': [{'from': 'A', 'to': 'B'}],
+        })
+        self.assertFalse(rendered['valid'])
+        self.assertIn('explicit_lab_connection_direction_required', rendered['issues'])
+
+    def test_parameterized_lab_setup_preserves_explicit_apparatus_graph(self):
+        rendered = render_parameterized('chemistry_lab_setup', 'تحضير غاز', {
+            'vessels': [
+                {'id': 'A', 'type': 'flask', 'x': 0.15, 'y': 0.5, 'label': 'دورق'},
+                {'id': 'B', 'type': 'gas_jar', 'x': 0.8, 'y': 0.5, 'label': 'وعاء تجميع'},
+            ],
+            'connections': [
+                {'from': 'A', 'to': 'B', 'direction': 'from_to', 'label': 'أنبوب توصيل'},
+            ],
+        })
+        self.assertTrue(rendered['valid'])
+        self.assertEqual(rendered['parameter_contract'], 'explicit_lab_apparatus_v1')
+        self.assertIn('دورق', rendered['svg'])
+        self.assertIn('وعاء تجميع', rendered['svg'])
 
     def test_unknown_intent_remains_unrouted(self):
         route = route_diagram('', 'رسم غير محدد', '', 'science')

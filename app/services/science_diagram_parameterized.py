@@ -9,7 +9,9 @@ PARAMETERIZED_KINDS = {
     'series_parallel_circuit',
     'ray_diagram',
     'magnetic_field',
+    'solenoid_field',
     'molecule_bond',
+    'chemistry_lab_setup',
 }
 
 
@@ -159,6 +161,43 @@ def render_magnetic_conductor(title: str, parameters: dict) -> dict:
     return {'ready':True,'svg':''.join(parts),'issues':[],'parameter_contract':'explicit_magnetic_direction_v1'}
 
 
+def render_solenoid(title: str, parameters: dict) -> dict:
+    current=str(parameters.get('current_direction') or '').lower()
+    field=str(parameters.get('field_direction') or '').lower()
+    north=str(parameters.get('north_side') or '').lower()
+    turns=parameters.get('turns')
+    try:
+        turns=int(turns)
+    except (TypeError,ValueError):
+        turns=0
+    if current not in {'left_to_right','right_to_left'}:
+        return {'ready':False,'issues':['explicit_solenoid_current_direction_required']}
+    if field not in {'left_to_right','right_to_left'}:
+        return {'ready':False,'issues':['explicit_solenoid_field_direction_required']}
+    if north not in {'left','right'}:
+        return {'ready':False,'issues':['explicit_solenoid_polarity_required']}
+    if not 3 <= turns <= 18:
+        return {'ready':False,'issues':['solenoid_turn_count_out_of_range']}
+    width,height=760,350
+    parts=_svg_start(width,height,title)
+    x0,x1,y=190,570,180
+    spacing=(x1-x0)/(turns-1)
+    for i in range(turns):
+        x=x0+i*spacing
+        parts.append(f'<ellipse class="line" cx="{x}" cy="{y}" rx="16" ry="70"/>')
+    parts.append(f'<line class="wire" x1="110" y1="110" x2="{x0}" y2="110"/><line class="wire" x1="{x1}" y1="250" x2="650" y2="250"/>')
+    if field=='left_to_right':
+        _arrow(parts,150,y,610,y)
+    else:
+        _arrow(parts,610,y,150,y)
+    left_pole='N' if north=='left' else 'S';right_pole='N' if north=='right' else 'S'
+    parts.append(f'<text x="150" y="155" text-anchor="middle" font-size="16" font-weight="700">{left_pole}</text>')
+    parts.append(f'<text x="610" y="155" text-anchor="middle" font-size="16" font-weight="700">{right_pole}</text>')
+    parts.append(f'<text x="380" y="290" text-anchor="middle" font-size="12">{escape(str(parameters.get("label") or "ملف لولبي"))} · {turns} turns</text>')
+    parts.append(f'<text class="muted" x="380" y="330" text-anchor="middle" font-size="10">التيار: {escape(current)} · المجال: {escape(field)} · القطب N: {escape(north)}</text></svg>')
+    return {'ready':True,'svg':''.join(parts),'issues':[],'parameter_contract':'explicit_solenoid_field_v1'}
+
+
 def render_molecule(title: str, parameters: dict) -> dict:
     atoms=parameters.get('atoms');bonds=parameters.get('bonds')
     if not isinstance(atoms,list) or not isinstance(bonds,list) or len(atoms)<2:
@@ -193,6 +232,55 @@ def render_molecule(title: str, parameters: dict) -> dict:
     return {'ready':True,'svg':''.join(parts),'issues':[],'parameter_contract':'explicit_molecule_graph_v1'}
 
 
+def render_lab_setup(title: str, parameters: dict) -> dict:
+    vessels=parameters.get('vessels');connections=parameters.get('connections')
+    if not isinstance(vessels,list) or not isinstance(connections,list) or not vessels:
+        return {'ready':False,'issues':['explicit_lab_vessels_and_connections_required']}
+    pos={}
+    for vessel in vessels[:12]:
+        if not isinstance(vessel,dict) or not str(vessel.get('id') or ''):
+            return {'ready':False,'issues':['invalid_lab_vessel']}
+        kind=str(vessel.get('type') or '').lower()
+        if kind not in {'flask','beaker','test_tube','gas_jar','wash_bottle','receiver'}:
+            return {'ready':False,'issues':['unsupported_lab_vessel_type']}
+        x=_num(vessel.get('x'),lo=0,hi=1);y=_num(vessel.get('y'),lo=0,hi=1)
+        if x is None or y is None:
+            return {'ready':False,'issues':['lab_vessel_coordinates_required']}
+        pos[str(vessel['id'])]=(90+x*560,85+y*190,kind,str(vessel.get('label') or vessel['id']))
+    parts=_svg_start(740,340,title)
+    for _,(x,y,kind,label) in pos.items():
+        if kind=='flask':
+            parts.append(f'<path class="line" d="M {x-18} {y-55} L {x+18} {y-55} L {x+28} {y-5} Q {x+35} {y+45} {x} {y+52} Q {x-35} {y+45} {x-28} {y-5} Z"/>')
+        elif kind in {'beaker','gas_jar','receiver'}:
+            parts.append(f'<rect class="soft" x="{x-30}" y="{y-42}" width="60" height="84" rx="7"/>')
+        elif kind=='test_tube':
+            parts.append(f'<path class="line" d="M {x-12} {y-52} L {x-12} {y+28} Q {x} {y+48} {x+12} {y+28} L {x+12} {y-52}"/>')
+        else:
+            parts.append(f'<rect class="soft" x="{x-26}" y="{y-38}" width="52" height="76" rx="10"/>')
+        parts.append(f'<text x="{x}" y="{y+72}" text-anchor="middle" font-size="11">{escape(label)}</text>')
+    for conn in connections[:20]:
+        if not isinstance(conn,dict):
+            return {'ready':False,'issues':['invalid_lab_connection']}
+        a=str(conn.get('from') or '');b=str(conn.get('to') or '')
+        direction=str(conn.get('direction') or '').lower()
+        if a not in pos or b not in pos:
+            return {'ready':False,'issues':['lab_connection_references_unknown_vessel']}
+        if direction not in {'from_to','to_from','none'}:
+            return {'ready':False,'issues':['explicit_lab_connection_direction_required']}
+        x1,y1=pos[a][:2];x2,y2=pos[b][:2]
+        if direction=='from_to':
+            _arrow(parts,x1,y1,x2,y2)
+        elif direction=='to_from':
+            _arrow(parts,x2,y2,x1,y1)
+        else:
+            parts.append(f'<line class="line" x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"/>')
+        label=str(conn.get('label') or '')
+        if label:
+            parts.append(f'<text x="{(x1+x2)/2}" y="{(y1+y2)/2-8}" text-anchor="middle" font-size="10">{escape(label)}</text>')
+    parts.append('<text class="muted" x="370" y="325" text-anchor="middle" font-size="10">الأوعية والوصلات واتجاه الحركة تُرسم من مواصفات صريحة فقط؛ المواد والتفاعلات لا تُستنتج</text></svg>')
+    return {'ready':True,'svg':''.join(parts),'issues':[],'parameter_contract':'explicit_lab_apparatus_v1'}
+
+
 def render_parameterized(kind: str, title: str, parameters: dict | None) -> dict | None:
     if kind not in PARAMETERIZED_KINDS or not isinstance(parameters,dict) or not parameters:
         return None
@@ -202,8 +290,12 @@ def render_parameterized(kind: str, title: str, parameters: dict | None) -> dict
         out=render_ray_paths(title,parameters)
     elif kind=='magnetic_field':
         out=render_magnetic_conductor(title,parameters)
+    elif kind=='solenoid_field':
+        out=render_solenoid(title,parameters)
     elif kind=='molecule_bond':
         out=render_molecule(title,parameters)
+    elif kind=='chemistry_lab_setup':
+        out=render_lab_setup(title,parameters)
     else:
         return None
     if not out.get('ready'):

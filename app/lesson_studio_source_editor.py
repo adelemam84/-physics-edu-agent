@@ -12,6 +12,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _schema, _verified_ocr
+from .services.lesson_release_state import ensure_release_state_columns, invalidate_release_state
 from .services.storage import get_bytes, put_bytes, storage_configured
 
 
@@ -20,6 +21,7 @@ def _editor_schema() -> None:
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_sources ADD COLUMN IF NOT EXISTS adjusted_object_key text')
         con.execute('ALTER TABLE science_lesson_sources ADD COLUMN IF NOT EXISTS adjustment_meta jsonb')
+        ensure_release_state_columns(con)
 
 
 def _source(job_id: str, source_id: int):
@@ -122,11 +124,24 @@ def adjust_lesson_source(
     key = f'lesson-studio/{job_id}/adjusted-source-{source_id}.png'
     put_bytes(key, adjusted, 'image/png')
     with connect() as con:
+        job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
+        if not job:
+            raise HTTPException(404, 'Lesson studio job not found')
+        current = con.execute('SELECT id FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
+        if not current:
+            raise HTTPException(404, 'Lesson source not found')
         con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=%s,adjustment_meta=%s::jsonb,
           requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''',
           (key, json.dumps(meta, ensure_ascii=False), source_id, job_id))
-        con.execute("UPDATE science_lesson_jobs SET status='review_required',updated_at=now() WHERE id=%s", (job_id,))
-    return {'adjusted': True, 'source_id': source_id, 'meta': meta, 'original_preserved': True}
+        invalidate_release_state(con, job_id, status='review_required')
+    return {
+        'adjusted': True,
+        'source_id': source_id,
+        'meta': meta,
+        'original_preserved': True,
+        'previous_approval_invalidated': True,
+        'previous_pdf_invalidated': True,
+    }
 
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/adjusted', dependencies=[Depends(require_admin)])
@@ -147,19 +162,48 @@ def rerun_adjusted_source_ocr(job_id: str, source_id: int):
     data = get_bytes(key)
     primary, alternate, envelope = _verified_ocr(data, 'image/png', int(row['position']))
     with connect() as con:
+        job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
+        if not job:
+            raise HTTPException(404, 'Lesson studio job not found')
+        current = con.execute('''SELECT adjusted_object_key FROM science_lesson_sources
+          WHERE id=%s AND job_id=%s FOR UPDATE''', (source_id, job_id)).fetchone()
+        if not current:
+            raise HTTPException(404, 'Lesson source not found')
+        if current.get('adjusted_object_key') != key:
+            raise HTTPException(409, 'Adjusted source changed during OCR; rerun against the current derivative')
         con.execute('''UPDATE science_lesson_sources SET extracted_text=%s,alternate_ocr_text=%s,
           confidence=%s,ocr_confidence_band=%s,ocr_conflicts=%s::jsonb,requires_review=TRUE
           WHERE id=%s AND job_id=%s''',
           (primary, alternate, envelope.get('score'), envelope.get('confidence_band'),
            json.dumps(envelope.get('conflicts') or [], ensure_ascii=False), source_id, job_id))
-        con.execute("UPDATE science_lesson_jobs SET status='review_required',updated_at=now() WHERE id=%s", (job_id,))
-    return {'source_id': source_id, 'rerun': True, 'verification': envelope, 'teacher_approval_required': True}
+        invalidate_release_state(con, job_id, status='review_required')
+    return {
+        'source_id': source_id,
+        'rerun': True,
+        'verification': envelope,
+        'teacher_approval_required': True,
+        'previous_approval_invalidated': True,
+        'previous_pdf_invalidated': True,
+    }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/reset-adjustment', dependencies=[Depends(require_admin)])
 def reset_source_adjustment(job_id: str, source_id: int):
-    _source(job_id, source_id)
+    _editor_schema()
     with connect() as con:
+        job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
+        if not job:
+            raise HTTPException(404, 'Lesson studio job not found')
+        current = con.execute('SELECT id FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
+        if not current:
+            raise HTTPException(404, 'Lesson source not found')
         con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=NULL,adjustment_meta=NULL,
           requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''', (source_id, job_id))
-    return {'reset': True, 'source_id': source_id, 'original_preserved': True}
+        invalidate_release_state(con, job_id, status='review_required')
+    return {
+        'reset': True,
+        'source_id': source_id,
+        'original_preserved': True,
+        'previous_approval_invalidated': True,
+        'previous_pdf_invalidated': True,
+    }

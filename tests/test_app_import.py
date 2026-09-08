@@ -34,6 +34,10 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/current-corpus/visual-review/batch-suggest",
             "/api/admin/project-closure",
             "/api/admin/lesson-studio/jobs/{job_id}/handwriting-pipeline",
+            "/api/admin/external-creative-integrations",
+            "/api/admin/integrations/canva/oauth/start",
+            "/api/integrations/canva/oauth/callback",
+            "/api/admin/integrations/canva/oauth/status",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -53,6 +57,13 @@ class VercelEntrypointTests(unittest.TestCase):
             "/admin/project-closure",
         }
         self.assertTrue(required.issubset(paths), required-paths)
+
+    def test_canva_redirect_is_canonical_production_url(self):
+        from app.canva_oauth import CANVA_PRODUCTION_REDIRECT
+        self.assertEqual(
+            CANVA_PRODUCTION_REDIRECT,
+            "https://physics-edu-agent.vercel.app/api/integrations/canva/oauth/callback",
+        )
 
     def test_release_state_distinguishes_runtime_from_content_gates(self):
         from app.release_hardening import _classify_release_state

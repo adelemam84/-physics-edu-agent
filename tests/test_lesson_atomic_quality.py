@@ -1,10 +1,14 @@
 import unittest
+from unittest.mock import patch
 
 from app.lesson_studio_quality import _build_quality_snapshot, _snapshot_contract
 
 
+@patch('app.lesson_studio_quality.OPENAI_REVIEW_CONFIGURED', False)
+@patch('app.lesson_studio_quality.REFERENCE_REVIEW_REQUIRED', False)
 class AtomicLessonQualityTests(unittest.TestCase):
     def _base_row(self):
+        """Build a deterministic clean lesson row independent of deployment environment."""
         return {
             'raw_transcript': 'قانون أوم كما ورد في المصدر',
             'structured_json': {
@@ -27,6 +31,7 @@ class AtomicLessonQualityTests(unittest.TestCase):
         }
 
     def test_locked_state_builder_is_preapproval_ready_for_clean_state(self):
+        """A clean locked state should pass preapproval but not final approval."""
         snap = _build_quality_snapshot('job-1', self._base_row(), [{'id': 1, 'requires_review': False}])
         self.assertTrue(snap['preapproval_ready'])
         self.assertFalse(snap['teacher_approval_fresh'])
@@ -35,6 +40,7 @@ class AtomicLessonQualityTests(unittest.TestCase):
         self.assertTrue(snap['policy']['quality_cache_written_from_locked_state'])
 
     def test_teacher_approval_is_fresh_only_for_exact_locked_contract(self):
+        """Teacher approval must become stale after any bound content contract change."""
         row = self._base_row()
         first = _build_quality_snapshot('job-1', row, [{'id': 1, 'requires_review': False}])
         content_hash, diagram_hash = _snapshot_contract(first)
@@ -59,6 +65,7 @@ class AtomicLessonQualityTests(unittest.TestCase):
         self.assertNotEqual(_snapshot_contract(fresh), _snapshot_contract(stale))
 
     def test_source_review_change_invalidates_locked_gate_state(self):
+        """A pending source review must block the quality gate immediately."""
         row = self._base_row()
         clear = _build_quality_snapshot('job-1', row, [{'id': 1, 'requires_review': False}])
         blocked = _build_quality_snapshot('job-1', row, [{'id': 1, 'requires_review': True}])
@@ -68,6 +75,7 @@ class AtomicLessonQualityTests(unittest.TestCase):
         self.assertEqual(check['value'], 1)
 
     def test_diagram_change_changes_export_contract(self):
+        """Diagram parameter edits must alter the manifest hash used by export approval."""
         row = self._base_row()
         row['structured_json'] = {
             **row['structured_json'],
@@ -95,6 +103,10 @@ class AtomicLessonQualityTests(unittest.TestCase):
         changed_structured['diagram_specs'] = changed_diagrams
         changed['structured_json'] = changed_structured
         after = _build_quality_snapshot('job-1', changed, [{'id': 1, 'requires_review': False}])
+        self.assertNotEqual(
+            before['diagram_manifest']['hash'],
+            after['diagram_manifest']['hash'],
+        )
         self.assertNotEqual(_snapshot_contract(before), _snapshot_contract(after))
 
 

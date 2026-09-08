@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from fastapi import Depends, HTTPException
@@ -13,7 +14,9 @@ from .science_lesson_studio import _schema
 from .services.lesson_diagram_integrity import diagram_manifest
 from .services.lesson_integrity import review_source_hash
 from .services.lesson_pdf_renderer import render_lesson_pdf
-from .services.storage import put_bytes, storage_configured
+from .services.storage import delete_object, put_bytes, storage_configured
+
+logger = logging.getLogger(__name__)
 
 OPENAI_REVIEW_CONFIGURED = bool(os.getenv('OPENAI_API_KEY', '').strip())
 REFERENCE_REVIEW_REQUIRED = os.getenv('LESSON_STUDIO_REQUIRE_REFERENCE_REVIEW', 'false').strip().lower() in {'1','true','yes','on'}
@@ -288,9 +291,6 @@ def revoke_lesson_content_approval(job_id: str):
 def export_final_lesson_pdf(job_id: str):
     _quality_schema()
 
-    # Capture one fully locked and verified state for rendering. Nothing is
-    # rendered from a snapshot whose source reviews or job content can change
-    # underneath the gate calculation.
     with connect() as con:
         row, sources = _locked_job_state(con, job_id)
         snapshot = _build_quality_snapshot(job_id, row, sources)
@@ -305,43 +305,48 @@ def export_final_lesson_pdf(job_id: str):
         f'lesson-studio/{job_id}/final-approved-'
         f'{verified_content_hash[:16]}-{verified_diagram_hash[:16]}.pdf'
     )
-    if storage_configured():
-        # The object key is immutable for the verified state. If content changes
-        # during upload, this blob stays unreferenced instead of overwriting the
-        # currently approved PDF pointer.
+    storage_enabled = storage_configured()
+    uploaded = False
+    if storage_enabled:
         put_bytes(key, data, 'application/pdf')
+        uploaded = True
 
-    # Re-lock and re-evaluate after rendering/upload. This closes the TOCTOU
-    # window identified by code review: only the exact state verified above can
-    # become the current final PDF.
-    with connect() as con:
-        current_row, current_sources = _locked_job_state(con, job_id)
-        current_snapshot = _build_quality_snapshot(job_id, current_row, current_sources)
-        _require_snapshot_state(current_snapshot, final=True)
-        current_content_hash, current_diagram_hash = _snapshot_contract(current_snapshot)
-        if (
-            current_content_hash != verified_content_hash
-            or current_diagram_hash != verified_diagram_hash
-        ):
-            raise HTTPException(409, {
-                'message': 'Lesson changed during PDF export; generated file was not promoted',
-                'verified_content_hash': verified_content_hash,
-                'current_content_hash': current_content_hash,
-                'verified_diagram_manifest_hash': verified_diagram_hash,
-                'current_diagram_manifest_hash': current_diagram_hash,
-            })
-        if storage_configured():
-            con.execute('''UPDATE science_lesson_jobs SET
-              pdf_object_key=%s,pdf_source_hash=%s,pdf_diagram_manifest_hash=%s,
-              quality_snapshot=%s::jsonb,
-              status='final_pdf_ready',updated_at=now() WHERE id=%s''',
-              (
-                  key,
-                  verified_content_hash,
-                  verified_diagram_hash,
-                  json.dumps(current_snapshot, ensure_ascii=False),
-                  job_id,
-              ))
+    try:
+        with connect() as con:
+            current_row, current_sources = _locked_job_state(con, job_id)
+            current_snapshot = _build_quality_snapshot(job_id, current_row, current_sources)
+            _require_snapshot_state(current_snapshot, final=True)
+            current_content_hash, current_diagram_hash = _snapshot_contract(current_snapshot)
+            if (
+                current_content_hash != verified_content_hash
+                or current_diagram_hash != verified_diagram_hash
+            ):
+                raise HTTPException(409, {
+                    'message': 'Lesson changed during PDF export; generated file was not promoted',
+                    'verified_content_hash': verified_content_hash,
+                    'current_content_hash': current_content_hash,
+                    'verified_diagram_manifest_hash': verified_diagram_hash,
+                    'current_diagram_manifest_hash': current_diagram_hash,
+                })
+            if storage_enabled:
+                con.execute('''UPDATE science_lesson_jobs SET
+                  pdf_object_key=%s,pdf_source_hash=%s,pdf_diagram_manifest_hash=%s,
+                  quality_snapshot=%s::jsonb,
+                  status='final_pdf_ready',updated_at=now() WHERE id=%s''',
+                  (
+                      key,
+                      verified_content_hash,
+                      verified_diagram_hash,
+                      json.dumps(current_snapshot, ensure_ascii=False),
+                      job_id,
+                  ))
+    except Exception:
+        if uploaded:
+            try:
+                delete_object(key)
+            except Exception:
+                logger.exception('Failed to clean up unpromoted lesson PDF object %s', key)
+        raise
 
     return Response(
         data,

@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from .db import connect
 from .main import app
 from .security import require_admin
-from .science_lesson_studio import _job, _schema
+from .science_lesson_studio import _schema
 from .services.lesson_diagram_integrity import diagram_manifest
 from .services.lesson_integrity import review_source_hash
 from .services.lesson_pdf_renderer import render_lesson_pdf
@@ -176,6 +176,7 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
             'scientific_reference_is_validation_context_not_authoring_source': True,
             'scientific_reference_review_required': REFERENCE_REVIEW_REQUIRED,
             'approval_and_export_recheck_locked_state': True,
+            'quality_cache_written_from_locked_state': True,
         },
     }
 
@@ -221,9 +222,9 @@ def _require_snapshot_state(snapshot: dict, *, final: bool) -> None:
 
 def quality_snapshot(job_id: str) -> dict:
     _quality_schema()
-    row, sources = _job(job_id)
-    snapshot = _build_quality_snapshot(job_id, dict(row), [dict(x) for x in sources])
     with connect() as con:
+        row, sources = _locked_job_state(con, job_id)
+        snapshot = _build_quality_snapshot(job_id, row, sources)
         con.execute('UPDATE science_lesson_jobs SET quality_snapshot=%s::jsonb WHERE id=%s',
                     (json.dumps(snapshot, ensure_ascii=False), job_id))
     return snapshot
@@ -278,8 +279,9 @@ def revoke_lesson_content_approval(job_id: str):
           teacher_approved=FALSE,teacher_approved_at=NULL,
           teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
           quality_snapshot=NULL,
+          pdf_object_key=NULL,pdf_source_hash=NULL,pdf_diagram_manifest_hash=NULL,
           status='content_review_required',updated_at=now() WHERE id=%s''', (job_id,))
-    return {'revoked': True, 'job_id': job_id}
+    return {'revoked': True, 'job_id': job_id, 'previous_pdf_invalidated': True}
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/final-pdf', dependencies=[Depends(require_admin)])

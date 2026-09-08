@@ -18,6 +18,7 @@ from .security import require_admin
 CANVA_CLIENT_ID=os.getenv("CANVA_CLIENT_ID","").strip()
 CANVA_CLIENT_SECRET=os.getenv("CANVA_CLIENT_SECRET","").strip()
 CANVA_REDIRECT_URI=os.getenv("CANVA_REDIRECT_URI","").strip()
+CANVA_PRODUCTION_REDIRECT="https://physics-edu-agent.vercel.app/api/integrations/canva/oauth/callback"
 CANVA_SCOPES=os.getenv(
     "CANVA_SCOPES",
     "brandtemplate:content:read brandtemplate:meta:read design:meta:read",
@@ -40,7 +41,9 @@ def _init_store():
 def _redirect_uri(request: Request) -> str:
     if CANVA_REDIRECT_URI:
         return CANVA_REDIRECT_URI
-    return str(request.base_url).rstrip("/") + "/api/integrations/canva/oauth/callback"
+    # OAuth providers require an exact stable redirect URI. Always use the
+    # canonical production alias unless explicitly overridden for another env.
+    return CANVA_PRODUCTION_REDIRECT
 
 
 def _basic_auth() -> str:
@@ -145,4 +148,6 @@ def canva_oauth_status(request: Request):
         "redirect_uri":_redirect_uri(request),
         "scopes":CANVA_SCOPES.split(),
         "token_storage":"database_rotating_refresh_token",
+        "authorize_url":"/api/admin/integrations/canva/oauth/start",
+        "production_redirect_uri":CANVA_PRODUCTION_REDIRECT,
     }

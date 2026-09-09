@@ -18,7 +18,7 @@ class LessonMutationInvalidationContractTests(unittest.TestCase):
         for filename in MUTATION_FILES:
             with self.subTest(filename=filename):
                 source = Path(filename).read_text(encoding='utf-8')
-                self.assertIn('invalidate_release_state', source)
+                self.assertIn('invalidate_release_state(', source)
                 self.assertNotIn('teacher_approved=FALSE', source)
                 self.assertNotIn('pdf_object_key=NULL', source)
 

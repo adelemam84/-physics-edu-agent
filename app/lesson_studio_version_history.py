@@ -9,11 +9,16 @@ from fastapi import Depends, Form, HTTPException
 from .db import connect
 from .main import app
 from .security import require_admin
-from .services.lesson_mutation_guard import assert_expected_content_hash, lesson_content_precondition
+from .services.lesson_mutation_guard import (
+    assert_expected_content_hash,
+    content_hash_from_row,
+    lesson_content_precondition,
+)
 from .services.lesson_release_state import invalidate_release_state
 
 
 def _history_schema() -> None:
+    """Ensure immutable Lesson Studio version-history persistence exists."""
     with connect() as con:
         con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_versions(
           id uuid PRIMARY KEY,
@@ -34,6 +39,7 @@ def _history_schema() -> None:
 
 
 def _content_hash(raw_transcript: str, structured: dict) -> str:
+    """Compute the immutable snapshot-record hash used by historical version rows."""
     payload = json.dumps(
         {'raw_transcript': raw_transcript or '', 'structured_json': structured or {}},
         ensure_ascii=False, sort_keys=True, separators=(',', ':'),
@@ -91,6 +97,7 @@ def snapshot_job(job_id: str, action: str, note: str = '', metadata: dict | None
 
 
 def ensure_initial_snapshot(job_id: str) -> None:
+    """Create the baseline version record once before version-history reads or restores."""
     _history_schema()
     with connect() as con:
         exists = con.execute('SELECT 1 FROM science_lesson_versions WHERE job_id=%s LIMIT 1', (job_id,)).fetchone()
@@ -100,6 +107,7 @@ def ensure_initial_snapshot(job_id: str) -> None:
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/versions', dependencies=[Depends(require_admin)])
 def list_lesson_versions(job_id: str):
+    """Return immutable lesson versions plus the guard-compatible hash of the current lesson."""
     ensure_initial_snapshot(job_id)
     with connect() as con:
         rows = list(con.execute('''SELECT id,version_no,action,note,content_hash,job_status,
@@ -108,7 +116,7 @@ def list_lesson_versions(job_id: str):
         current = con.execute('SELECT raw_transcript,structured_json,status,teacher_approved,updated_at FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
     if not current:
         raise HTTPException(404, 'Lesson studio job not found')
-    current_hash = _content_hash(str(current.get('raw_transcript') or ''), dict(current.get('structured_json') or {}))
+    current_hash = content_hash_from_row(current)
     return {
         'job_id': job_id,
         'current': {
@@ -131,6 +139,7 @@ def list_lesson_versions(job_id: str):
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/versions/{version_no}', dependencies=[Depends(require_admin)])
 def get_lesson_version(job_id: str, version_no: int):
+    """Return one immutable historical lesson version without mutating current state."""
     _history_schema()
     with connect() as con:
         row = con.execute('''SELECT id,version_no,action,note,content_hash,raw_transcript,
@@ -177,7 +186,7 @@ def restore_lesson_version(
             ),
         )
         invalidate_release_state(con, job_id, status='content_review_required')
-    restored_hash = _content_hash(str(version.get('raw_transcript') or ''), dict(version.get('structured_json') or {}))
+    restored_hash = content_hash_from_row(version)
     return {
         'restored': True,
         'job_id': job_id,

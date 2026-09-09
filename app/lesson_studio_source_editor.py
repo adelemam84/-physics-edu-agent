@@ -14,6 +14,14 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _schema, _verified_ocr
+from .services.lesson_mutation_guard import (
+    assert_expected_content_hash,
+    assert_expected_source_editor_hash,
+    content_hash_from_row,
+    lesson_content_precondition,
+    lock_job_for_mutation,
+    source_editor_hash,
+)
 from .services.lesson_release_state import invalidate_release_state
 from .services.storage import delete_object, get_bytes, put_bytes, storage_configured
 
@@ -70,7 +78,6 @@ def _perspective(img: Image.Image, points: list[float]) -> Image.Image:
     height = max(math.dist(tl, bl), math.dist(tr, br))
     if width < 40 or height < 40:
         raise HTTPException(400, 'Perspective region is too small')
-    # Pillow QUAD expects UL, LL, LR, UR source coordinates.
     quad = (tl[0], tl[1], bl[0], bl[1], br[0], br[1], tr[0], tr[1])
     return img.transform((round(width), round(height)), Image.Transform.QUAD, quad, resample=Image.Resampling.BICUBIC)
 
@@ -108,6 +115,33 @@ def _render_adjusted(data: bytes, *, left: float, top: float, right: float, bott
     return out.getvalue(), meta
 
 
+@app.get('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/editor-state', dependencies=[Depends(require_admin)])
+def source_editor_state(job_id: str, source_id: int):
+    """Return explicit lesson/source revisions that every source-editor mutation must echo back."""
+    _editor_schema()
+    with connect() as con:
+        job = con.execute('SELECT raw_transcript,structured_json FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
+        row = con.execute('SELECT * FROM science_lesson_sources WHERE id=%s AND job_id=%s', (source_id, job_id)).fetchone()
+    if not job:
+        raise HTTPException(404, 'Lesson studio job not found')
+    if not row:
+        raise HTTPException(404, 'Lesson source not found')
+    if not str(row['content_type']).startswith('image/'):
+        raise HTTPException(409, 'Manual image correction is available for image sources only')
+    return {
+        'job_id': job_id,
+        'source_id': source_id,
+        'content_hash': content_hash_from_row(dict(job)),
+        'source_editor_hash': source_editor_hash(dict(row)),
+        'has_adjusted_derivative': bool(row.get('adjusted_object_key')),
+        'requires_review': bool(row.get('requires_review')),
+        'policy': {
+            'mutations_require_both_job_and_source_editor_revisions': True,
+            'original_source_is_immutable': True,
+        },
+    }
+
+
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/adjust', dependencies=[Depends(require_admin)])
 def adjust_lesson_source(
     job_id: str,
@@ -118,8 +152,16 @@ def adjust_lesson_source(
     crop_bottom: float = Form(1.0),
     rotation: int = Form(0),
     perspective_json: str = Form(''),
+    expected_source_editor_hash: str = Form(...),
+    expected_content_hash: str = Depends(lesson_content_precondition),
 ):
     row = _source(job_id, source_id)
+    assert_expected_source_editor_hash(dict(row), expected_source_editor_hash)
+    with connect() as con:
+        job = con.execute('SELECT raw_transcript,structured_json FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
+    if not job:
+        raise HTTPException(404, 'Lesson studio job not found')
+    assert_expected_content_hash(dict(job), expected_content_hash)
     if not storage_configured():
         raise HTTPException(503, 'Object storage is not configured')
     data = get_bytes(row['object_key'])
@@ -134,19 +176,20 @@ def adjust_lesson_source(
     )
     key = f'lesson-studio/{job_id}/adjusted-source-{source_id}-{uuid.uuid4().hex}.png'
     put_bytes(key, adjusted, 'image/png')
-    with connect() as con:
-        job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
-        if not job:
-            _delete_unpromoted_adjusted_source(key)
-            raise HTTPException(404, 'Lesson studio job not found')
-        current = con.execute('SELECT id FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
-        if not current:
-            _delete_unpromoted_adjusted_source(key)
-            raise HTTPException(404, 'Lesson source not found')
-        con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=%s,adjustment_meta=%s::jsonb,
-          requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''',
-          (key, json.dumps(meta, ensure_ascii=False), source_id, job_id))
-        invalidate_release_state(con, job_id, status='review_required')
+    try:
+        with connect() as con:
+            lock_job_for_mutation(con, job_id, expected_content_hash)
+            current = con.execute('SELECT * FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
+            if not current:
+                raise HTTPException(404, 'Lesson source not found')
+            assert_expected_source_editor_hash(dict(current), expected_source_editor_hash)
+            con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=%s,adjustment_meta=%s::jsonb,
+              requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''',
+              (key, json.dumps(meta, ensure_ascii=False), source_id, job_id))
+            invalidate_release_state(con, job_id, status='review_required')
+    except Exception:
+        _delete_unpromoted_adjusted_source(key)
+        raise
     return {
         'adjusted': True,
         'source_id': source_id,
@@ -154,6 +197,7 @@ def adjust_lesson_source(
         'original_preserved': True,
         'previous_approval_invalidated': True,
         'previous_pdf_invalidated': True,
+        'stale_write_protected': True,
     }
 
 
@@ -167,23 +211,30 @@ def adjusted_source_preview(job_id: str, source_id: int):
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/rerun-ocr', dependencies=[Depends(require_admin)])
-def rerun_adjusted_source_ocr(job_id: str, source_id: int):
+def rerun_adjusted_source_ocr(
+    job_id: str,
+    source_id: int,
+    expected_source_editor_hash: str = Form(...),
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
     row = _source(job_id, source_id)
+    assert_expected_source_editor_hash(dict(row), expected_source_editor_hash)
+    with connect() as con:
+        job = con.execute('SELECT raw_transcript,structured_json FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
+    if not job:
+        raise HTTPException(404, 'Lesson studio job not found')
+    assert_expected_content_hash(dict(job), expected_content_hash)
     key = row.get('adjusted_object_key')
     if not key:
         raise HTTPException(409, 'Create an adjusted derivative before rerunning OCR')
     data = get_bytes(key)
     primary, alternate, envelope = _verified_ocr(data, 'image/png', int(row['position']))
     with connect() as con:
-        job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
-        if not job:
-            raise HTTPException(404, 'Lesson studio job not found')
-        current = con.execute('''SELECT adjusted_object_key FROM science_lesson_sources
-          WHERE id=%s AND job_id=%s FOR UPDATE''', (source_id, job_id)).fetchone()
+        lock_job_for_mutation(con, job_id, expected_content_hash)
+        current = con.execute('SELECT * FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
         if not current:
             raise HTTPException(404, 'Lesson source not found')
-        if current.get('adjusted_object_key') != key:
-            raise HTTPException(409, 'Adjusted source changed during OCR; rerun against the current derivative')
+        assert_expected_source_editor_hash(dict(current), expected_source_editor_hash)
         con.execute('''UPDATE science_lesson_sources SET extracted_text=%s,alternate_ocr_text=%s,
           confidence=%s,ocr_confidence_band=%s,ocr_conflicts=%s::jsonb,requires_review=TRUE
           WHERE id=%s AND job_id=%s''',
@@ -197,19 +248,24 @@ def rerun_adjusted_source_ocr(job_id: str, source_id: int):
         'teacher_approval_required': True,
         'previous_approval_invalidated': True,
         'previous_pdf_invalidated': True,
+        'stale_write_protected': True,
     }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/reset-adjustment', dependencies=[Depends(require_admin)])
-def reset_source_adjustment(job_id: str, source_id: int):
+def reset_source_adjustment(
+    job_id: str,
+    source_id: int,
+    expected_source_editor_hash: str = Form(...),
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
     _editor_schema()
     with connect() as con:
-        job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
-        if not job:
-            raise HTTPException(404, 'Lesson studio job not found')
-        current = con.execute('SELECT id FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
+        lock_job_for_mutation(con, job_id, expected_content_hash)
+        current = con.execute('SELECT * FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
         if not current:
             raise HTTPException(404, 'Lesson source not found')
+        assert_expected_source_editor_hash(dict(current), expected_source_editor_hash)
         con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=NULL,adjustment_meta=NULL,
           requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''', (source_id, job_id))
         invalidate_release_state(con, job_id, status='review_required')
@@ -219,4 +275,5 @@ def reset_source_adjustment(job_id: str, source_id: int):
         'original_preserved': True,
         'previous_approval_invalidated': True,
         'previous_pdf_invalidated': True,
+        'stale_write_protected': True,
     }

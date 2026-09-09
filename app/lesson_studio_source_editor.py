@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def _editor_schema() -> None:
+    """Ensure adjusted-source metadata columns exist for the focused source editor."""
     _schema()
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_sources ADD COLUMN IF NOT EXISTS adjusted_object_key text')
@@ -36,6 +37,7 @@ def _editor_schema() -> None:
 
 
 def _source(job_id: str, source_id: int):
+    """Load one image source that is eligible for manual pre-OCR correction."""
     _editor_schema()
     with connect() as con:
         row = con.execute('SELECT * FROM science_lesson_sources WHERE id=%s AND job_id=%s', (source_id, job_id)).fetchone()
@@ -47,18 +49,20 @@ def _source(job_id: str, source_id: int):
 
 
 def _delete_unpromoted_adjusted_source(key: str) -> None:
-    """Best-effort cleanup for one uniquely owned adjusted-source upload."""
+    """Best-effort cleanup for an unpromoted or superseded adjusted-source object."""
     try:
         delete_object(key)
     except Exception:
-        logger.exception('Failed to delete unpromoted adjusted lesson source %s', key)
+        logger.exception('Failed to delete adjusted lesson source %s', key)
 
 
 def _clamp01(value: float) -> float:
+    """Clamp one normalized image-coordinate value into the inclusive zero-to-one range."""
     return min(1.0, max(0.0, float(value)))
 
 
 def _crop(img: Image.Image, left: float, top: float, right: float, bottom: float) -> Image.Image:
+    """Crop an image using normalized coordinates while rejecting unusably small regions."""
     l, t, r, b = map(_clamp01, (left, top, right, bottom))
     if r - l < 0.05 or b - t < 0.05:
         raise HTTPException(400, 'Crop region is too small')
@@ -67,6 +71,7 @@ def _crop(img: Image.Image, left: float, top: float, right: float, bottom: float
 
 
 def _perspective(img: Image.Image, points: list[float]) -> Image.Image:
+    """Apply a normalized four-corner perspective correction to a source image."""
     if len(points) != 8:
         raise HTTPException(400, 'perspective_json must contain 8 normalized numbers')
     vals = [_clamp01(x) for x in points]
@@ -83,6 +88,7 @@ def _perspective(img: Image.Image, points: list[float]) -> Image.Image:
 
 
 def _render_adjusted(data: bytes, *, left: float, top: float, right: float, bottom: float, rotation: int, perspective_json: str) -> tuple[bytes, dict]:
+    """Render a non-destructive PNG derivative plus deterministic adjustment metadata."""
     try:
         img = Image.open(BytesIO(data)).convert('RGB')
     except Exception as exc:
@@ -155,6 +161,7 @@ def adjust_lesson_source(
     expected_source_editor_hash: str = Form(...),
     expected_content_hash: str = Depends(lesson_content_precondition),
 ):
+    """Promote a unique adjusted image only if locked lesson/source revisions still match the editor."""
     row = _source(job_id, source_id)
     assert_expected_source_editor_hash(dict(row), expected_source_editor_hash)
     with connect() as con:
@@ -176,6 +183,7 @@ def adjust_lesson_source(
     )
     key = f'lesson-studio/{job_id}/adjusted-source-{source_id}-{uuid.uuid4().hex}.png'
     put_bytes(key, adjusted, 'image/png')
+    previous_key = None
     try:
         with connect() as con:
             lock_job_for_mutation(con, job_id, expected_content_hash)
@@ -183,6 +191,7 @@ def adjust_lesson_source(
             if not current:
                 raise HTTPException(404, 'Lesson source not found')
             assert_expected_source_editor_hash(dict(current), expected_source_editor_hash)
+            previous_key = current.get('adjusted_object_key')
             con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=%s,adjustment_meta=%s::jsonb,
               requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''',
               (key, json.dumps(meta, ensure_ascii=False), source_id, job_id))
@@ -190,6 +199,8 @@ def adjust_lesson_source(
     except Exception:
         _delete_unpromoted_adjusted_source(key)
         raise
+    if previous_key and previous_key != key:
+        _delete_unpromoted_adjusted_source(previous_key)
     return {
         'adjusted': True,
         'source_id': source_id,
@@ -203,6 +214,7 @@ def adjust_lesson_source(
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/adjusted', dependencies=[Depends(require_admin)])
 def adjusted_source_preview(job_id: str, source_id: int):
+    """Return the current adjusted derivative without mutating source or release state."""
     row = _source(job_id, source_id)
     key = row.get('adjusted_object_key')
     if not key:
@@ -217,6 +229,7 @@ def rerun_adjusted_source_ocr(
     expected_source_editor_hash: str = Form(...),
     expected_content_hash: str = Depends(lesson_content_precondition),
 ):
+    """Re-run OCR against the exact adjusted derivative and reject a stale result before persistence."""
     row = _source(job_id, source_id)
     assert_expected_source_editor_hash(dict(row), expected_source_editor_hash)
     with connect() as con:
@@ -259,16 +272,21 @@ def reset_source_adjustment(
     expected_source_editor_hash: str = Form(...),
     expected_content_hash: str = Depends(lesson_content_precondition),
 ):
+    """Detach the current derivative under lock and delete the obsolete object only after commit."""
     _editor_schema()
+    previous_key = None
     with connect() as con:
         lock_job_for_mutation(con, job_id, expected_content_hash)
         current = con.execute('SELECT * FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
         if not current:
             raise HTTPException(404, 'Lesson source not found')
         assert_expected_source_editor_hash(dict(current), expected_source_editor_hash)
+        previous_key = current.get('adjusted_object_key')
         con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=NULL,adjustment_meta=NULL,
           requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''', (source_id, job_id))
         invalidate_release_state(con, job_id, status='review_required')
+    if previous_key:
+        _delete_unpromoted_adjusted_source(previous_key)
     return {
         'reset': True,
         'source_id': source_id,

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import uuid
 
 from fastapi import Depends, HTTPException
 from fastapi.responses import Response
@@ -13,13 +15,15 @@ from .science_lesson_studio import _schema
 from .services.lesson_diagram_integrity import diagram_manifest
 from .services.lesson_integrity import review_source_hash
 from .services.lesson_pdf_renderer import render_lesson_pdf
-from .services.storage import put_bytes, storage_configured
+from .services.storage import delete_object, put_bytes, storage_configured
 
 OPENAI_REVIEW_CONFIGURED = bool(os.getenv('OPENAI_API_KEY', '').strip())
 REFERENCE_REVIEW_REQUIRED = os.getenv('LESSON_STUDIO_REQUIRE_REFERENCE_REVIEW', 'false').strip().lower() in {'1','true','yes','on'}
+logger = logging.getLogger(__name__)
 
 
 def _quality_schema() -> None:
+    """Ensure every quality, approval, review, and PDF binding column exists."""
     _schema()
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
@@ -39,6 +43,7 @@ def _quality_schema() -> None:
 
 
 def _second_review_check(row: dict, structured: dict) -> dict:
+    """Evaluate the optional independent second review against current content."""
     if not OPENAI_REVIEW_CONFIGURED:
         return {'id': 'independent_second_review', 'ok': True, 'value': 'optional_not_configured'}
     review = row.get('second_review') or {}
@@ -67,6 +72,7 @@ def _second_review_check(row: dict, structured: dict) -> dict:
 
 
 def _reference_review_check(row: dict, structured: dict) -> dict:
+    """Evaluate source-reference alignment without treating references as authoring input."""
     review = row.get('reference_review') or {}
     transcript = row.get('raw_transcript') or ''
     current_hash = review_source_hash(transcript, structured)
@@ -103,12 +109,23 @@ def _reference_review_check(row: dict, structured: dict) -> dict:
     }
 
 
+def _canonical_source_transcript(sources: list[dict]) -> str | None:
+    """Reconstruct the transcript from locked source rows when full source fields are available."""
+    if not sources or any('position' not in s or 'filename' not in s or 'extracted_text' not in s for s in sources):
+        return None
+    return '\n\n'.join(
+        f"[مصدر {s['position']}: {s['filename']}]\n{s.get('extracted_text') or ''}" for s in sources
+    )
+
+
 def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict:
     """Evaluate every release gate from one coherent job/source state without I/O."""
     row = dict(row)
     sources = [dict(x) for x in sources]
     structured = dict(row.get('structured_json') or {})
     source_pending = sum(1 for s in sources if s.get('requires_review'))
+    source_transcript = _canonical_source_transcript(sources)
+    source_transcript_bound = source_transcript is None or source_transcript == str(row.get('raw_transcript') or '')
     uncertain = list(structured.get('uncertain_items') or [])
     diagrams = list(structured.get('diagram_specs') or [])
     manifest = diagram_manifest(structured)
@@ -138,6 +155,7 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
     )
     checks = [
         {'id': 'source_preserved', 'ok': int(row.get('source_count') or 0) == len(sources) and len(sources) > 0, 'value': len(sources)},
+        {'id': 'source_transcript_binding', 'ok': source_transcript_bound, 'value': source_transcript_bound},
         {'id': 'ocr_review_clear', 'ok': source_pending == 0, 'value': source_pending},
         {'id': 'structured_content_ready', 'ok': bool(structured), 'value': bool(structured)},
         {'id': 'uncertainty_clear', 'ok': len(uncertain) == 0, 'value': len(uncertain)},
@@ -177,6 +195,7 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
             'scientific_reference_review_required': REFERENCE_REVIEW_REQUIRED,
             'approval_and_export_recheck_locked_state': True,
             'quality_cache_written_from_locked_state': True,
+            'raw_transcript_must_match_locked_source_rows': True,
         },
     }
 
@@ -189,7 +208,7 @@ def _locked_job_state(con, job_id: str) -> tuple[dict, list[dict]]:
     ).fetchone()
     if not row:
         raise HTTPException(404, 'Lesson studio job not found')
-    sources = list(con.execute('''SELECT id,requires_review
+    sources = list(con.execute('''SELECT id,position,filename,extracted_text,requires_review
       FROM science_lesson_sources WHERE job_id=%s ORDER BY position FOR UPDATE''',
       (job_id,)).fetchall())
     return dict(row), [dict(x) for x in sources]
@@ -220,7 +239,34 @@ def _require_snapshot_state(snapshot: dict, *, final: bool) -> None:
     raise HTTPException(409, {'message': message, 'failed': failed})
 
 
+def _final_pdf_object_key(job_id: str, content_hash: str, diagram_hash: str) -> str:
+    """Return a unique immutable object key bound to the verified lesson contract."""
+    export_id = uuid.uuid4().hex
+    return (
+        f'lesson-studio/{job_id}/final-approved-'
+        f'{content_hash[:16]}-{diagram_hash[:16]}-{export_id}.pdf'
+    )
+
+
+def _delete_unpromoted_pdf(job_id: str, key: str) -> None:
+    """Delete a failed export only while a locked row proves the object is not currently promoted."""
+    try:
+        with connect() as con:
+            row = con.execute(
+                'SELECT pdf_object_key FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+                (job_id,),
+            ).fetchone()
+            if row and row.get('pdf_object_key') == key:
+                return
+            delete_object(key)
+    except Exception:
+        # An orphan is safer than deleting an object whose live reference could
+        # not be verified because the database or storage cleanup failed.
+        logger.exception('Failed to safely delete unpromoted lesson PDF object %s', key)
+
+
 def quality_snapshot(job_id: str) -> dict:
+    """Recompute and cache quality state while holding the same locked database state."""
     _quality_schema()
     with connect() as con:
         row, sources = _locked_job_state(con, job_id)
@@ -232,11 +278,13 @@ def quality_snapshot(job_id: str) -> dict:
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/quality', dependencies=[Depends(require_admin)])
 def lesson_quality(job_id: str):
+    """Expose the current locked quality snapshot to an authenticated administrator."""
     return quality_snapshot(job_id)
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/approve-content', dependencies=[Depends(require_admin)])
 def approve_lesson_content(job_id: str):
+    """Approve only the exact content and diagram contract that passes all locked gates."""
     _quality_schema()
     with connect() as con:
         row, sources = _locked_job_state(con, job_id)
@@ -271,6 +319,7 @@ def approve_lesson_content(job_id: str):
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/revoke-content-approval', dependencies=[Depends(require_admin)])
 def revoke_lesson_content_approval(job_id: str):
+    """Revoke teacher approval and invalidate every PDF binding derived from it."""
     _quality_schema()
     with connect() as con:
         if not con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone():
@@ -286,6 +335,7 @@ def revoke_lesson_content_approval(job_id: str):
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/final-pdf', dependencies=[Depends(require_admin)])
 def export_final_lesson_pdf(job_id: str):
+    """Render and promote a PDF only if its approved contract survives a post-render recheck."""
     _quality_schema()
 
     # Capture one fully locked and verified state for rendering. Nothing is
@@ -301,47 +351,48 @@ def export_final_lesson_pdf(job_id: str):
                     (json.dumps(snapshot, ensure_ascii=False), job_id))
 
     data = render_lesson_pdf(structured)
-    key = (
-        f'lesson-studio/{job_id}/final-approved-'
-        f'{verified_content_hash[:16]}-{verified_diagram_hash[:16]}.pdf'
-    )
-    if storage_configured():
-        # The object key is immutable for the verified state. If content changes
-        # during upload, this blob stays unreferenced instead of overwriting the
-        # currently approved PDF pointer.
+    key = _final_pdf_object_key(job_id, verified_content_hash, verified_diagram_hash)
+    persist_to_storage = storage_configured()
+    uploaded = False
+    if persist_to_storage:
         put_bytes(key, data, 'application/pdf')
+        uploaded = True
 
-    # Re-lock and re-evaluate after rendering/upload. This closes the TOCTOU
-    # window identified by code review: only the exact state verified above can
-    # become the current final PDF.
-    with connect() as con:
-        current_row, current_sources = _locked_job_state(con, job_id)
-        current_snapshot = _build_quality_snapshot(job_id, current_row, current_sources)
-        _require_snapshot_state(current_snapshot, final=True)
-        current_content_hash, current_diagram_hash = _snapshot_contract(current_snapshot)
-        if (
-            current_content_hash != verified_content_hash
-            or current_diagram_hash != verified_diagram_hash
-        ):
-            raise HTTPException(409, {
-                'message': 'Lesson changed during PDF export; generated file was not promoted',
-                'verified_content_hash': verified_content_hash,
-                'current_content_hash': current_content_hash,
-                'verified_diagram_manifest_hash': verified_diagram_hash,
-                'current_diagram_manifest_hash': current_diagram_hash,
-            })
-        if storage_configured():
-            con.execute('''UPDATE science_lesson_jobs SET
-              pdf_object_key=%s,pdf_source_hash=%s,pdf_diagram_manifest_hash=%s,
-              quality_snapshot=%s::jsonb,
-              status='final_pdf_ready',updated_at=now() WHERE id=%s''',
-              (
-                  key,
-                  verified_content_hash,
-                  verified_diagram_hash,
-                  json.dumps(current_snapshot, ensure_ascii=False),
-                  job_id,
-              ))
+    # Re-lock and re-evaluate after rendering/upload. Only the exact state
+    # verified above can become the current final PDF.
+    try:
+        with connect() as con:
+            current_row, current_sources = _locked_job_state(con, job_id)
+            current_snapshot = _build_quality_snapshot(job_id, current_row, current_sources)
+            _require_snapshot_state(current_snapshot, final=True)
+            current_content_hash, current_diagram_hash = _snapshot_contract(current_snapshot)
+            if (
+                current_content_hash != verified_content_hash
+                or current_diagram_hash != verified_diagram_hash
+            ):
+                raise HTTPException(409, {
+                    'message': 'Lesson changed during PDF export; generated file was not promoted',
+                    'verified_content_hash': verified_content_hash,
+                    'current_content_hash': current_content_hash,
+                    'verified_diagram_manifest_hash': verified_diagram_hash,
+                    'current_diagram_manifest_hash': current_diagram_hash,
+                })
+            if persist_to_storage:
+                con.execute('''UPDATE science_lesson_jobs SET
+                  pdf_object_key=%s,pdf_source_hash=%s,pdf_diagram_manifest_hash=%s,
+                  quality_snapshot=%s::jsonb,
+                  status='final_pdf_ready',updated_at=now() WHERE id=%s''',
+                  (
+                      key,
+                      verified_content_hash,
+                      verified_diagram_hash,
+                      json.dumps(current_snapshot, ensure_ascii=False),
+                      job_id,
+                  ))
+    except Exception:
+        if uploaded:
+            _delete_unpromoted_pdf(job_id, key)
+        raise
 
     return Response(
         data,

@@ -30,6 +30,12 @@ _REQUIRED_JOB_COLUMNS = (
     'pdf_source_hash',
     'pdf_diagram_manifest_hash',
 )
+_RELEASE_CANDIDATE_PREDICATE = '''(
+    reference_review IS NOT NULL OR reference_review_hash IS NOT NULL OR
+    teacher_approved=TRUE OR teacher_approval_source_hash IS NOT NULL OR
+    teacher_approval_diagram_hash IS NOT NULL OR pdf_object_key IS NOT NULL OR
+    pdf_source_hash IS NOT NULL OR pdf_diagram_manifest_hash IS NOT NULL
+)'''
 
 
 def _schema_snapshot(con) -> dict:
@@ -62,6 +68,26 @@ def _schema_snapshot(con) -> dict:
     }
 
 
+def _reference_review_is_fresh(row: dict, content_hash: str) -> bool:
+    """Require a current aligned scientific-reference review with no blocking findings."""
+    review = row.get('reference_review') or {}
+    if not isinstance(review, dict):
+        return False
+    findings = review.get('findings') or []
+    if not isinstance(findings, list):
+        findings = []
+    blocking = any(
+        isinstance(item, dict) and item.get('severity') in {'critical', 'review'}
+        for item in findings
+    )
+    return bool(
+        review
+        and row.get('reference_review_hash') == content_hash
+        and review.get('verdict') == 'aligned'
+        and not blocking
+    )
+
+
 def _job_binding_summary(row: dict, *, pending_sources: int, total_sources: int) -> dict:
     """Evaluate one lesson's release bindings against its exact current content and diagram identities."""
     structured = dict(row.get('structured_json') or {})
@@ -72,10 +98,7 @@ def _job_binding_summary(row: dict, *, pending_sources: int, total_sources: int)
     ocr_clear = sources_bound and pending_sources == 0
 
     reference_recorded = bool(row.get('reference_review'))
-    reference_fresh = bool(
-        reference_recorded
-        and row.get('reference_review_hash') == content_hash
-    )
+    reference_fresh = _reference_review_is_fresh(row, content_hash)
 
     teacher_recorded = bool(row.get('teacher_approved'))
     teacher_fresh = bool(
@@ -144,76 +167,116 @@ def _empty_counts(schema: dict) -> dict:
             'orphan_pdf_hashes': 0,
         },
         'ocr': {'unresolved': 0, 'total': 0},
+        'scan': {'release_candidates': 0, 'mapped_references': 0, 'bounded': True},
     }
 
 
 def _counts() -> dict:
-    """Read production acceptance facts without DDL, cache writes, approvals, or object mutations."""
+    """Read production acceptance facts while bounding content-heavy scans to release-relevant rows."""
     with connect() as con:
         schema = _schema_snapshot(con)
         if not schema['ready']:
             return _empty_counts(schema)
 
-        ref_rows = list(con.execute(
-            '''SELECT id,active,ingestion_status,curriculum_map,curriculum_map_source_hash
+        ref_summary = con.execute(
+            '''SELECT
+                 count(*) FILTER (WHERE active=TRUE) active,
+                 count(*) FILTER (WHERE active=TRUE AND ingestion_status='ready') ingestion_ready,
+                 count(*) FILTER (WHERE active=TRUE AND curriculum_map IS NOT NULL) with_curriculum_map
                FROM science_reference_documents'''
+        ).fetchone()
+        mapped_refs = list(con.execute(
+            '''SELECT id,curriculum_map_source_hash
+               FROM science_reference_documents
+               WHERE active=TRUE AND curriculum_map IS NOT NULL'''
         ).fetchall())
         page_rows = list(con.execute(
-            '''SELECT document_id,page_number,page_text FROM science_reference_pages
-               WHERE btrim(page_text)<>'' ORDER BY document_id,page_number'''
+            '''SELECT p.document_id,p.page_number,p.page_text
+               FROM science_reference_pages p
+               JOIN science_reference_documents d ON d.id=p.document_id
+               WHERE d.active=TRUE AND d.curriculum_map IS NOT NULL
+                 AND btrim(p.page_text)<>''
+               ORDER BY p.document_id,p.page_number'''
         ).fetchall())
+
+        job_summary = con.execute(
+            '''SELECT
+                 count(*) total,
+                 count(*) FILTER (
+                   WHERE structured_json IS NOT NULL AND structured_json <> '{}'::jsonb
+                 ) structured,
+                 count(*) FILTER (
+                   WHERE structured_json IS NOT NULL AND structured_json <> '{}'::jsonb
+                     AND source_count > 0
+                     AND source_count=(
+                       SELECT count(*) FROM science_lesson_sources s WHERE s.job_id=j.id
+                     )
+                     AND NOT EXISTS (
+                       SELECT 1 FROM science_lesson_sources s
+                       WHERE s.job_id=j.id AND s.requires_review=TRUE
+                     )
+                 ) ocr_clear_structured,
+                 count(*) FILTER (WHERE reference_review IS NOT NULL) reference_reviewed,
+                 count(*) FILTER (WHERE teacher_approved=TRUE) teacher_approved,
+                 count(*) FILTER (
+                   WHERE pdf_object_key IS NOT NULL AND btrim(pdf_object_key)<>''
+                 ) final_pdf_ready
+               FROM science_lesson_jobs j'''
+        ).fetchone()
+        ocr_summary = con.execute(
+            '''SELECT count(*) total,
+                      count(*) FILTER (WHERE requires_review=TRUE) unresolved
+               FROM science_lesson_sources'''
+        ).fetchone()
+
         job_rows = list(con.execute(
-            '''SELECT id,source_count,raw_transcript,structured_json,reference_review,
-                      reference_review_hash,teacher_approved,teacher_approval_source_hash,
-                      teacher_approval_diagram_hash,status,pdf_object_key,pdf_source_hash,
-                      pdf_diagram_manifest_hash
-               FROM science_lesson_jobs'''
+            f'''SELECT id,source_count,raw_transcript,structured_json,reference_review,
+                       reference_review_hash,teacher_approved,teacher_approval_source_hash,
+                       teacher_approval_diagram_hash,status,pdf_object_key,pdf_source_hash,
+                       pdf_diagram_manifest_hash
+                FROM science_lesson_jobs
+                WHERE {_RELEASE_CANDIDATE_PREDICATE}'''
         ).fetchall())
         source_rows = list(con.execute(
-            '''SELECT job_id,requires_review FROM science_lesson_sources'''
+            f'''SELECT s.job_id,count(*) total,
+                       count(*) FILTER (WHERE s.requires_review=TRUE) pending
+                FROM science_lesson_sources s
+                WHERE s.job_id IN (
+                  SELECT id FROM science_lesson_jobs
+                  WHERE {_RELEASE_CANDIDATE_PREDICATE}
+                )
+                GROUP BY s.job_id'''
         ).fetchall())
 
     pages_by_doc: dict[str, list[dict]] = {}
-    for row in page_rows:
-        pages_by_doc.setdefault(str(row['document_id']), []).append(dict(row))
+    for raw in page_rows:
+        row = dict(raw)
+        pages_by_doc.setdefault(str(row['document_id']), []).append(row)
 
     refs = {
-        'active': 0,
-        'ingestion_ready': 0,
-        'with_curriculum_map': 0,
+        'active': int(ref_summary.get('active') or 0),
+        'ingestion_ready': int(ref_summary.get('ingestion_ready') or 0),
+        'with_curriculum_map': int(ref_summary.get('with_curriculum_map') or 0),
         'fresh_curriculum_map': 0,
     }
-    for raw in ref_rows:
+    for raw in mapped_refs:
         row = dict(raw)
-        if not row.get('active'):
-            continue
-        refs['active'] += 1
-        if row.get('ingestion_status') == 'ready':
-            refs['ingestion_ready'] += 1
-        if row.get('curriculum_map'):
-            refs['with_curriculum_map'] += 1
-            current_pages_hash = _pages_hash(pages_by_doc.get(str(row['id']), []))
-            if row.get('curriculum_map_source_hash') == current_pages_hash:
-                refs['fresh_curriculum_map'] += 1
+        current_pages_hash = _pages_hash(pages_by_doc.get(str(row['id']), []))
+        if row.get('curriculum_map_source_hash') == current_pages_hash:
+            refs['fresh_curriculum_map'] += 1
 
-    source_totals: dict[str, int] = {}
-    source_pending: dict[str, int] = {}
-    for raw in source_rows:
-        row = dict(raw)
-        key = str(row['job_id'])
-        source_totals[key] = source_totals.get(key, 0) + 1
-        if row.get('requires_review'):
-            source_pending[key] = source_pending.get(key, 0) + 1
+    source_totals = {str(row['job_id']): int(row.get('total') or 0) for row in source_rows}
+    source_pending = {str(row['job_id']): int(row.get('pending') or 0) for row in source_rows}
 
     jobs = {
-        'total': 0,
-        'structured': 0,
-        'ocr_clear_structured': 0,
-        'reference_reviewed': 0,
+        'total': int(job_summary.get('total') or 0),
+        'structured': int(job_summary.get('structured') or 0),
+        'ocr_clear_structured': int(job_summary.get('ocr_clear_structured') or 0),
+        'reference_reviewed': int(job_summary.get('reference_reviewed') or 0),
         'fresh_reference_reviewed': 0,
-        'teacher_approved': 0,
+        'teacher_approved': int(job_summary.get('teacher_approved') or 0),
         'fresh_teacher_approved': 0,
-        'final_pdf_ready': 0,
+        'final_pdf_ready': int(job_summary.get('final_pdf_ready') or 0),
         'fresh_final_pdf_ready': 0,
         'complete_release_jobs': 0,
     }
@@ -232,25 +295,14 @@ def _counts() -> dict:
             pending_sources=source_pending.get(key, 0),
             total_sources=source_totals.get(key, 0),
         )
-        jobs['total'] += 1
-        if state['structured_ready']:
-            jobs['structured'] += 1
-            if state['ocr_clear']:
-                jobs['ocr_clear_structured'] += 1
-        if state['reference_recorded']:
-            jobs['reference_reviewed'] += 1
         if state['reference_fresh']:
             jobs['fresh_reference_reviewed'] += 1
-        if state['teacher_recorded']:
-            jobs['teacher_approved'] += 1
-            if not state['teacher_fresh']:
-                integrity['stale_teacher_approval_bindings'] += 1
+        if state['teacher_recorded'] and not state['teacher_fresh']:
+            integrity['stale_teacher_approval_bindings'] += 1
         if state['teacher_fresh']:
             jobs['fresh_teacher_approved'] += 1
-        if state['pdf_recorded']:
-            jobs['final_pdf_ready'] += 1
-            if not state['pdf_fresh']:
-                integrity['stale_pdf_bindings'] += 1
+        if state['pdf_recorded'] and not state['pdf_fresh']:
+            integrity['stale_pdf_bindings'] += 1
         if state['pdf_fresh']:
             jobs['fresh_final_pdf_ready'] += 1
         if state['complete_release']:
@@ -271,8 +323,13 @@ def _counts() -> dict:
         'jobs': jobs,
         'integrity': integrity,
         'ocr': {
-            'unresolved': sum(source_pending.values()),
-            'total': sum(source_totals.values()),
+            'unresolved': int(ocr_summary.get('unresolved') or 0),
+            'total': int(ocr_summary.get('total') or 0),
+        },
+        'scan': {
+            'release_candidates': len(job_rows),
+            'mapped_references': len(mapped_refs),
+            'bounded': True,
         },
     }
 
@@ -347,9 +404,9 @@ def acceptance_snapshot() -> dict:
         },
         {
             'id': 'reference_review',
-            'label': 'Scientific Reference Review حديث للمحتوى الحالي',
+            'label': 'Scientific Reference Review حديث ومتوافق مع المحتوى الحالي',
             'ok': jobs['fresh_reference_reviewed'] > 0,
-            'detail': f"{jobs['fresh_reference_reviewed']} مراجعة حديثة من {jobs['reference_reviewed']} مراجعة موجودة",
+            'detail': f"{jobs['fresh_reference_reviewed']} مراجعة حديثة ومتوافقة من {jobs['reference_reviewed']} مراجعة موجودة",
             'owner': 'teacher',
         },
         {
@@ -388,7 +445,9 @@ def acceptance_snapshot() -> dict:
         },
         'policy': {
             'diagnostics_are_read_only': True,
+            'content_heavy_scans_are_release_bounded': True,
             'no_acceptance_criterion_satisfied_by_invented_scientific_content': True,
+            'reference_review_must_be_current_aligned_and_nonblocking': True,
             'teacher_approval_bound_to_content_and_diagram_manifest': True,
             'final_pdf_bound_to_content_and_diagram_manifest': True,
             'one_end_to_end_job_required_for_final_acceptance': True,
@@ -409,7 +468,7 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" conten
 <div id=out class=box>جارٍ تشغيل فحص القبول الآمن...</div>
 <script>
 const e=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-async function load(){let r=await fetch('/api/admin/lesson-studio/acceptance');if(r.status===401){location.href='/admin/login';return}let x=await r.json();if(!r.ok){out.innerHTML='<div class=bad>تعذر تشغيل الفحص</div>';return}let c=x.counts,j=c.jobs,i=c.integrity;out.innerHTML='<h1>Production Acceptance — Lesson Studio v'+e(x.version)+'</h1><p class="'+(x.acceptance_ready?'ok':x.platform_ready?'warn':'bad')+'"><b>'+(x.acceptance_ready?'✅ القبول الكامل مكتمل':x.platform_ready?'⚠️ المنصة سليمة وتنتظر بوابات المحتوى البشرية':'⛔ يوجد مانع برمجي/تشغيلي')+'</b></p><div class=grid><div class=card><div class=muted>Schema</div><div class=n>'+ (c.schema.ready?'✅':'⛔') +'</div></div><div class=card><div class=muted>دروس منظمة</div><div class=n>'+j.structured+'</div></div><div class=card><div class=muted>اعتمادات حديثة</div><div class=n>'+j.fresh_teacher_approved+'</div></div><div class=card><div class=muted>مسارات PDF مكتملة</div><div class=n>'+j.complete_release_jobs+'</div></div></div><h2>بوابات القبول</h2>'+x.checks.map(v=>'<div class="item '+(v.ok?'ok':v.owner==='system'?'bad':'warn')+'">'+(v.ok?'✅ ':'⚠️ ')+e(v.label)+'<div class=muted>'+e(v.detail)+'</div></div>').join('')+'<h2>Integrity Diagnostics</h2><div class=item>Stale teacher approvals: '+e(i.stale_teacher_approval_bindings)+'</div><div class=item>Stale PDF bindings: '+e(i.stale_pdf_bindings)+'</div><div class=item>Orphan teacher hashes: '+e(i.orphan_teacher_hashes)+'</div><div class=item>Orphan PDF hashes: '+e(i.orphan_pdf_hashes)+'</div><p class=muted>هذا الفحص لا يكتب cache، ولا يعتمد محتوى، ولا ينشئ PDF، ولا يغلق أي بوابة بشرية تلقائيًا.</p>'}
+async function load(){let r=await fetch('/api/admin/lesson-studio/acceptance');if(r.status===401){location.href='/admin/login';return}if(!r.ok){out.innerHTML='<div class=bad>تعذر تشغيل الفحص</div>';return}let x;try{x=await r.json()}catch(err){out.innerHTML='<div class=bad>تعذر تشغيل الفحص</div>';return}let c=x.counts,j=c.jobs,i=c.integrity;out.innerHTML='<h1>Production Acceptance — Lesson Studio v'+e(x.version)+'</h1><p class="'+(x.acceptance_ready?'ok':x.platform_ready?'warn':'bad')+'"><b>'+(x.acceptance_ready?'✅ القبول الكامل مكتمل':x.platform_ready?'⚠️ المنصة سليمة وتنتظر بوابات المحتوى البشرية':'⛔ يوجد مانع برمجي/تشغيلي')+'</b></p><div class=grid><div class=card><div class=muted>Schema</div><div class=n>'+ (c.schema.ready?'✅':'⛔') +'</div></div><div class=card><div class=muted>دروس منظمة</div><div class=n>'+j.structured+'</div></div><div class=card><div class=muted>اعتمادات حديثة</div><div class=n>'+j.fresh_teacher_approved+'</div></div><div class=card><div class=muted>مسارات PDF مكتملة</div><div class=n>'+j.complete_release_jobs+'</div></div></div><h2>بوابات القبول</h2>'+x.checks.map(v=>'<div class="item '+(v.ok?'ok':v.owner==='system'?'bad':'warn')+'">'+(v.ok?'✅ ':'⚠️ ')+e(v.label)+'<div class=muted>'+e(v.detail)+'</div></div>').join('')+'<h2>Integrity Diagnostics</h2><div class=item>Stale teacher approvals: '+e(i.stale_teacher_approval_bindings)+'</div><div class=item>Stale PDF bindings: '+e(i.stale_pdf_bindings)+'</div><div class=item>Orphan teacher hashes: '+e(i.orphan_teacher_hashes)+'</div><div class=item>Orphan PDF hashes: '+e(i.orphan_pdf_hashes)+'</div><div class=item>Release-bound job scan: '+e(c.scan.release_candidates)+' · mapped refs: '+e(c.scan.mapped_references)+'</div><p class=muted>هذا الفحص لا يكتب cache، ولا يعتمد محتوى، ولا ينشئ PDF، ولا يغلق أي بوابة بشرية تلقائيًا.</p>'}
 load();
 </script></main></html>'''
 

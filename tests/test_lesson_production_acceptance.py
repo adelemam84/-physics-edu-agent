@@ -87,8 +87,14 @@ class LessonProductionAcceptanceTests(unittest.TestCase):
         self.assertFalse(state['complete_release'])
 
     def test_malformed_reference_findings_fail_closed(self):
-        """Malformed findings payloads must never be interpreted as a clean scientific review."""
-        for malformed in ({'severity': 'critical'}, 'unparsed findings', 7):
+        """Malformed findings payloads or entries must never be interpreted as a clean scientific review."""
+        malformed_values = (
+            {'severity': 'critical'},
+            'unparsed findings',
+            7,
+            [{'severity': 'note'}, 'malformed entry'],
+        )
+        for malformed in malformed_values:
             row = self._row()
             row['reference_review'] = {'verdict': 'aligned', 'findings': malformed}
             state = _job_binding_summary(row, pending_sources=0, total_sources=1)

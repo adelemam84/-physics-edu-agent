@@ -5,6 +5,7 @@ from app.services.lesson_release_state import (
     _RELEASE_COLUMNS,
     _RELEASE_OBJECTS,
     ensure_release_state_schema,
+    invalidate_release_state,
 )
 
 
@@ -41,6 +42,34 @@ class LessonReleaseStateSchemaTests(unittest.TestCase):
         for column in required:
             with self.subTest(column=column):
                 self.assertIn(column, ddl)
+
+    def test_invalidation_clears_every_release_binding_atomically(self):
+        """One mutation invalidation must revoke all approvals, reviews, quality cache, and PDF bindings."""
+        con = MagicMock()
+        invalidate_release_state(con, 'job-1', status='content_review_required')
+
+        sql, params = con.execute.call_args.args
+        required_fragments = {
+            'teacher_approved=FALSE',
+            'teacher_approved_at=NULL',
+            'teacher_approval_source_hash=NULL',
+            'teacher_approval_diagram_hash=NULL',
+            'quality_snapshot=NULL',
+            'second_review=NULL',
+            'second_review_provider=NULL',
+            'second_review_at=NULL',
+            'second_review_source_hash=NULL',
+            'reference_review=NULL',
+            'reference_review_hash=NULL',
+            'reference_review_at=NULL',
+            'pdf_object_key=NULL',
+            'pdf_source_hash=NULL',
+            'pdf_diagram_manifest_hash=NULL',
+        }
+        for fragment in required_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, sql)
+        self.assertEqual(params, ('content_review_required', 'job-1'))
 
 
 if __name__ == '__main__':

@@ -7,12 +7,17 @@ from fastapi import Depends, Form, HTTPException
 from .db import connect
 from .main import app
 from .security import require_admin
-from .science_lesson_studio import _job, _schema
+from .science_lesson_studio import _schema
 from .services.lesson_diagram_integrity import diagram_spec_hash
+from .services.lesson_mutation_guard import (
+    assert_expected_content_hash,
+    content_hash_from_row,
+    lesson_content_precondition,
+)
 from .services.lesson_release_state import invalidate_release_state
 from .services.science_notation import classify_notation
 from .lesson_studio_diagram_spec_history import save_diagram_spec
-from .lesson_studio_version_history import snapshot_job
+from .lesson_studio_version_history import _history_schema, _insert_job_snapshot
 
 
 def _content_review_schema() -> None:
@@ -33,11 +38,16 @@ def _load_structured(job_id: str) -> tuple[dict, dict]:
     return dict(row), structured
 
 
-def _save_structured(job_id: str, structured: dict) -> None:
-    """Persist a teacher edit and invalidate every approval/export bound to old content."""
+def _save_structured(job_id: str, structured: dict, expected_content_hash: str) -> None:
+    """Persist a teacher edit only against its visible base version and atomically snapshot/invalidate it."""
     _content_review_schema()
-    snapshot_job(job_id, 'structured_content_edit')
+    _history_schema()
     with connect() as con:
+        row = con.execute('SELECT * FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, 'Lesson studio job not found')
+        assert_expected_content_hash(dict(row), expected_content_hash)
+        _insert_job_snapshot(con, job_id, row, 'structured_content_edit')
         con.execute(
             '''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,updated_at=now()
                WHERE id=%s''',
@@ -58,14 +68,15 @@ def _recount_notation_quality(structured: dict) -> None:
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/content-review', dependencies=[Depends(require_admin)])
 def content_review(job_id: str):
-    """Return the teacher-review workspace for structured lesson content."""
-    _, structured = _load_structured(job_id)
+    """Return the teacher-review workspace plus the exact content hash represented by this payload."""
+    row, structured = _load_structured(job_id)
     diagrams = structured.get('diagram_specs') or []
     uncertain = structured.get('uncertain_items') or []
     sections = structured.get('sections') or []
     notations = structured.get('equations_or_rules') or []
     return {
         'job_id': job_id,
+        'content_hash': content_hash_from_row(row),
         'sections': sections,
         'uncertain_items': uncertain,
         'diagram_specs': diagrams,
@@ -81,8 +92,13 @@ def content_review(job_id: str):
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/parameters', dependencies=[Depends(require_admin)])
-def update_diagram_parameters(job_id: str, diagram_index: int, parameters_json: str = Form(...)):
-    """Save reviewed deterministic diagram parameters without auto-approving them."""
+def update_diagram_parameters(
+    job_id: str,
+    diagram_index: int,
+    parameters_json: str = Form(...),
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
+    """Save reviewed deterministic diagram parameters only against the visible lesson version."""
     try:
         parameters = json.loads(parameters_json or '{}')
     except json.JSONDecodeError as exc:
@@ -95,12 +111,18 @@ def update_diagram_parameters(job_id: str, diagram_index: int, parameters_json: 
         diagram_index,
         parameters,
         'Updated from the legacy Workspace parameters endpoint',
+        expected_content_hash=expected_content_hash,
     )
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/approve', dependencies=[Depends(require_admin)])
-def approve_diagram(job_id: str, diagram_index: int, teacher_note: str = Form('')):
-    """Bind teacher approval to the exact deterministic diagram specification hash."""
+def approve_diagram(
+    job_id: str,
+    diagram_index: int,
+    teacher_note: str = Form(''),
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
+    """Bind diagram approval to both its spec hash and the teacher-visible lesson version."""
     _, structured = _load_structured(job_id)
     diagrams = list(structured.get('diagram_specs') or [])
     if diagram_index < 0 or diagram_index >= len(diagrams):
@@ -118,19 +140,25 @@ def approve_diagram(job_id: str, diagram_index: int, teacher_note: str = Form(''
     diagram['diagram_engine'] = engine
     diagrams[diagram_index] = diagram
     structured['diagram_specs'] = diagrams
-    _save_structured(job_id, structured)
+    _save_structured(job_id, structured, expected_content_hash)
     return {
         'approved': True,
         'diagram_index': diagram_index,
         'diagram': diagram,
         'approved_spec_hash': current_spec_hash,
         'approval_binding_version': 'diagram-spec-hash-v1',
+        'teacher_visible_hash_verified': True,
     }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/uncertain/{item_index}/resolve', dependencies=[Depends(require_admin)])
-def resolve_uncertain_item(job_id: str, item_index: int, resolution: str = Form(...)):
-    """Record a teacher resolution for one uncertain extracted item."""
+def resolve_uncertain_item(
+    job_id: str,
+    item_index: int,
+    resolution: str = Form(...),
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
+    """Record a teacher resolution only against the exact visible structured lesson."""
     resolution = resolution.strip()
     if not resolution:
         raise HTTPException(400, 'Resolution is required')
@@ -143,8 +171,8 @@ def resolve_uncertain_item(job_id: str, item_index: int, resolution: str = Form(
     resolved.append({'original': original, 'resolution': resolution, 'teacher_resolved': True})
     structured['uncertain_items'] = uncertain
     structured['resolved_review_items'] = resolved
-    _save_structured(job_id, structured)
-    return {'resolved': True, 'remaining_uncertain_items': len(uncertain)}
+    _save_structured(job_id, structured, expected_content_hash)
+    return {'resolved': True, 'remaining_uncertain_items': len(uncertain), 'teacher_visible_hash_verified': True}
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/notations/{notation_index}/approve', dependencies=[Depends(require_admin)])
@@ -153,8 +181,9 @@ def approve_notation(
     notation_index: int,
     approved_expression: str = Form(...),
     teacher_note: str = Form(''),
+    expected_content_hash: str = Depends(lesson_content_precondition),
 ):
-    """Persist a teacher-approved notation expression and its review metadata."""
+    """Persist teacher-approved notation only against the exact visible lesson version."""
     expression = approved_expression.strip()
     if not expression:
         raise HTTPException(400, 'Approved expression cannot be empty')
@@ -179,12 +208,13 @@ def approve_notation(
     items[notation_index] = item
     structured['equations_or_rules'] = items
     _recount_notation_quality(structured)
-    _save_structured(job_id, structured)
+    _save_structured(job_id, structured, expected_content_hash)
     return {
         'approved': True,
         'notation_index': notation_index,
         'item': item,
         'remaining_notation_reviews': structured['notation_quality']['review_required'],
+        'teacher_visible_hash_verified': True,
     }
 
 
@@ -195,8 +225,9 @@ def update_lesson_section(
     heading: str = Form(...),
     body: str = Form(...),
     source_refs_json: str = Form('[]'),
+    expected_content_hash: str = Depends(lesson_content_precondition),
 ):
-    """Save a teacher-edited lesson section while preserving explicit source references."""
+    """Save a teacher-edited lesson section without allowing a stale tab to overwrite newer content."""
     heading = heading.strip()
     body = body.strip()
     if not heading or not body:
@@ -220,5 +251,5 @@ def update_lesson_section(
     })
     sections[section_index] = section
     structured['sections'] = sections
-    _save_structured(job_id, structured)
-    return {'updated': True, 'section_index': section_index, 'section': section}
+    _save_structured(job_id, structured, expected_content_hash)
+    return {'updated': True, 'section_index': section_index, 'section': section, 'teacher_visible_hash_verified': True}

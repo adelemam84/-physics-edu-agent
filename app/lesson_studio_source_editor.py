@@ -14,7 +14,7 @@ from .db import connect
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _schema, _verified_ocr
-from .services.lesson_release_state import ensure_release_state_columns, invalidate_release_state
+from .services.lesson_release_state import invalidate_release_state
 from .services.storage import delete_object, get_bytes, put_bytes, storage_configured
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,6 @@ def _editor_schema() -> None:
     with connect() as con:
         con.execute('ALTER TABLE science_lesson_sources ADD COLUMN IF NOT EXISTS adjusted_object_key text')
         con.execute('ALTER TABLE science_lesson_sources ADD COLUMN IF NOT EXISTS adjustment_meta jsonb')
-        ensure_release_state_columns(con)
 
 
 def _source(job_id: str, source_id: int):

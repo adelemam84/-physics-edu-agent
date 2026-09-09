@@ -56,6 +56,18 @@ def _style_profile() -> dict:
         return TeacherStyleProfile().model_dump()
 
 
+def _normalize_suggestion_payload(value, *, error_status: int = 502) -> dict:
+    """Accept only a mapping with a list of mapping suggestions and return a safe normalized copy."""
+    if not isinstance(value, dict):
+        raise HTTPException(error_status, 'Suggestion engine returned an unexpected payload shape')
+    items = value.get('suggestions')
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise HTTPException(error_status, 'Suggestion engine returned an unexpected payload shape')
+    normalized = dict(value)
+    normalized['suggestions'] = [dict(item) for item in items]
+    return normalized
+
+
 @app.get('/api/admin/lesson-studio/style-profile', dependencies=[Depends(require_admin)])
 def get_teacher_style_profile():
     return {'profile': _style_profile(), 'affects_scientific_meaning': False}
@@ -101,7 +113,7 @@ def generate_lesson_suggestions(job_id: str):
         '\n\nالمحتوى المنظم:\n' + json.dumps(structured_at_start, ensure_ascii=False) +
         '\n\nقالب الإخراج:\n' + json.dumps(schema, ensure_ascii=False)}], prompt, json_mode=True)
     try:
-        suggestions = json.loads(raw)
+        suggestions = _normalize_suggestion_payload(json.loads(raw))
     except json.JSONDecodeError as exc:
         raise HTTPException(502, 'Suggestion engine returned invalid JSON') from exc
     with connect() as con:
@@ -140,7 +152,8 @@ def approve_lesson_suggestion(job_id: str, suggestion_index: int, teacher_note: 
         current_hash = review_source_hash(str(job.get('raw_transcript') or ''), structured)
         if not job.get('ai_suggestions_source_hash') or job.get('ai_suggestions_source_hash') != current_hash:
             raise HTTPException(409, 'Suggestions are stale for the current lesson; generate them again before approval')
-        suggestions = (job['ai_suggestions'] or {}).get('suggestions') or []
+        payload = _normalize_suggestion_payload(job.get('ai_suggestions'), error_status=409)
+        suggestions = payload['suggestions']
         if suggestion_index < 0 or suggestion_index >= len(suggestions):
             raise HTTPException(404, 'Suggestion not found')
         selected = dict(suggestions[suggestion_index])

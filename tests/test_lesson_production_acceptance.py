@@ -8,7 +8,7 @@ from app.lesson_studio_acceptance import (
     _job_binding_summary,
     _schema_snapshot,
 )
-from app.main import lifespan
+from app.services.corpus_phase2_runtime import run_phase2_bootstrap
 from app.services.lesson_diagram_integrity import diagram_manifest
 from app.services.lesson_integrity import review_source_hash
 
@@ -116,18 +116,19 @@ class LessonProductionAcceptanceTests(unittest.TestCase):
         self.assertIn('_RELEASE_CANDIDATE_PREDICATE', source)
         self.assertIn("'bounded': True", source)
 
-    def test_acceptance_schemas_are_initialized_before_runtime_bootstrap(self):
-        """Release, reference, map, and history schemas must be initialized during application startup."""
-        source = inspect.getsource(lifespan)
+    def test_acceptance_schemas_are_initialized_before_phase2_data_work(self):
+        """Release, reference, map, and history schemas must initialize before phase-two data queries."""
+        source = inspect.getsource(run_phase2_bootstrap)
         required = (
             'ensure_release_state_schema()',
             'reference_schema()',
             '_map_schema()',
             '_history_schema()',
         )
+        first_data_read = source.index('with connect() as con:')
         for marker in required:
             self.assertIn(marker, source)
-            self.assertLess(source.index(marker), source.index('run_phase2_bootstrap()'))
+            self.assertLess(source.index(marker), first_data_read)
 
 
 if __name__ == '__main__':

@@ -20,18 +20,9 @@ from .release_candidate import source_corpus_benchmark, release_readiness
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize acceptance-critical schemas before the application serves requests."""
     if os.getenv('DATABASE_URL'):
         init_db()
-        from .services.lesson_release_state import ensure_release_state_schema
-        from .science_reference_library import _schema as reference_schema
-        from .science_reference_curriculum_map import _map_schema
-        from .lesson_studio_version_history import _history_schema
         from .services.corpus_phase2_runtime import run_phase2_bootstrap
-        ensure_release_state_schema()
-        reference_schema()
-        _map_schema()
-        _history_schema()
         run_phase2_bootstrap()
     yield
 

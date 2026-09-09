@@ -6,6 +6,7 @@ from ..db import connect
 
 
 def _active_context(con):
+    """Return the currently active physics curriculum/term context used by phase-two bootstrap."""
     return con.execute(
         """SELECT cv.id curriculum_version_id,cv.subject_id,cv.grade_level_id,t.id term_id
            FROM curriculum_versions cv
@@ -16,6 +17,7 @@ def _active_context(con):
 
 
 def _eligible_rows(con, ctx):
+    """Return source-backed, approved questions that satisfy the strict publication prerequisites."""
     return list(con.execute(
         """SELECT q.id,q.lesson_id,q.difficulty,q.question_type,l.sort_order lesson_order
            FROM questions q JOIN lessons l ON l.id=q.lesson_id
@@ -37,6 +39,7 @@ def _eligible_rows(con, ctx):
 
 
 def _round_robin(rows, count: int, reverse: bool = False):
+    """Select a lesson-balanced deterministic question subset for one generated assessment."""
     by_lesson: dict[int, list[dict]] = defaultdict(list)
     order: list[int] = []
     for r in rows:
@@ -63,6 +66,7 @@ def _round_robin(rows, count: int, reverse: bool = False):
 
 
 def _ensure_quiz(con, ctx, title: str, count: int, reverse: bool = False):
+    """Create one draft source-backed quiz idempotently when the approved bank is sufficient."""
     old=con.execute("SELECT id,published,lifecycle_status FROM quizzes WHERE title=%s AND curriculum_version_id=%s",(title,ctx['curriculum_version_id'])).fetchone()
     if old:
         return {'id':old['id'],'created':False,'published':bool(old['published']),'status':old['lifecycle_status']}
@@ -84,6 +88,7 @@ def _ensure_quiz(con, ctx, title: str, count: int, reverse: bool = False):
 
 
 def _phase2_quality(con, quiz_id: int):
+    """Evaluate the deterministic source-integrity and distribution gate for one quiz."""
     rows=list(con.execute("""SELECT q.id,q.lesson_id,q.difficulty,q.question_type,q.approved,
       q.document_id,coalesce(q.source_page,q.page) source_page,q.accepted_answer,
       EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id AND a.document_id=q.document_id
@@ -113,6 +118,7 @@ def _phase2_quality(con, quiz_id: int):
 
 
 def _publish_if_ready(con, item):
+    """Publish a bootstrap quiz only when its deterministic quality gate passes."""
     qid=item.get('id')
     if not qid or item.get('published'):
         return item
@@ -131,12 +137,17 @@ def _publish_if_ready(con, item):
 
 
 def run_phase2_bootstrap():
-    """Idempotent production hardening after DB migration.
+    """Initialize acceptance schemas, then run idempotent source-backed production hardening."""
+    from .lesson_release_state import ensure_release_state_schema
+    from ..lesson_studio_version_history import _history_schema
+    from ..science_reference_curriculum_map import _map_schema
+    from ..science_reference_library import _schema as reference_schema
 
-    Visual QA reconciliation/approval runs in init_db. This function expands the
-    current source-backed assessment set and uses a strict local publication gate.
-    It avoids importing request-layer route functions during FastAPI startup.
-    """
+    ensure_release_state_schema()
+    reference_schema()
+    _map_schema()
+    _history_schema()
+
     with connect() as con:
         ctx=_active_context(con)
         if not ctx:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 
 from fastapi import Depends, HTTPException
 from fastapi.responses import Response
@@ -238,6 +239,15 @@ def _require_snapshot_state(snapshot: dict, *, final: bool) -> None:
     raise HTTPException(409, {'message': message, 'failed': failed})
 
 
+def _final_pdf_object_key(job_id: str, content_hash: str, diagram_hash: str) -> str:
+    """Return a unique immutable object key bound to the verified lesson contract."""
+    export_id = uuid.uuid4().hex
+    return (
+        f'lesson-studio/{job_id}/final-approved-'
+        f'{content_hash[:16]}-{diagram_hash[:16]}-{export_id}.pdf'
+    )
+
+
 def _delete_unpromoted_pdf(job_id: str, key: str) -> None:
     """Delete a failed export only while a locked row proves the object is not currently promoted."""
     try:
@@ -341,19 +351,10 @@ def export_final_lesson_pdf(job_id: str):
                     (json.dumps(snapshot, ensure_ascii=False), job_id))
 
     data = render_lesson_pdf(structured)
-    key = (
-        f'lesson-studio/{job_id}/final-approved-'
-        f'{verified_content_hash[:16]}-{verified_diagram_hash[:16]}.pdf'
-    )
+    key = _final_pdf_object_key(job_id, verified_content_hash, verified_diagram_hash)
     persist_to_storage = storage_configured()
-    already_promoted = bool(
-        persist_to_storage
-        and row.get('pdf_object_key') == key
-        and row.get('pdf_source_hash') == verified_content_hash
-        and row.get('pdf_diagram_manifest_hash') == verified_diagram_hash
-    )
     uploaded = False
-    if persist_to_storage and not already_promoted:
+    if persist_to_storage:
         put_bytes(key, data, 'application/pdf')
         uploaded = True
 

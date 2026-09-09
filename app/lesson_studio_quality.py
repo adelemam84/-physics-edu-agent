@@ -14,6 +14,7 @@ from .security import require_admin
 from .science_lesson_studio import _schema
 from .services.lesson_diagram_integrity import diagram_manifest
 from .services.lesson_integrity import review_source_hash
+from .services.lesson_mutation_guard import assert_expected_content_hash, lesson_content_precondition
 from .services.lesson_pdf_renderer import render_lesson_pdf
 from .services.storage import delete_object, put_bytes, storage_configured
 
@@ -181,6 +182,7 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
             'approval_and_export_recheck_locked_state': True,
             'quality_cache_written_from_locked_state': True,
             'raw_transcript_must_match_locked_source_rows': True,
+            'teacher_mutations_require_visible_content_hash': True,
         },
     }
 
@@ -245,8 +247,6 @@ def _delete_unpromoted_pdf(job_id: str, key: str) -> None:
                 return
             delete_object(key)
     except Exception:
-        # An orphan is safer than deleting an object whose live reference could
-        # not be verified because the database or storage cleanup failed.
         logger.exception('Failed to safely delete unpromoted lesson PDF object %s', key)
 
 
@@ -268,11 +268,15 @@ def lesson_quality(job_id: str):
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/approve-content', dependencies=[Depends(require_admin)])
-def approve_lesson_content(job_id: str):
-    """Approve only the exact content and diagram contract that passes all locked gates."""
+def approve_lesson_content(
+    job_id: str,
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
+    """Approve only the exact teacher-visible content and diagram contract that passes all locked gates."""
     _quality_schema()
     with connect() as con:
         row, sources = _locked_job_state(con, job_id)
+        assert_expected_content_hash(row, expected_content_hash)
         snapshot = _build_quality_snapshot(job_id, row, sources)
         _require_snapshot_state(snapshot, final=False)
         content_hash, diagram_hash = _snapshot_contract(snapshot)
@@ -299,16 +303,22 @@ def approve_lesson_content(job_id: str):
         'content_hash': content_hash,
         'diagram_manifest_hash': diagram_hash,
         'atomic_gate': True,
+        'teacher_visible_hash_verified': True,
     }
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/revoke-content-approval', dependencies=[Depends(require_admin)])
-def revoke_lesson_content_approval(job_id: str):
-    """Revoke teacher approval and invalidate every PDF binding derived from it."""
+def revoke_lesson_content_approval(
+    job_id: str,
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
+    """Revoke teacher approval for the exact visible lesson and invalidate every PDF binding derived from it."""
     _quality_schema()
     with connect() as con:
-        if not con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone():
+        row = con.execute('SELECT * FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
+        if not row:
             raise HTTPException(404, 'Lesson studio job not found')
+        assert_expected_content_hash(dict(row), expected_content_hash)
         con.execute('''UPDATE science_lesson_jobs SET
           teacher_approved=FALSE,teacher_approved_at=NULL,
           teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
@@ -319,15 +329,16 @@ def revoke_lesson_content_approval(job_id: str):
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/final-pdf', dependencies=[Depends(require_admin)])
-def export_final_lesson_pdf(job_id: str):
-    """Render and promote a PDF only if its approved contract survives a post-render recheck."""
+def export_final_lesson_pdf(
+    job_id: str,
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
+    """Render and promote a PDF only if the teacher-visible approved contract survives a post-render recheck."""
     _quality_schema()
 
-    # Capture one fully locked and verified state for rendering. Nothing is
-    # rendered from a snapshot whose source reviews or job content can change
-    # underneath the gate calculation.
     with connect() as con:
         row, sources = _locked_job_state(con, job_id)
+        assert_expected_content_hash(row, expected_content_hash)
         snapshot = _build_quality_snapshot(job_id, row, sources)
         _require_snapshot_state(snapshot, final=True)
         verified_content_hash, verified_diagram_hash = _snapshot_contract(snapshot)
@@ -343,8 +354,6 @@ def export_final_lesson_pdf(job_id: str):
         put_bytes(key, data, 'application/pdf')
         uploaded = True
 
-    # Re-lock and re-evaluate after rendering/upload. Only the exact state
-    # verified above can become the current final PDF.
     try:
         with connect() as con:
             current_row, current_sources = _locked_job_state(con, job_id)

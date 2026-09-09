@@ -13,11 +13,11 @@ For the active third-secondary physics curriculum, content completion requires a
 1. Every current lesson has at least one explicitly approved explanatory source mapping.
 2. The mapping points to an allowed explanatory document kind: `lesson`, `explanation`, `textbook`, or `notes`.
 3. The document and lesson academic contexts match exactly.
-4. The mapped PDF page range has been extracted and contains reviewable source text.
+4. Every page in the mapping's inclusive `start_page`–`end_page` range exists in `document_pages` and has nonblank extracted source text. A partially extracted or blank range never counts as coverage.
 5. No current-curriculum question QA note remains open.
 6. Visual transcription and source-candidate mismatch queues are resolved by human source review.
 
-A single approved mapping can never satisfy whole-curriculum source coverage.
+A single approved mapping can never satisfy whole-curriculum source coverage, and an approved mapping with missing or blank source pages cannot satisfy even one lesson's coverage gate.
 
 ## Administrator workflow
 
@@ -28,6 +28,7 @@ It provides:
 - current lesson-by-lesson explanatory-source coverage;
 - explicit Google Drive PDF import as `source_review_required` only;
 - bounded page-text extraction while preserving original PDF page numbers;
+- gap-aware extraction that resumes from the first missing page rather than assuming pages were processed in order;
 - draft page-range mapping to a lesson;
 - explicit manual mapping approval through the existing lesson-source approval gate;
 - current visual-transcription and source-mismatch counts;
@@ -44,7 +45,7 @@ Large source files should use the Drive import path rather than browser file upl
 - Mapping approval remains an explicit administrator/teacher action.
 - Visual suggestions are drafts from exact source crops only.
 - Missing or unreadable content is never filled from model memory.
-- Blank extracted pages remain blocking and must not be silently treated as valid source pages.
+- Blank or missing pages inside an approved range remain blocking and must not be silently treated as valid source pages.
 - `content_complete` requires full current-curriculum coverage and zero open question QA.
 
 ## Production snapshot at phase start

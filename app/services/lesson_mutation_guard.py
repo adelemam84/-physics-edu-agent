@@ -3,23 +3,41 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 
 from fastapi import Header, HTTPException
 
 from .lesson_integrity import review_source_hash
 
 
+_SHA256_RE = re.compile(r'^[0-9a-fA-F]{64}$')
+
+
+def _normalize_expected_hash(expected: str | None, *, action: str, missing_status: int = 409) -> str:
+    """Validate and normalize one client-supplied SHA-256 revision before constant-time comparison."""
+    value = str(expected or '').strip()
+    if not value:
+        raise HTTPException(missing_status, {
+            'message': 'A current 64-character SHA-256 revision is required',
+            'action': action,
+        })
+    if not _SHA256_RE.fullmatch(value):
+        raise HTTPException(409, {
+            'message': 'The supplied revision hash is malformed; reload the current editor state',
+            'action': action,
+        })
+    return value.lower()
+
+
 def lesson_content_precondition(
     x_lesson_content_hash: str | None = Header(default=None, alias='X-Lesson-Content-Hash'),
 ) -> str:
-    """Require the exact lesson content hash that was visible when a teacher initiated a mutation."""
-    expected = str(x_lesson_content_hash or '').strip()
-    if not expected:
-        raise HTTPException(428, {
-            'message': 'Lesson mutation requires the content hash currently displayed to the teacher',
-            'action': 'reload_workspace',
-        })
-    return expected
+    """Require a valid SHA-256 lesson hash that was visible when a teacher initiated a mutation."""
+    return _normalize_expected_hash(
+        x_lesson_content_hash,
+        action='reload_workspace',
+        missing_status=428,
+    )
 
 
 def content_hash_from_row(row) -> str:
@@ -33,10 +51,11 @@ def content_hash_from_row(row) -> str:
 def assert_expected_content_hash(row, expected: str) -> str:
     """Reject a mutation when the locked lesson differs from the teacher-visible version."""
     current = content_hash_from_row(row)
-    if not hmac.compare_digest(current, str(expected or '')):
+    normalized = _normalize_expected_hash(expected, action='reload_workspace', missing_status=428)
+    if not hmac.compare_digest(current, normalized):
         raise HTTPException(409, {
             'message': 'Lesson changed since this workspace was loaded; reload before saving',
-            'expected_content_hash': str(expected or ''),
+            'expected_content_hash': normalized,
             'current_content_hash': current,
             'action': 'reload_workspace',
         })
@@ -76,12 +95,13 @@ def source_review_hash(row) -> str:
 
 
 def assert_expected_source_hash(row, expected: str) -> str:
-    """Reject a stale OCR mutation when the source row changed after the teacher loaded it."""
+    """Reject a stale or malformed OCR revision before comparing it with the current source state."""
     current = source_review_hash(row)
-    if not expected or not hmac.compare_digest(current, str(expected)):
+    normalized = _normalize_expected_hash(expected, action='reload_workspace')
+    if not hmac.compare_digest(current, normalized):
         raise HTTPException(409, {
             'message': 'Lesson source changed since it was loaded; reload before changing OCR review state',
-            'expected_source_hash': str(expected or ''),
+            'expected_source_hash': normalized,
             'current_source_hash': current,
             'action': 'reload_workspace',
         })
@@ -105,12 +125,13 @@ def source_editor_hash(row) -> str:
 
 
 def assert_expected_source_editor_hash(row, expected: str) -> str:
-    """Reject an image/OCR editor mutation when its source derivative or review state is stale."""
+    """Reject a stale or malformed image/OCR editor revision before a source mutation is committed."""
     current = source_editor_hash(row)
-    if not expected or not hmac.compare_digest(current, str(expected)):
+    normalized = _normalize_expected_hash(expected, action='reload_source_editor')
+    if not hmac.compare_digest(current, normalized):
         raise HTTPException(409, {
             'message': 'Lesson source editor state changed since it was loaded; reload before saving',
-            'expected_source_editor_hash': str(expected or ''),
+            'expected_source_editor_hash': normalized,
             'current_source_editor_hash': current,
             'action': 'reload_source_editor',
         })

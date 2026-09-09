@@ -78,10 +78,9 @@ def _reference_review_is_fresh(row: dict, content_hash: str) -> bool:
         findings = []
     elif not isinstance(findings, list):
         return False
-    blocking = any(
-        isinstance(item, dict) and item.get('severity') in {'critical', 'review'}
-        for item in findings
-    )
+    if any(not isinstance(item, dict) for item in findings):
+        return False
+    blocking = any(item.get('severity') in {'critical', 'review'} for item in findings)
     return bool(
         review
         and row.get('reference_review_hash') == content_hash

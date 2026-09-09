@@ -15,16 +15,8 @@ from .lesson_studio_version_history import snapshot_job
 
 
 def _content_review_schema() -> None:
-    """Ensure content-review persistence columns exist before any review edit."""
+    """Ensure the base Lesson Studio content-review schema is available."""
     _schema()
-    with connect() as con:
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_diagram_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
 
 
 def _load_structured(job_id: str) -> tuple[dict, dict]:

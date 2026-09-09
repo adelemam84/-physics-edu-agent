@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import inspect
+import unittest
+
+from app.lesson_studio_acceptance import _job_binding_summary, _counts
+from app.main import lifespan
+from app.services.lesson_diagram_integrity import diagram_manifest
+from app.services.lesson_integrity import review_source_hash
+
+
+class LessonProductionAcceptanceTests(unittest.TestCase):
+    """Protect Phase X production acceptance from stale bindings or diagnostic writes."""
+
+    @staticmethod
+    def _row() -> dict:
+        structured = {
+            'title': 'Current lesson',
+            'sections': [{'heading': 'A', 'body': 'B', 'source_refs': ['source-1']}],
+            'diagram_specs': [],
+        }
+        transcript = '[مصدر 1: source.png]\nverified source text'
+        content_hash = review_source_hash(transcript, structured)
+        diagram_hash = diagram_manifest(structured)['hash']
+        return {
+            'id': 'job-1',
+            'source_count': 1,
+            'raw_transcript': transcript,
+            'structured_json': structured,
+            'reference_review': {'verdict': 'aligned'},
+            'reference_review_hash': content_hash,
+            'teacher_approved': True,
+            'teacher_approval_source_hash': content_hash,
+            'teacher_approval_diagram_hash': diagram_hash,
+            'status': 'final_pdf_ready',
+            'pdf_object_key': 'lesson-studio/job-1/final.pdf',
+            'pdf_source_hash': content_hash,
+            'pdf_diagram_manifest_hash': diagram_hash,
+        }
+
+    def test_complete_release_requires_one_fully_fresh_job(self):
+        """A single job with matching content/diagram contracts can satisfy the strict release path."""
+        state = _job_binding_summary(self._row(), pending_sources=0, total_sources=1)
+        self.assertTrue(state['teacher_fresh'])
+        self.assertTrue(state['pdf_fresh'])
+        self.assertTrue(state['complete_release'])
+
+    def test_diagram_change_invalidates_teacher_and_pdf_freshness(self):
+        """Changing the diagram manifest must make both teacher approval and the final PDF stale."""
+        row = self._row()
+        row['structured_json'] = {
+            **row['structured_json'],
+            'diagram_specs': [{'kind': 'graph', 'title': 'new diagram'}],
+        }
+        state = _job_binding_summary(row, pending_sources=0, total_sources=1)
+        self.assertFalse(state['teacher_fresh'])
+        self.assertFalse(state['pdf_fresh'])
+        self.assertFalse(state['complete_release'])
+
+    def test_content_change_invalidates_reference_teacher_and_pdf(self):
+        """Changing reviewed source content must invalidate every downstream release binding."""
+        row = self._row()
+        row['raw_transcript'] += '\nchanged source line'
+        state = _job_binding_summary(row, pending_sources=0, total_sources=1)
+        self.assertFalse(state['reference_fresh'])
+        self.assertFalse(state['teacher_fresh'])
+        self.assertFalse(state['pdf_fresh'])
+        self.assertFalse(state['complete_release'])
+
+    def test_pending_or_missing_sources_block_end_to_end_acceptance(self):
+        """A release cannot count as complete when OCR source review is pending or the source set is missing."""
+        row = self._row()
+        self.assertFalse(_job_binding_summary(row, pending_sources=1, total_sources=1)['complete_release'])
+        self.assertFalse(_job_binding_summary(row, pending_sources=0, total_sources=0)['complete_release'])
+
+    def test_acceptance_count_reader_contains_no_mutating_sql(self):
+        """Production acceptance diagnostics must remain durable-state read-only."""
+        source = inspect.getsource(_counts).upper()
+        for token in ('UPDATE ', 'INSERT ', 'DELETE ', 'ALTER TABLE', 'CREATE TABLE', 'DROP TABLE'):
+            self.assertNotIn(token, source)
+
+    def test_acceptance_schemas_are_initialized_before_runtime_bootstrap(self):
+        """Release, reference, map, and history schemas must be initialized during application startup."""
+        source = inspect.getsource(lifespan)
+        required = (
+            'ensure_release_state_schema()',
+            'reference_schema()',
+            '_map_schema()',
+            '_history_schema()',
+        )
+        for marker in required:
+            self.assertIn(marker, source)
+            self.assertLess(source.index(marker), source.index('run_phase2_bootstrap()'))
+
+
+if __name__ == '__main__':
+    unittest.main()

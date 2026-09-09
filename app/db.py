@@ -116,3 +116,8 @@ def init_db():
             AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
             AND NOT EXISTS(SELECT 1 FROM question_review_notes qr
               WHERE qr.question_id=q.id AND qr.status='open')""")
+
+    # Lesson Studio schema changes are startup migrations. Keeping these DDL
+    # statements out of request handlers avoids repeated ACCESS EXCLUSIVE locks.
+    from .services.lesson_release_state import ensure_release_state_schema
+    ensure_release_state_schema()

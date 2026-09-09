@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..db import connect
+
 
 _RELEASE_COLUMNS = (
     'ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false',
@@ -20,9 +22,18 @@ _RELEASE_COLUMNS = (
 
 
 def ensure_release_state_columns(con) -> None:
-    """Make the approval/review/PDF binding columns available to every mutation path."""
+    """Apply the release-state column migration using an existing transaction."""
     for statement in _RELEASE_COLUMNS:
         con.execute(statement)
+
+
+def ensure_release_state_schema() -> None:
+    """Create the Lesson Studio base schema, then migrate release-state columns once at startup."""
+    from ..science_lesson_studio import _schema
+
+    _schema()
+    with connect() as con:
+        ensure_release_state_columns(con)
 
 
 def invalidate_release_state(con, job_id: str, *, status: str) -> None:

@@ -56,26 +56,31 @@ def lock_job_for_mutation(con, job_id: str, expected: str) -> tuple[dict, str]:
 
 
 def source_review_hash(row) -> str:
-    """Hash the teacher-visible OCR source state so stale text approval cannot overwrite a newer source."""
+    """Hash the teacher-visible OCR review state so a stale source action cannot overwrite a newer one."""
     payload = json.dumps(
         {
             'id': int(row['id']),
             'extracted_text': str(row.get('extracted_text') or ''),
+            'alternate_ocr_text': str(row.get('alternate_ocr_text') or ''),
+            'confidence': row.get('confidence'),
+            'ocr_confidence_band': str(row.get('ocr_confidence_band') or ''),
+            'ocr_conflicts': row.get('ocr_conflicts') or [],
             'requires_review': bool(row.get('requires_review')),
         },
         ensure_ascii=False,
         sort_keys=True,
         separators=(',', ':'),
+        default=str,
     ).encode('utf-8')
     return hashlib.sha256(payload).hexdigest()
 
 
 def assert_expected_source_hash(row, expected: str) -> str:
-    """Reject stale OCR approval when the source row changed after the teacher loaded it."""
+    """Reject a stale OCR mutation when the source row changed after the teacher loaded it."""
     current = source_review_hash(row)
     if not expected or not hmac.compare_digest(current, str(expected)):
         raise HTTPException(409, {
-            'message': 'Lesson source changed since it was loaded; reload before approving OCR text',
+            'message': 'Lesson source changed since it was loaded; reload before changing OCR review state',
             'expected_source_hash': str(expected or ''),
             'current_source_hash': current,
             'action': 'reload_workspace',

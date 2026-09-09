@@ -7,6 +7,7 @@ STORAGE_BACKEND = "neon_postgresql" if DATABASE_URL else "not_configured"
 
 @contextmanager
 def connect():
+    """Open one transactional PostgreSQL connection and commit or roll back atomically."""
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is required")
     import psycopg
@@ -22,6 +23,7 @@ def connect():
         con.close()
 
 def init_db():
+    """Apply idempotent platform startup migrations, including Lesson Studio release-state schema."""
     defaults = [("system_name","منصة العلوم التعليمية"),("content_policy","pdf_only"),("allow_generated_questions","false"),("require_question_approval","true")]
     with connect() as con:
         for key,value in defaults:

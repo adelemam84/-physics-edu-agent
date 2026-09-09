@@ -106,6 +106,10 @@ class LessonMutationEndpointContractTests(unittest.TestCase):
                 names.add(item.func.attr)
         return names
 
+    @staticmethod
+    def _identifier_names(node: ast.AST) -> set[str]:
+        return {item.id for item in ast.walk(node) if isinstance(item, ast.Name)}
+
     def test_scientific_mutations_recheck_locked_content_revision(self):
         cases = (
             ('app/lesson_studio_content_review.py', '_save_structured', 'assert_expected_content_hash'),
@@ -157,7 +161,7 @@ class LessonMutationEndpointContractTests(unittest.TestCase):
                 node = self._function(path, function_name)
                 args = {arg.arg for arg in node.args.args}
                 self.assertIn('expected_content_hash', args)
-                self.assertIn('lesson_content_precondition', self._call_names(node))
+                self.assertIn('lesson_content_precondition', self._identifier_names(node))
 
 
 if __name__ == '__main__':

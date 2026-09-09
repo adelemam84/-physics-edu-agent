@@ -10,7 +10,9 @@ Turn Lesson Studio acceptance into a production-grade, read-only verification la
 - Keep the acceptance GET path durable-state read-only: no DDL, cache update, approval mutation, PDF creation, or object deletion.
 - Verify teacher approval against both the current content hash and current diagram-manifest hash.
 - Verify the final PDF against both the current content hash and current diagram-manifest hash.
-- Detect stale active teacher approvals and stale active PDF bindings as system-owned integrity blockers.
+- Detect stale active teacher approvals and hash-stale active PDF bindings as system-owned integrity blockers.
+- Treat malformed scientific-reference findings payloads as invalid instead of assuming they are nonblocking.
+- Keep PDF hash freshness separate from release status so a review-state transition does not falsely report immutable PDF hashes as stale.
 - Report orphan binding hashes separately without treating them as active approval.
 - Require at least one single end-to-end lesson job to satisfy source binding, OCR review, scientific reference review, teacher approval, and fresh final PDF together.
 - Keep missing real references, curriculum mapping, OCR review, and teacher approval as teacher/external gates; never fabricate scientific content to close them.
@@ -30,4 +32,5 @@ Production-code readiness and content readiness remain separate concepts.
 3. No diagnostic GET endpoint grants teacher approval.
 4. A stale teacher approval never counts as current.
 5. A PDF whose content or diagram binding is stale never counts as final.
-6. Final acceptance is demonstrated by one coherent release path, not by combining unrelated partial jobs.
+6. Malformed review metadata fails closed rather than satisfying a scientific gate.
+7. Final acceptance is demonstrated by one coherent release path, not by combining unrelated partial jobs.

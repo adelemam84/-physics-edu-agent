@@ -9,6 +9,7 @@ from fastapi import Depends, Form, HTTPException
 from .db import connect
 from .main import app
 from .security import require_admin
+from .services.lesson_release_state import invalidate_release_state
 
 
 def _history_schema() -> None:
@@ -129,6 +130,7 @@ def get_lesson_version(job_id: str, version_no: int):
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/versions/{version_no}/restore', dependencies=[Depends(require_admin)])
 def restore_lesson_version(job_id: str, version_no: int, teacher_note: str = Form('')):
+    """Restore one immutable lesson snapshot and invalidate every release artifact derived from newer content."""
     _history_schema()
     with connect() as con:
         version = con.execute('''SELECT raw_transcript,structured_json,content_hash FROM science_lesson_versions
@@ -146,16 +148,16 @@ def restore_lesson_version(job_id: str, version_no: int, teacher_note: str = For
     )
 
     with connect() as con:
-        con.execute('''UPDATE science_lesson_jobs SET
-          raw_transcript=%s,
-          structured_json=%s::jsonb,
-          teacher_approved=FALSE,teacher_approved_at=NULL,
-          second_review=NULL,second_review_provider=NULL,second_review_at=NULL,
-          reference_review=NULL,reference_review_hash=NULL,reference_review_at=NULL,
-          quality_snapshot=NULL,pdf_object_key=NULL,
-          status='content_review_required',updated_at=now()
-          WHERE id=%s''',
-          (version.get('raw_transcript') or '', json.dumps(version.get('structured_json') or {}, ensure_ascii=False), job_id))
+        con.execute(
+            '''UPDATE science_lesson_jobs SET raw_transcript=%s,structured_json=%s::jsonb,updated_at=now()
+               WHERE id=%s''',
+            (
+                version.get('raw_transcript') or '',
+                json.dumps(version.get('structured_json') or {}, ensure_ascii=False),
+                job_id,
+            ),
+        )
+        invalidate_release_state(con, job_id, status='content_review_required')
     restored_hash = _content_hash(str(version.get('raw_transcript') or ''), dict(version.get('structured_json') or {}))
     return {
         'restored': True,

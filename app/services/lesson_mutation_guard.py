@@ -86,3 +86,32 @@ def assert_expected_source_hash(row, expected: str) -> str:
             'action': 'reload_workspace',
         })
     return current
+
+
+def source_editor_hash(row) -> str:
+    """Hash OCR review state plus the current adjusted-image derivative used by source-editor mutations."""
+    payload = json.dumps(
+        {
+            'source_review_hash': source_review_hash(row),
+            'adjusted_object_key': str(row.get('adjusted_object_key') or ''),
+            'adjustment_meta': row.get('adjustment_meta') or {},
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+        default=str,
+    ).encode('utf-8')
+    return hashlib.sha256(payload).hexdigest()
+
+
+def assert_expected_source_editor_hash(row, expected: str) -> str:
+    """Reject an image/OCR editor mutation when its source derivative or review state is stale."""
+    current = source_editor_hash(row)
+    if not expected or not hmac.compare_digest(current, str(expected)):
+        raise HTTPException(409, {
+            'message': 'Lesson source editor state changed since it was loaded; reload before saving',
+            'expected_source_editor_hash': str(expected or ''),
+            'current_source_editor_hash': current,
+            'action': 'reload_source_editor',
+        })
+    return current

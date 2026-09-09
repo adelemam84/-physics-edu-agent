@@ -1,7 +1,16 @@
 import unittest
-from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import MagicMock, patch
 
-from app.lesson_studio_quality import _build_quality_snapshot, _snapshot_contract
+from fastapi import HTTPException
+
+from app.lesson_studio_enhancements import _normalize_suggestion_payload
+from app.lesson_studio_quality import (
+    _build_quality_snapshot,
+    _delete_unpromoted_pdf,
+    _final_pdf_object_key,
+    _snapshot_contract,
+)
 
 
 @patch('app.lesson_studio_quality.OPENAI_REVIEW_CONFIGURED', False)
@@ -127,6 +136,55 @@ class AtomicLessonQualityTests(unittest.TestCase):
             after['diagram_manifest']['hash'],
         )
         self.assertNotEqual(_snapshot_contract(before), _snapshot_contract(after))
+
+    def test_concurrent_exports_never_share_staging_object_key(self):
+        """Competing exports for the same contract must own distinct immutable storage objects."""
+        content_hash = 'a' * 64
+        diagram_hash = 'b' * 64
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            keys = list(pool.map(
+                lambda _: _final_pdf_object_key('job-1', content_hash, diagram_hash),
+                range(24),
+            ))
+        self.assertEqual(len(keys), len(set(keys)))
+        for key in keys:
+            self.assertIn(content_hash[:16], key)
+            self.assertIn(diagram_hash[:16], key)
+            self.assertTrue(key.endswith('.pdf'))
+
+    def test_cleanup_preserves_a_committed_pdf_object(self):
+        """Failed export cleanup must never delete an object already referenced by the committed row."""
+        con = MagicMock()
+        con.execute.return_value.fetchone.return_value = {'pdf_object_key': 'promoted.pdf'}
+        context = MagicMock()
+        context.__enter__.return_value = con
+        context.__exit__.return_value = False
+        with patch('app.lesson_studio_quality.connect', return_value=context), \
+             patch('app.lesson_studio_quality.delete_object') as delete_object:
+            _delete_unpromoted_pdf('job-1', 'promoted.pdf')
+        delete_object.assert_not_called()
+
+
+class SuggestionPayloadTests(unittest.TestCase):
+    def test_suggestion_payload_is_normalized_before_persistence(self):
+        """Only an object containing a list of object suggestions is accepted."""
+        payload = {'suggestions': [{'proposal': 'اقتراح للمراجعة'}], 'meta': {'source': 'model'}}
+        normalized = _normalize_suggestion_payload(payload)
+        self.assertEqual(normalized['suggestions'][0]['proposal'], 'اقتراح للمراجعة')
+        self.assertIsNot(normalized, payload)
+        self.assertIsNot(normalized['suggestions'][0], payload['suggestions'][0])
+
+    def test_invalid_suggestion_shapes_are_rejected(self):
+        """Scalars, arrays, and non-object suggestion entries never reach persistence."""
+        invalid = [
+            [],
+            'text',
+            {'suggestions': {}},
+            {'suggestions': ['not-an-object']},
+        ]
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaises(HTTPException):
+                _normalize_suggestion_payload(payload)
 
 
 if __name__ == '__main__':

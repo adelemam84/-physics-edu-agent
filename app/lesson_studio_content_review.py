@@ -9,6 +9,7 @@ from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
 from .services.lesson_diagram_integrity import diagram_spec_hash
+from .services.lesson_release_state import invalidate_release_state
 from .services.science_notation import classify_notation
 from .lesson_studio_diagram_spec_history import save_diagram_spec
 from .lesson_studio_version_history import snapshot_job
@@ -37,13 +38,12 @@ def _save_structured(job_id: str, structured: dict) -> None:
     _content_review_schema()
     snapshot_job(job_id, 'structured_content_edit')
     with connect() as con:
-        con.execute('''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,
-          teacher_approved=FALSE,teacher_approved_at=NULL,
-          teacher_approval_source_hash=NULL,teacher_approval_diagram_hash=NULL,
-          quality_snapshot=NULL,
-          pdf_object_key=NULL,pdf_source_hash=NULL,pdf_diagram_manifest_hash=NULL,
-          status='content_review_required',updated_at=now()
-          WHERE id=%s''', (json.dumps(structured, ensure_ascii=False), job_id))
+        con.execute(
+            '''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,updated_at=now()
+               WHERE id=%s''',
+            (json.dumps(structured, ensure_ascii=False), job_id),
+        )
+        invalidate_release_state(con, job_id, status='content_review_required')
 
 
 def _recount_notation_quality(structured: dict) -> None:

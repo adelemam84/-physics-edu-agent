@@ -10,14 +10,12 @@ from .main import app
 from .security import require_admin
 from .science_lesson_studio import _organize, _schema
 from .lesson_studio_version_history import snapshot_job
-from .services.lesson_release_state import ensure_release_state_columns, invalidate_release_state
+from .services.lesson_release_state import invalidate_release_state
 
 
 def _review_schema() -> None:
-    """Ensure source-review mutations can invalidate every release binding."""
+    """Ensure the base Lesson Studio source-review schema is available."""
     _schema()
-    with connect() as con:
-        ensure_release_state_columns(con)
 
 
 def _source_transcript(sources) -> str:
@@ -75,6 +73,7 @@ def _refresh_transcript_and_structure(job_id: str) -> dict:
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/review', dependencies=[Depends(require_admin)])
 def lesson_review_data(job_id: str):
+    """Return source-review rows and confidence summary for one lesson job."""
     _review_schema()
     with connect() as con:
         job = con.execute('SELECT id,title,subject,grade_label,output_mode,status,structured_json FROM science_lesson_jobs WHERE id=%s', (job_id,)).fetchone()
@@ -105,6 +104,7 @@ def lesson_review_data(job_id: str):
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/approve', dependencies=[Depends(require_admin)])
 def approve_lesson_source(job_id: str, source_id: int, approved_text: str = Form(...)):
+    """Approve exact teacher-visible OCR text, invalidate release state, and rebuild the canonical lesson."""
     text = approved_text.strip()
     if not text:
         raise HTTPException(400, 'Approved transcript cannot be empty')
@@ -125,6 +125,7 @@ def approve_lesson_source(job_id: str, source_id: int, approved_text: str = Form
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/sources/{source_id}/reopen', dependencies=[Depends(require_admin)])
 def reopen_lesson_source(job_id: str, source_id: int):
+    """Reopen a reviewed OCR source and invalidate every release artifact derived from it."""
     _review_schema()
     with connect() as con:
         job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
@@ -143,4 +144,5 @@ PAGE = '''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content
 
 @app.get('/admin/lesson-studio/review', response_class=HTMLResponse)
 def lesson_review_page():
+    """Serve the focused Lesson Studio OCR review page."""
     return PAGE

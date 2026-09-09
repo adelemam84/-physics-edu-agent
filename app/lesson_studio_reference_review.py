@@ -16,11 +16,8 @@ REQUIRE_REFERENCE_REVIEW = os.getenv('LESSON_STUDIO_REQUIRE_REFERENCE_REVIEW', '
 
 
 def _reference_review_schema() -> None:
+    """Ensure the base Lesson Studio schema is available; reference columns migrate at startup."""
     _schema()
-    with connect() as con:
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_at timestamptz')
 
 
 def _review_counts(review: dict | None) -> dict:

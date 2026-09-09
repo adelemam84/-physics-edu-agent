@@ -12,7 +12,7 @@ from .security import require_admin
 from .science_lesson_studio import OUTPUT_MODES, _gemini_text, _organize, _schema
 from .lesson_studio_version_history import snapshot_job
 from .services.lesson_integrity import review_source_hash
-from .services.lesson_release_state import ensure_release_state_columns, invalidate_release_state
+from .services.lesson_release_state import invalidate_release_state
 
 STYLE_KEY = 'lesson_studio_style_profile'
 
@@ -33,7 +33,6 @@ def _enhancement_schema() -> None:
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS ai_suggestions jsonb')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS ai_suggestions_source_hash text')
         con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS approved_additions jsonb')
-        ensure_release_state_columns(con)
         con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_editions(
           id uuid PRIMARY KEY,
           job_id uuid NOT NULL REFERENCES science_lesson_jobs(id) ON DELETE CASCADE,

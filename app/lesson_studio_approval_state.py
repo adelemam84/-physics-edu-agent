@@ -25,23 +25,12 @@ GATE_ORDER = (
 
 
 def _state_schema() -> None:
+    """Ensure the base quality schema is available; gate persistence migrates at startup."""
     _quality_schema()
-    with connect() as con:
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
-        con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_gate_state(
-          job_id uuid NOT NULL REFERENCES science_lesson_jobs(id) ON DELETE CASCADE,
-          content_hash text NOT NULL,
-          gate text NOT NULL,
-          state text NOT NULL,
-          details jsonb NOT NULL DEFAULT '{}'::jsonb,
-          updated_at timestamptz NOT NULL DEFAULT now(),
-          PRIMARY KEY(job_id,content_hash,gate)
-        )''')
-        con.execute('CREATE INDEX IF NOT EXISTS idx_science_lesson_gate_state_job ON science_lesson_gate_state(job_id,updated_at DESC)')
 
 
 def _check_map(snapshot: dict) -> dict[str, dict]:
+    """Index quality checks by stable check identifier for deterministic gate evaluation."""
     return {str(x.get('id')): x for x in snapshot.get('checks') or []}
 
 
@@ -54,6 +43,7 @@ def approval_state_from_snapshot(
     pdf_diagram_manifest_hash: str | None = None,
     current_diagram_manifest_hash: str | None = None,
 ) -> dict:
+    """Derive hash-bound approval gate states without inferring scientific correctness."""
     checks = _check_map(snapshot)
     gates: list[dict] = []
 
@@ -160,6 +150,7 @@ def approval_state_from_snapshot(
 
 
 def sync_approval_state(job_id: str) -> dict:
+    """Recompute current gates and persist them only under the current content hash."""
     _state_schema()
     snapshot = quality_snapshot(job_id)
     row, _ = _job(job_id)
@@ -192,4 +183,5 @@ def sync_approval_state(job_id: str) -> dict:
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/approval-state', dependencies=[Depends(require_admin)])
 def lesson_approval_state(job_id: str):
+    """Expose the current hash-bound Lesson Studio approval state to an administrator."""
     return sync_approval_state(job_id)

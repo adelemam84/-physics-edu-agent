@@ -82,7 +82,17 @@ def _read_content_rows() -> dict:
                       m.confidence,m.notes,d.filename,d.kind,d.status document_status,
                       d.subject_id,d.grade_level_id,d.curriculum_version_id,d.term_id,
                       l.subject_id lesson_subject_id,l.grade_level_id lesson_grade_level_id,
-                      l.curriculum_version_id lesson_curriculum_version_id,l.term_id lesson_term_id
+                      l.curriculum_version_id lesson_curriculum_version_id,l.term_id lesson_term_id,
+                      CASE
+                        WHEN m.start_page >= 1 AND m.end_page >= m.start_page
+                         AND (SELECT count(*)
+                              FROM document_pages p
+                              WHERE p.document_id=m.document_id
+                                AND p.page_number BETWEEN m.start_page AND m.end_page
+                                AND p.extracted_text IS NOT NULL
+                                AND btrim(p.extracted_text)<>'') = (m.end_page-m.start_page+1)
+                        THEN TRUE ELSE FALSE
+                      END mapping_pages_ready
                FROM lesson_source_mappings m
                JOIN documents d ON d.id=m.document_id
                JOIN lessons l ON l.id=m.lesson_id
@@ -97,7 +107,14 @@ def _read_content_rows() -> dict:
                       count(p.page_number) FILTER (
                         WHERE p.extracted_text IS NOT NULL AND btrim(p.extracted_text)<>''
                       ) nonblank_pages,
-                      max(p.page_number) last_extracted_page
+                      max(p.page_number) last_extracted_page,
+                      (SELECT min(g.page_number)
+                       FROM generate_series(1,COALESCE(f.page_count,0)) AS g(page_number)
+                       WHERE NOT EXISTS (
+                         SELECT 1 FROM document_pages missing
+                         WHERE missing.document_id=d.id
+                           AND missing.page_number=g.page_number
+                       )) first_missing_page
                FROM documents d
                LEFT JOIN document_files f ON f.document_id=d.id
                LEFT JOIN document_pages p ON p.document_id=d.id
@@ -155,9 +172,11 @@ def content_completion_snapshot(*, corpus_snapshot: dict | None = None) -> dict:
             and mapping.get('curriculum_version_id') == mapping.get('lesson_curriculum_version_id')
             and mapping.get('term_id') == mapping.get('lesson_term_id')
         )
+        pages_ready = bool(mapping.get('mapping_pages_ready'))
         mapping['context_match'] = bool(context_match)
+        mapping['pages_ready'] = pages_ready
         mapping_rows.append(mapping)
-        if mapping.get('mapping_status') == 'approved' and context_match:
+        if mapping.get('mapping_status') == 'approved' and context_match and pages_ready:
             valid_approved_by_lesson.setdefault(int(mapping['lesson_id']), []).append(mapping)
 
     lessons: list[dict] = []
@@ -175,8 +194,12 @@ def content_completion_snapshot(*, corpus_snapshot: dict | None = None) -> dict:
     for raw in rows['documents']:
         document = dict(raw)
         page_count = int(document.get('page_count') or 0)
-        last_page = int(document.get('last_extracted_page') or 0)
-        document['next_extraction_page'] = min(last_page + 1, page_count + 1) if page_count else 1
+        first_missing = document.get('first_missing_page')
+        document['next_extraction_page'] = (
+            int(first_missing)
+            if first_missing is not None
+            else (page_count + 1 if page_count else 1)
+        )
         document['extraction_complete'] = bool(page_count and int(document.get('extracted_pages') or 0) >= page_count)
         document['all_extracted_pages_nonblank'] = bool(
             page_count and int(document.get('nonblank_pages') or 0) >= page_count
@@ -231,6 +254,7 @@ def content_completion_snapshot(*, corpus_snapshot: dict | None = None) -> dict:
         'policy': {
             'pdf_source_is_authoritative': True,
             'each_lesson_requires_explicit_approved_page_range': True,
+            'approved_ranges_require_all_pages_extracted_and_nonblank': True,
             'visual_suggestions_never_satisfy_human_review': True,
             'no_scientific_content_is_invented': True,
             'no_source_or_question_is_auto_approved_by_this_phase': True,
@@ -400,9 +424,10 @@ def _extract_source_page_batch(document_id: int, start_page: int, max_pages: int
     except Exception as exc:
         raise HTTPException(503, 'تعذر فتح PDF المخزن') from exc
     try:
-        if start > pdf.page_count:
+        effective_page_count = int(row['page_count'] or pdf.page_count)
+        if start > effective_page_count:
             return {'document_id': document_id, 'processed': 0, 'blank_pages': [], 'complete': True}
-        end = min(pdf.page_count, start + limit - 1)
+        end = min(effective_page_count, start + limit - 1)
         extracted: list[tuple[int, str, str | None]] = []
         blank_pages: list[int] = []
         for page_number in range(start, end + 1):
@@ -428,9 +453,9 @@ def _extract_source_page_batch(document_id: int, start_page: int, max_pages: int
         'processed': len(extracted),
         'start_page': start,
         'end_page': end,
-        'next_page': end + 1 if end < int(row['page_count'] or pdf.page_count) else None,
+        'next_page': end + 1 if end < effective_page_count else None,
         'blank_pages': blank_pages,
-        'complete': end >= int(row['page_count'] or end),
+        'complete': end >= effective_page_count,
         'ocr_required': bool(blank_pages),
     }
 
@@ -473,7 +498,7 @@ async function api(url,opt={}){let r;try{r=await fetch(url,opt)}catch(err){throw
 async function load(){try{state=await api('/api/admin/content-completion');render()}catch(err){if(err.message!=='auth')summary.innerHTML='<div class=bad>'+e(err.message)+'</div>'}}
 function render(){if(!state.active){summary.innerHTML='<div class=bad>لا يوجد منهج حالي نشط.</div>';return}let c=state.source_coverage||{};summary.innerHTML='<h1>Final Curriculum Content Completion — '+e(state.academic_year)+'</h1><div class=grid><div class=card><b>تغطية مصادر الشرح</b><div class="'+(c.explanatory_coverage_complete?'ok':'warn')+'">'+e(c.covered_lessons)+' / '+e(c.total_lessons)+' درس</div></div><div class=card><b>Visual QA</b><div class="'+(c.visual_transcription_required?'warn':'ok')+'">'+e(c.visual_transcription_required)+' مفتوح</div></div><div class=card><b>Source mismatch</b><div class="'+(c.source_candidate_mismatch?'warn':'ok')+'">'+e(c.source_candidate_mismatch)+' مفتوح</div></div><div class=card><b>اكتمال المحتوى</b><div class="'+(state.content_complete?'ok':'warn')+'">'+(state.content_complete?'✅ مكتمل':'⚠️ بوابات بشرية مفتوحة')+'</div></div></div><h3>الدروس</h3><table><tr><th>الدرس</th><th>الأسئلة</th><th>مصدر شرح معتمد</th></tr>'+state.lessons.map(l=>'<tr><td>'+e(l.chapter||'')+' — '+e(l.title)+'</td><td>'+e(l.approved_questions)+' / '+e(l.questions)+'</td><td class="'+(l.covered?'ok':'warn')+'">'+(l.covered?'✅ '+e(l.approved_explanatory_mapping_count):'⚠️ غير مغطى')+'</td></tr>').join('')+'</table>';term.innerHTML=(state.terms||[]).map(t=>'<option value="'+t.id+'">'+e(t.name_ar)+'</option>').join('');renderDocs();renderMappings();visual.innerHTML='<b>visual_transcription_required:</b> '+e(c.visual_transcription_required)+' · <b>source_candidate_mismatch:</b> '+e(c.source_candidate_mismatch)+' · <b>كل QA المفتوح:</b> '+e(c.open_qa_total)}
 function renderDocs(){let rows=state.documents||[];documents.innerHTML=rows.length?rows.map(d=>{let lessons=state.lessons.filter(l=>l.term_id==d.term_id);return '<div class=card><b>#'+d.id+' '+e(d.filename)+'</b> <span class=muted>'+e(d.kind)+' · '+e(d.status)+'</span><br><span class=muted>استخراج '+e(d.extracted_pages)+' / '+e(d.page_count||0)+' · صفحات بنص '+e(d.nonblank_pages)+'</span><div class=row><button onclick="extractDoc('+d.id+','+e(d.next_extraction_page||1)+')">استخراج 10 صفحات تالية</button><select id="lesson-'+d.id+'">'+lessons.map(l=>'<option value="'+l.id+'">'+e(l.title)+'</option>').join('')+'</select><input id="start-'+d.id+'" type=number min=1 placeholder="من صفحة"><input id="end-'+d.id+'" type=number min=1 placeholder="إلى صفحة"><button onclick="draftMap('+d.id+')">إنشاء ربط للمراجعة</button></div></div>'}).join(''):'<p class=warn>لا توجد مصادر شرح للمنهج الحالي بعد.</p>'}
-function renderMappings(){let rows=state.mappings||[];mappings.innerHTML=rows.length?'<table><tr><th>الملف</th><th>الدرس</th><th>الصفحات</th><th>الحالة</th><th></th></tr>'+rows.map(m=>{let l=state.lessons.find(x=>x.id==m.lesson_id);return '<tr><td>'+e(m.filename)+'</td><td>'+e(l?.title||m.lesson_id)+'</td><td>'+e(m.start_page)+'–'+e(m.end_page)+'</td><td>'+e(m.mapping_status)+(m.context_match?'':' ⚠️ سياق غير متطابق')+'</td><td>'+(m.mapping_status==='approved'?'✅':m.context_match?'<button onclick="approveMap('+m.id+')">اعتماد يدوي</button>':'')+'</td></tr>'}).join('')+'</table>':'<p class=muted>لا توجد روابط صفحات بعد.</p>'}
+function renderMappings(){let rows=state.mappings||[];mappings.innerHTML=rows.length?'<table><tr><th>الملف</th><th>الدرس</th><th>الصفحات</th><th>الحالة</th><th></th></tr>'+rows.map(m=>{let l=state.lessons.find(x=>x.id==m.lesson_id);return '<tr><td>'+e(m.filename)+'</td><td>'+e(l?.title||m.lesson_id)+'</td><td>'+e(m.start_page)+'–'+e(m.end_page)+'</td><td>'+e(m.mapping_status)+(m.context_match?'':' ⚠️ سياق غير متطابق')+(m.pages_ready?'':' ⚠️ صفحات غير مكتملة')+'</td><td>'+(m.mapping_status==='approved'&&m.context_match&&m.pages_ready?'✅':m.context_match&&m.pages_ready?'<button onclick="approveMap('+m.id+')">اعتماد يدوي</button>':'')+'</td></tr>'}).join('')+'</table>':'<p class=muted>لا توجد روابط صفحات بعد.</p>'}
 async function importDrive(){let fd=new FormData();fd.append('drive_url',driveUrl.value.trim());fd.append('filename',fileName.value.trim()||'physics-source.pdf');fd.append('kind',kind.value);fd.append('term_id',term.value);importMsg.textContent='جارٍ تنزيل وحفظ المصدر...';try{let x=await api('/api/admin/content-completion/sources/drive',{method:'POST',body:fd});importMsg.className=x.duplicate?'warn':'ok';importMsg.textContent=x.duplicate?'الملف موجود بالفعل كمصدر #'+x.document.id:'تم تسجيل المصدر #'+x.document.id+' كمصدر يحتاج مراجعة. ابدأ استخراج الصفحات.';await load()}catch(err){importMsg.className='bad';importMsg.textContent=err.message}}
 async function extractDoc(id,start){try{await api('/api/admin/content-completion/sources/'+id+'/extract?start_page='+encodeURIComponent(start)+'&max_pages=10',{method:'POST'});await load()}catch(err){alert(err.message)}}
 async function draftMap(id){let lid=document.getElementById('lesson-'+id).value,s=Number(document.getElementById('start-'+id).value),en=Number(document.getElementById('end-'+id).value);if(!lid||!s||!en){alert('اختر الدرس وحدد بداية ونهاية الصفحات');return}try{await api('/api/admin/documents/'+id+'/lesson-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lesson_id:Number(lid),start_page:s,end_page:en})});await load()}catch(err){alert(err.message)}}

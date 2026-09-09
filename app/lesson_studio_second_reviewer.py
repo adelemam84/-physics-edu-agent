@@ -17,12 +17,8 @@ REVIEW_MODEL = os.getenv('LESSON_STUDIO_REVIEW_MODEL', 'gpt-5.6-sol').strip() or
 
 
 def _schema_review() -> None:
+    """Ensure the base Lesson Studio schema is available; review columns migrate at startup."""
     _schema()
-    with connect() as con:
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_source_hash text')
 
 
 def reviewer_status() -> dict:

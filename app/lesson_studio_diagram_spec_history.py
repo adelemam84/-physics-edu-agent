@@ -7,10 +7,11 @@ import uuid
 from fastapi import Body, Depends, Form, HTTPException
 
 from .db import connect
-from .lesson_studio_version_history import snapshot_job
+from .lesson_studio_version_history import _history_schema, _insert_job_snapshot
 from .main import app
 from .science_lesson_studio import _schema
 from .security import require_admin
+from .services.lesson_mutation_guard import assert_expected_content_hash, lesson_content_precondition
 from .services.lesson_release_state import invalidate_release_state
 from .services.science_diagram_parameterized import PARAMETERIZED_KINDS
 from .services.science_diagram_specs import preview_diagram_spec, schema_catalog, validate_diagram_spec
@@ -65,7 +66,7 @@ def _diagram_from_structured(structured: dict, diagram_index: int) -> tuple[list
 def _load_job_diagram(job_id: str, diagram_index: int) -> tuple[dict, dict, list[dict], dict]:
     _diagram_history_schema()
     with connect() as con:
-        row = con.execute('''SELECT id,structured_json,status,teacher_approved
+        row = con.execute('''SELECT id,raw_transcript,structured_json,status,teacher_approved
           FROM science_lesson_jobs WHERE id=%s''', (job_id,)).fetchone()
     if not row:
         raise HTTPException(404, 'Lesson studio job not found')
@@ -182,7 +183,6 @@ def _snapshot_diagram(
 ) -> dict:
     _diagram_history_schema()
     with connect() as con:
-        # Serialize allocation of version_no for all writes touching this job.
         locked = con.execute(
             'SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
             (job_id,),
@@ -235,40 +235,61 @@ def _persist_diagram_spec(
     prepared: dict,
     note: str,
     *,
+    expected_content_hash: str,
     action: str,
     restored_from_version: int | None = None,
     capture_pre_action: str | None = None,
     capture_pre_note: str = '',
     capture_pre_metadata: dict | None = None,
 ) -> dict:
+    """Persist one diagram mutation atomically only against the teacher-visible lesson revision."""
     _diagram_history_schema()
-    ensure_diagram_baseline(job_id, diagram_index)
-    snapshot_job(
-        job_id,
-        f'{action}_prechange',
-        note or f'Diagram {diagram_index} specification changed',
-        {
-            'diagram_index': diagram_index,
-            'diagram_kind': prepared.get('kind'),
-            'restored_from_version': restored_from_version,
-        },
-    )
+    _history_schema()
 
     pre_change_version = None
     with connect() as con:
-        # One row lock protects both against lost updates while editing the same
-        # lesson and against duplicate version numbers. The job mutation and its
-        # immutable diagram-version record commit or roll back together.
         row = con.execute(
-            'SELECT structured_json FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+            'SELECT * FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
             (job_id,),
         ).fetchone()
         if not row:
             raise HTTPException(404, 'Lesson studio job not found')
+        row = dict(row)
+        assert_expected_content_hash(row, expected_content_hash)
         structured = dict(row.get('structured_json') or {})
         diagrams, diagram, kind = _diagram_from_structured(structured, diagram_index)
         if kind != prepared.get('kind'):
             raise HTTPException(409, 'Diagram kind changed while editing; reload the workspace and retry')
+
+        baseline = con.execute('''SELECT id,version_no,diagram_hash
+          FROM science_lesson_diagram_spec_versions
+          WHERE job_id=%s AND diagram_index=%s AND kind=%s
+          ORDER BY version_no ASC LIMIT 1''',
+          (job_id, diagram_index, kind)).fetchone()
+        if not baseline:
+            _insert_snapshot(
+                con,
+                job_id,
+                diagram_index,
+                diagram,
+                'initial_diagram_spec',
+                'Automatic baseline before diagram-spec version tracking',
+                {'baseline_for_kind': kind},
+            )
+
+        _insert_job_snapshot(
+            con,
+            job_id,
+            row,
+            f'{action}_prechange',
+            note or f'Diagram {diagram_index} specification changed',
+            {
+                'diagram_index': diagram_index,
+                'diagram_kind': prepared.get('kind'),
+                'restored_from_version': restored_from_version,
+                'expected_content_hash': expected_content_hash,
+            },
+        )
 
         if capture_pre_action:
             pre_change_version = _insert_snapshot(
@@ -314,6 +335,7 @@ def _persist_diagram_spec(
                 'external_reviews_invalidated': True,
                 'previous_pdf_invalidated': True,
                 'restored_from_version': restored_from_version,
+                'based_on_content_hash': expected_content_hash,
             },
         )
 
@@ -330,10 +352,18 @@ def _persist_diagram_spec(
         'second_review_invalidated': True,
         'reference_review_invalidated': True,
         'previous_pdf_invalidated': True,
+        'stale_write_protected': True,
     }
 
 
-def save_diagram_spec(job_id: str, diagram_index: int, parameters: dict, note: str = '') -> dict:
+def save_diagram_spec(
+    job_id: str,
+    diagram_index: int,
+    parameters: dict,
+    note: str = '',
+    *,
+    expected_content_hash: str,
+) -> dict:
     _, _, _, diagram = _load_job_diagram(job_id, diagram_index)
     kind = str(diagram.get('normalized_kind') or diagram.get('kind') or '')
     title = str(diagram.get('title') or 'رسم توضيحي')
@@ -352,6 +382,7 @@ def save_diagram_spec(job_id: str, diagram_index: int, parameters: dict, note: s
         diagram_index,
         prepared,
         note.strip(),
+        expected_content_hash=expected_content_hash,
         action='diagram_spec_saved',
     )
 
@@ -359,7 +390,7 @@ def save_diagram_spec(job_id: str, diagram_index: int, parameters: dict, note: s
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/spec-history', dependencies=[Depends(require_admin)])
 def diagram_spec_history(job_id: str, diagram_index: int):
     ensure_diagram_baseline(job_id, diagram_index)
-    _, _, _, diagram = _load_job_diagram(job_id, diagram_index)
+    row, _, _, diagram = _load_job_diagram(job_id, diagram_index)
     kind = str(diagram.get('normalized_kind') or diagram.get('kind') or '')
     current_params = dict(diagram.get('parameters') or {})
     current_hash = _diagram_hash(kind, current_params)
@@ -371,11 +402,13 @@ def diagram_spec_history(job_id: str, diagram_index: int):
           WHERE job_id=%s AND diagram_index=%s AND kind=%s
           ORDER BY version_no DESC''',
           (job_id, diagram_index, kind)).fetchall())
+    from .services.lesson_mutation_guard import content_hash_from_row
     return {
         'job_id': job_id,
         'diagram_index': diagram_index,
         'kind': kind,
         'title': diagram.get('title'),
+        'content_hash': content_hash_from_row(row),
         'current': {
             'parameters': current_params,
             'diagram_hash': current_hash,
@@ -393,6 +426,7 @@ def diagram_spec_history(job_id: str, diagram_index: int):
             'restore_is_diagram_only': True,
             'restore_revalidates_with_current_schema': True,
             'restore_invalidates_lesson_approval_and_external_reviews': True,
+            'save_and_restore_require_visible_content_hash': True,
         },
     }
 
@@ -414,12 +448,23 @@ def preview_job_diagram_spec(job_id: str, diagram_index: int, payload: dict = Bo
 
 
 @app.put('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/spec', dependencies=[Depends(require_admin)])
-def save_job_diagram_spec(job_id: str, diagram_index: int, payload: dict = Body(...)):
+def save_job_diagram_spec(
+    job_id: str,
+    diagram_index: int,
+    payload: dict = Body(...),
+    expected_content_hash: str = Depends(lesson_content_precondition),
+):
     parameters = payload.get('parameters')
     if not isinstance(parameters, dict):
         raise HTTPException(400, 'parameters must be a JSON object')
     note = str(payload.get('note') or '').strip()
-    return save_diagram_spec(job_id, diagram_index, parameters, note)
+    return save_diagram_spec(
+        job_id,
+        diagram_index,
+        parameters,
+        note,
+        expected_content_hash=expected_content_hash,
+    )
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/diagrams/{diagram_index}/spec-history/{version_no}/restore', dependencies=[Depends(require_admin)])
@@ -428,8 +473,8 @@ def restore_diagram_spec_version(
     diagram_index: int,
     version_no: int,
     teacher_note: str = Form(''),
+    expected_content_hash: str = Depends(lesson_content_precondition),
 ):
-    ensure_diagram_baseline(job_id, diagram_index)
     _, _, _, current = _load_job_diagram(job_id, diagram_index)
     current_kind = str(current.get('normalized_kind') or current.get('kind') or '')
     with connect() as con:
@@ -459,6 +504,7 @@ def restore_diagram_spec_version(
         diagram_index,
         prepared,
         teacher_note.strip() or f'Restored diagram specification version {version_no}',
+        expected_content_hash=expected_content_hash,
         action='diagram_spec_restored',
         restored_from_version=version_no,
         capture_pre_action='pre_diagram_spec_restore',

@@ -18,9 +18,9 @@ from .services.pdf_ingest import detect_verbatim_question_candidates, extract_pa
 from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, storage_configured
 from .release_candidate import source_corpus_benchmark, release_readiness
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Initialize acceptance-critical schemas before the application serves requests."""
     if os.getenv('DATABASE_URL'):
         init_db()
         from .services.lesson_release_state import ensure_release_state_schema
@@ -28,7 +28,6 @@ async def lifespan(app: FastAPI):
         from .science_reference_curriculum_map import _map_schema
         from .lesson_studio_version_history import _history_schema
         from .services.corpus_phase2_runtime import run_phase2_bootstrap
-
         ensure_release_state_schema()
         reference_schema()
         _map_schema()
@@ -36,9 +35,7 @@ async def lifespan(app: FastAPI):
         run_phase2_bootstrap()
     yield
 
-
 app = FastAPI(title="Science Education Platform", version="1.8.0", lifespan=lifespan)
-
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -46,7 +43,6 @@ async def protect_admin_pages(request: Request, call_next):
     if path.startswith("/admin") and path!="/admin/login" and not admin_session_valid(request):
         return RedirectResponse("/admin/login",status_code=307)
     return await call_next(request)
-
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -58,7 +54,6 @@ async def add_security_headers(request: Request, call_next):
     response.headers.setdefault("Content-Security-Policy",
       "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
     return response
-
 
 class QuestionPatch(BaseModel):
     approved: bool | None = None
@@ -75,18 +70,15 @@ class QuestionPatch(BaseModel):
     answer_document_id: int | None = None
     answer_page: int | None = None
 
-
 class DocumentContextPatch(BaseModel):
     subject_id:int
     grade_level_id:int
     curriculum_version_id:int
     term_id:int
 
-
 class ReviewNotePatch(BaseModel):
     status: str
     details: str | None = None
-
 
 class ManualQuestionCreate(BaseModel):
     page: int
@@ -101,7 +93,6 @@ class ManualQuestionCreate(BaseModel):
     difficulty: str = "unclassified"
     accepted_answer: str | None = None
 
-
 class StudentCreate(BaseModel):
     student_code:str
     full_name:str
@@ -110,60 +101,49 @@ class StudentCreate(BaseModel):
     curriculum_version_id:int|None=None
     active:bool=True
 
-
 class EnrollmentPatch(BaseModel):
     subject_id:int
     curriculum_version_id:int
     active:bool=True
 
-
 class AttemptAnswer(BaseModel):
     question_id:int
     answer:str
-
 
 class AttemptSubmit(BaseModel):
     student_code:str
     quiz_id:int
     answers:list[AttemptAnswer]
 
-
 @app.get("/health")
 def health():
     return {"status":"ok","service":"science-education-platform","version":app.version,"storage_backend":STORAGE_BACKEND}
-
 
 @app.get("/")
 def root():
     return RedirectResponse("/student")
 
-
 @app.get('/admin')
 def admin_root():
     return RedirectResponse('/admin/dashboard')
-
 
 @app.get('/api/admin/config',dependencies=[Depends(require_admin)])
 def admin_config():
     return {'admin_configured':admin_configured(),'storage_configured':storage_configured(),'bucket':BUCKET,'storage_backend':STORAGE_BACKEND}
 
-
 @app.get('/api/admin/release-readiness',dependencies=[Depends(require_admin)])
 def admin_release_readiness():
     return release_readiness()
 
-
 @app.get('/api/admin/source-corpus-benchmark',dependencies=[Depends(require_admin)])
 def admin_source_corpus_benchmark():
     return source_corpus_benchmark()
-
 
 @app.get('/api/admin/documents',dependencies=[Depends(require_admin)])
 def list_documents():
     with connect() as con:
         rows=con.execute("SELECT id,filename,sha256,page_count,object_key,created_at FROM documents ORDER BY id DESC").fetchall()
     return {'documents':[dict(x) for x in rows]}
-
 
 @app.post('/api/admin/documents',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...)):
@@ -183,7 +163,6 @@ async def upload_document(file:UploadFile=File(...)):
             row=con.execute("SELECT id,filename,sha256,page_count,object_key,created_at FROM documents WHERE sha256=%s",(digest,)).fetchone()
     return dict(row)
 
-
 @app.get('/api/admin/documents/{document_id}/pdf',dependencies=[Depends(require_admin)])
 def document_pdf(document_id:int):
     with connect() as con:
@@ -191,7 +170,6 @@ def document_pdf(document_id:int):
     if not row: raise HTTPException(404,'Document not found')
     if not row['object_key']: raise HTTPException(409,'PDF bytes unavailable')
     return Response(get_bytes(row['object_key']),media_type='application/pdf',headers={'Content-Disposition':f'inline; filename="document-{document_id}.pdf"'})
-
 
 @app.post('/api/admin/documents/{document_id}/extract',dependencies=[Depends(require_admin)])
 def extract_document(document_id:int):
@@ -206,7 +184,6 @@ def extract_document(document_id:int):
               (document_id,p['page'],p['text']))
     return {'document_id':document_id,'pages':len(pages)}
 
-
 @app.post('/api/admin/documents/{document_id}/detect-questions',dependencies=[Depends(require_admin)])
 def detect_questions(document_id:int):
     with connect() as con:
@@ -220,7 +197,6 @@ def detect_questions(document_id:int):
               (document_id,c['page'],c['text'],c.get('question_type') or 'unknown'))
             inserted+=1
     return {'document_id':document_id,'candidates':len(candidates),'attempted_inserts':inserted}
-
 
 @app.patch('/api/admin/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,p:QuestionPatch):
@@ -237,14 +213,12 @@ def patch_question(question_id:int,p:QuestionPatch):
     if not row: raise HTTPException(404,'Question not found')
     return {'updated':True,'id':question_id}
 
-
 @app.post('/api/admin/questions',dependencies=[Depends(require_admin)])
 def create_manual_question(p:ManualQuestionCreate):
     with connect() as con:
         row=con.execute("INSERT INTO questions(document_id,page_number,text_verbatim,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty,accepted_answer,approved) VALUES(NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE) RETURNING id",
           (p.page,p.text_verbatim,p.question_type,p.lesson_id,p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id,p.unit_id,p.difficulty,p.accepted_answer)).fetchone()
     return {'id':row['id']}
-
 
 @app.post('/api/admin/students',dependencies=[Depends(require_admin)])
 def create_student(p:StudentCreate):
@@ -256,14 +230,12 @@ def create_student(p:StudentCreate):
               (row['id'],p.subject_id,p.curriculum_version_id))
     return dict(row)
 
-
 @app.patch('/api/admin/students/{student_id}/enrollments',dependencies=[Depends(require_admin)])
 def patch_enrollment(student_id:int,p:EnrollmentPatch):
     with connect() as con:
         con.execute("INSERT INTO student_enrollments(student_id,subject_id,curriculum_version_id,active) VALUES(%s,%s,%s,%s) ON CONFLICT(student_id,subject_id,curriculum_version_id) DO UPDATE SET active=excluded.active",
           (student_id,p.subject_id,p.curriculum_version_id,p.active))
     return {'updated':True}
-
 
 @app.post('/api/attempts/submit')
 def submit_attempt(p:AttemptSubmit):

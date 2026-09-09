@@ -60,6 +60,7 @@ class LessonProductionAcceptanceTests(unittest.TestCase):
         }
         state = _job_binding_summary(row, pending_sources=0, total_sources=1)
         self.assertFalse(state['teacher_fresh'])
+        self.assertFalse(state['pdf_hash_fresh'])
         self.assertFalse(state['pdf_fresh'])
         self.assertFalse(state['complete_release'])
 
@@ -70,6 +71,7 @@ class LessonProductionAcceptanceTests(unittest.TestCase):
         state = _job_binding_summary(row, pending_sources=0, total_sources=1)
         self.assertFalse(state['reference_fresh'])
         self.assertFalse(state['teacher_fresh'])
+        self.assertFalse(state['pdf_hash_fresh'])
         self.assertFalse(state['pdf_fresh'])
         self.assertFalse(state['complete_release'])
 
@@ -82,6 +84,25 @@ class LessonProductionAcceptanceTests(unittest.TestCase):
         }
         state = _job_binding_summary(row, pending_sources=0, total_sources=1)
         self.assertFalse(state['reference_fresh'])
+        self.assertFalse(state['complete_release'])
+
+    def test_malformed_reference_findings_fail_closed(self):
+        """Malformed findings payloads must never be interpreted as a clean scientific review."""
+        for malformed in ({'severity': 'critical'}, 'unparsed findings', 7):
+            row = self._row()
+            row['reference_review'] = {'verdict': 'aligned', 'findings': malformed}
+            state = _job_binding_summary(row, pending_sources=0, total_sources=1)
+            self.assertFalse(state['reference_fresh'])
+            self.assertFalse(state['complete_release'])
+
+    def test_pdf_hash_freshness_is_distinct_from_release_status(self):
+        """A status transition can make a PDF non-final without falsely labeling its immutable hashes stale."""
+        row = self._row()
+        row['status'] = 'review_required'
+        state = _job_binding_summary(row, pending_sources=0, total_sources=1)
+        self.assertTrue(state['pdf_recorded'])
+        self.assertTrue(state['pdf_hash_fresh'])
+        self.assertFalse(state['pdf_fresh'])
         self.assertFalse(state['complete_release'])
 
     def test_pending_or_missing_sources_block_end_to_end_acceptance(self):

@@ -17,7 +17,7 @@ from .services.lesson_mutation_guard import (
 from .services.lesson_release_state import invalidate_release_state
 from .services.science_notation import classify_notation
 from .lesson_studio_diagram_spec_history import save_diagram_spec
-from .lesson_studio_version_history import _insert_job_snapshot
+from .lesson_studio_version_history import _history_schema, _insert_job_snapshot
 
 
 def _content_review_schema() -> None:
@@ -41,6 +41,7 @@ def _load_structured(job_id: str) -> tuple[dict, dict]:
 def _save_structured(job_id: str, structured: dict, expected_content_hash: str) -> None:
     """Persist a teacher edit only against its visible base version and atomically snapshot/invalidate it."""
     _content_review_schema()
+    _history_schema()
     with connect() as con:
         row = con.execute('SELECT * FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
         if not row:

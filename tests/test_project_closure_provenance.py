@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import app.project_closure as closure
+from app.completion_audit import PAGE as COMPLETION_AUDIT_PAGE
 
 
 class ProjectClosureProvenanceTests(unittest.TestCase):
@@ -192,6 +193,14 @@ class ProjectClosureProvenanceTests(unittest.TestCase):
         self.assertFalse(result['content_complete'])
         self.assertEqual(result['closure_state'], 'production_code_complete_external_gates_open')
         self.assertTrue(result['final_policy']['no_external_gate_is_auto_closed'])
+
+    def test_completion_audit_ui_handles_rejected_fetch(self):
+        """The completion audit page must render an operator-visible error when fetch rejects."""
+        self.assertIn("try{r=await fetch('/api/admin/completion-audit')}", COMPLETION_AUDIT_PAGE)
+        self.assertIn(
+            "catch(err){out.innerHTML='<div class=bad>تعذر تشغيل تدقيق الاكتمال</div>';return}",
+            COMPLETION_AUDIT_PAGE,
+        )
 
 
 if __name__ == '__main__':

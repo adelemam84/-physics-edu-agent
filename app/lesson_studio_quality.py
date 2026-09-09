@@ -23,23 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 def _quality_schema() -> None:
-    """Ensure every quality, approval, review, and PDF binding column exists."""
+    """Ensure the base Lesson Studio schema is available; release columns migrate at startup."""
     _schema()
-    with connect() as con:
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approval_diagram_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
 
 
 def _second_review_check(row: dict, structured: dict) -> dict:

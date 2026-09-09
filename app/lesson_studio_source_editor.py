@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from io import BytesIO
 import json
+import logging
 import math
+import uuid
 
 from fastapi import Depends, Form, HTTPException
 from fastapi.responses import Response
@@ -13,7 +15,9 @@ from .main import app
 from .security import require_admin
 from .science_lesson_studio import _schema, _verified_ocr
 from .services.lesson_release_state import ensure_release_state_columns, invalidate_release_state
-from .services.storage import get_bytes, put_bytes, storage_configured
+from .services.storage import delete_object, get_bytes, put_bytes, storage_configured
+
+logger = logging.getLogger(__name__)
 
 
 def _editor_schema() -> None:
@@ -33,6 +37,14 @@ def _source(job_id: str, source_id: int):
     if not str(row['content_type']).startswith('image/'):
         raise HTTPException(409, 'Manual image correction is available for image sources only')
     return row
+
+
+def _delete_unpromoted_adjusted_source(key: str) -> None:
+    """Best-effort cleanup for one uniquely owned adjusted-source upload."""
+    try:
+        delete_object(key)
+    except Exception:
+        logger.exception('Failed to delete unpromoted adjusted lesson source %s', key)
 
 
 def _clamp01(value: float) -> float:
@@ -121,14 +133,16 @@ def adjust_lesson_source(
         rotation=rotation,
         perspective_json=perspective_json,
     )
-    key = f'lesson-studio/{job_id}/adjusted-source-{source_id}.png'
+    key = f'lesson-studio/{job_id}/adjusted-source-{source_id}-{uuid.uuid4().hex}.png'
     put_bytes(key, adjusted, 'image/png')
     with connect() as con:
         job = con.execute('SELECT id FROM science_lesson_jobs WHERE id=%s FOR UPDATE', (job_id,)).fetchone()
         if not job:
+            _delete_unpromoted_adjusted_source(key)
             raise HTTPException(404, 'Lesson studio job not found')
         current = con.execute('SELECT id FROM science_lesson_sources WHERE id=%s AND job_id=%s FOR UPDATE', (source_id, job_id)).fetchone()
         if not current:
+            _delete_unpromoted_adjusted_source(key)
             raise HTTPException(404, 'Lesson source not found')
         con.execute('''UPDATE science_lesson_sources SET adjusted_object_key=%s,adjustment_meta=%s::jsonb,
           requires_review=TRUE,ocr_confidence_band='yellow' WHERE id=%s AND job_id=%s''',

@@ -73,9 +73,11 @@ def _reference_review_is_fresh(row: dict, content_hash: str) -> bool:
     review = row.get('reference_review') or {}
     if not isinstance(review, dict):
         return False
-    findings = review.get('findings') or []
-    if not isinstance(findings, list):
+    findings = review.get('findings')
+    if findings is None:
         findings = []
+    elif not isinstance(findings, list):
+        return False
     blocking = any(
         isinstance(item, dict) and item.get('severity') in {'critical', 'review'}
         for item in findings
@@ -125,6 +127,7 @@ def _job_binding_summary(row: dict, *, pending_sources: int, total_sources: int)
         'teacher_recorded': teacher_recorded,
         'teacher_fresh': teacher_fresh,
         'pdf_recorded': pdf_recorded,
+        'pdf_hash_fresh': pdf_hash_fresh,
         'pdf_fresh': pdf_fresh,
         'content_hash': content_hash,
         'diagram_manifest_hash': diagram_hash,
@@ -301,7 +304,7 @@ def _counts() -> dict:
             integrity['stale_teacher_approval_bindings'] += 1
         if state['teacher_fresh']:
             jobs['fresh_teacher_approved'] += 1
-        if state['pdf_recorded'] and not state['pdf_fresh']:
+        if state['pdf_recorded'] and not state['pdf_hash_fresh']:
             integrity['stale_pdf_bindings'] += 1
         if state['pdf_fresh']:
             jobs['fresh_final_pdf_ready'] += 1
@@ -467,7 +470,7 @@ PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" conten
 <div class=box><a href="/admin/dashboard">لوحة التحكم</a><a href="/admin/lesson-studio">Lesson Studio</a><a href="/admin/lesson-studio/release-readiness">Release Readiness</a><a href="/admin/project-closure">Project Closure</a></div>
 <div id=out class=box>جارٍ تشغيل فحص القبول الآمن...</div>
 <script>
-const e=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+const e=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[m]));
 async function load(){let r=await fetch('/api/admin/lesson-studio/acceptance');if(r.status===401){location.href='/admin/login';return}if(!r.ok){out.innerHTML='<div class=bad>تعذر تشغيل الفحص</div>';return}let x;try{x=await r.json()}catch(err){out.innerHTML='<div class=bad>تعذر تشغيل الفحص</div>';return}let c=x.counts,j=c.jobs,i=c.integrity;out.innerHTML='<h1>Production Acceptance — Lesson Studio v'+e(x.version)+'</h1><p class="'+(x.acceptance_ready?'ok':x.platform_ready?'warn':'bad')+'"><b>'+(x.acceptance_ready?'✅ القبول الكامل مكتمل':x.platform_ready?'⚠️ المنصة سليمة وتنتظر بوابات المحتوى البشرية':'⛔ يوجد مانع برمجي/تشغيلي')+'</b></p><div class=grid><div class=card><div class=muted>Schema</div><div class=n>'+ (c.schema.ready?'✅':'⛔') +'</div></div><div class=card><div class=muted>دروس منظمة</div><div class=n>'+j.structured+'</div></div><div class=card><div class=muted>اعتمادات حديثة</div><div class=n>'+j.fresh_teacher_approved+'</div></div><div class=card><div class=muted>مسارات PDF مكتملة</div><div class=n>'+j.complete_release_jobs+'</div></div></div><h2>بوابات القبول</h2>'+x.checks.map(v=>'<div class="item '+(v.ok?'ok':v.owner==='system'?'bad':'warn')+'">'+(v.ok?'✅ ':'⚠️ ')+e(v.label)+'<div class=muted>'+e(v.detail)+'</div></div>').join('')+'<h2>Integrity Diagnostics</h2><div class=item>Stale teacher approvals: '+e(i.stale_teacher_approval_bindings)+'</div><div class=item>Stale PDF bindings: '+e(i.stale_pdf_bindings)+'</div><div class=item>Orphan teacher hashes: '+e(i.orphan_teacher_hashes)+'</div><div class=item>Orphan PDF hashes: '+e(i.orphan_pdf_hashes)+'</div><div class=item>Release-bound job scan: '+e(c.scan.release_candidates)+' · mapped refs: '+e(c.scan.mapped_references)+'</div><p class=muted>هذا الفحص لا يكتب cache، ولا يعتمد محتوى، ولا ينشئ PDF، ولا يغلق أي بوابة بشرية تلقائيًا.</p>'}
 load();
 </script></main></html>'''

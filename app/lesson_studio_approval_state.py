@@ -25,20 +25,8 @@ GATE_ORDER = (
 
 
 def _state_schema() -> None:
+    """Ensure the base quality schema is available; gate persistence migrates at startup."""
     _quality_schema()
-    with connect() as con:
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_diagram_manifest_hash text')
-        con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_gate_state(
-          job_id uuid NOT NULL REFERENCES science_lesson_jobs(id) ON DELETE CASCADE,
-          content_hash text NOT NULL,
-          gate text NOT NULL,
-          state text NOT NULL,
-          details jsonb NOT NULL DEFAULT '{}'::jsonb,
-          updated_at timestamptz NOT NULL DEFAULT now(),
-          PRIMARY KEY(job_id,content_hash,gate)
-        )''')
-        con.execute('CREATE INDEX IF NOT EXISTS idx_science_lesson_gate_state_job ON science_lesson_gate_state(job_id,updated_at DESC)')
 
 
 def _check_map(snapshot: dict) -> dict[str, dict]:

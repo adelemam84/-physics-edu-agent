@@ -11,27 +11,15 @@ from .lesson_studio_version_history import snapshot_job
 from .main import app
 from .science_lesson_studio import _schema
 from .security import require_admin
+from .services.lesson_release_state import invalidate_release_state
 from .services.science_diagram_parameterized import PARAMETERIZED_KINDS
 from .services.science_diagram_specs import preview_diagram_spec, schema_catalog, validate_diagram_spec
 
 
 def _diagram_history_schema() -> None:
+    """Ensure diagram-version persistence exists; release-state columns migrate at startup."""
     _schema()
     with connect() as con:
-        # Keep this module self-sufficient: these fields are invalidated whenever
-        # a scientific diagram changes, even if the quality/reviewer pages have
-        # not been opened yet on a fresh database.
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved boolean NOT NULL DEFAULT false')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS teacher_approved_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS quality_snapshot jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_provider text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS second_review_source_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review jsonb')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_hash text')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS reference_review_at timestamptz')
-        con.execute('ALTER TABLE science_lesson_jobs ADD COLUMN IF NOT EXISTS pdf_source_hash text')
         con.execute('''CREATE TABLE IF NOT EXISTS science_lesson_diagram_spec_versions(
           id uuid PRIMARY KEY,
           job_id uuid NOT NULL REFERENCES science_lesson_jobs(id) ON DELETE CASCADE,
@@ -306,17 +294,12 @@ def _persist_diagram_spec(
         diagrams[diagram_index] = updated
         structured['diagram_specs'] = diagrams
 
-        con.execute('''UPDATE science_lesson_jobs SET
-          structured_json=%s::jsonb,
-          teacher_approved=FALSE,teacher_approved_at=NULL,
-          second_review=NULL,second_review_provider=NULL,second_review_at=NULL,
-          second_review_source_hash=NULL,
-          reference_review=NULL,reference_review_hash=NULL,reference_review_at=NULL,
-          quality_snapshot=NULL,pdf_object_key=NULL,pdf_source_hash=NULL,
-          status='content_review_required',updated_at=now()
-          WHERE id=%s''',
-          (json.dumps(structured, ensure_ascii=False), job_id),
+        con.execute(
+            '''UPDATE science_lesson_jobs SET structured_json=%s::jsonb,updated_at=now()
+               WHERE id=%s''',
+            (json.dumps(structured, ensure_ascii=False), job_id),
         )
+        invalidate_release_state(con, job_id, status='content_review_required')
 
         version = _insert_snapshot(
             con,

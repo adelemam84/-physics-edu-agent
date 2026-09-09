@@ -54,23 +54,38 @@ def _deployment_provenance(env: Mapping[str, str] | None = None) -> dict:
 
 
 def project_closure_snapshot() -> dict:
-    """Build the final closure manifest while keeping code, deployment and content gates distinct."""
-    completion = completion_audit_snapshot()
+    """Build one consistent closure manifest across code, deployment and content gates."""
+    lesson = release_readiness_snapshot()
+    corpus = current_curriculum_phase2_status()
+    completion = completion_audit_snapshot(
+        release_snapshot=lesson,
+        corpus_snapshot=corpus,
+    )
     release = next_release_status()
     research = research_engine_status()
-    corpus = current_curriculum_phase2_status()
-    lesson = release_readiness_snapshot()
     deployment = _deployment_provenance()
 
     programmatic = list(completion.get('programmatic_remaining') or [])
     external = list(completion.get('external_or_human_remaining') or [])
     platform = lesson.get('platform') or {}
+    known_programmatic_ids = {str(item.get('id') or '') for item in programmatic}
+    for blocker in platform.get('blockers') or []:
+        blocker_id = str(blocker.get('id') or '')
+        if blocker.get('owner') != 'system' or blocker_id in known_programmatic_ids:
+            continue
+        programmatic.append({
+            'id': blocker_id,
+            'title': blocker.get('label') or blocker_id,
+            'detail': blocker.get('detail') or '',
+        })
+        known_programmatic_ids.add(blocker_id)
+
     phase_x_platform_ready = bool(
         'system_blockers' in platform
         and int(platform.get('system_blockers') or 0) == 0
     )
     phase_x_acceptance_ready = bool(lesson.get('acceptance_ready'))
-    code_complete = bool(completion.get('code_complete')) and phase_x_platform_ready
+    code_complete = bool(completion.get('code_complete')) and phase_x_platform_ready and not programmatic
     content_complete = len(external) == 0 and phase_x_acceptance_ready
     production_runtime_verified = bool(deployment['current_runtime_is_production_main'])
 
@@ -156,6 +171,7 @@ def project_closure_snapshot() -> dict:
             'platform_ready': phase_x_platform_ready,
             'system_blockers': int(platform.get('system_blockers') or 0),
             'teacher_blockers': int(platform.get('teacher_blockers') or 0),
+            'next_action': lesson.get('next_action'),
         },
         'next_release': {
             'release_state': release.get('release_state'),
@@ -169,6 +185,7 @@ def project_closure_snapshot() -> dict:
             'phase_x_acceptance_is_hash_bound': True,
             'runtime_reports_its_own_deployment_sha_only': True,
             'latest_main_match_requires_external_deployment_verification': True,
+            'closure_reuses_one_phase_x_snapshot_per_request': True,
         },
     }
 

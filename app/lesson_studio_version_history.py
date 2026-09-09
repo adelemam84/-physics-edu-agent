@@ -97,12 +97,27 @@ def snapshot_job(job_id: str, action: str, note: str = '', metadata: dict | None
 
 
 def ensure_initial_snapshot(job_id: str) -> None:
-    """Create the baseline version record once before version-history reads or restores."""
+    """Create exactly one baseline by locking the lesson before the existence check and insert."""
     _history_schema()
     with connect() as con:
-        exists = con.execute('SELECT 1 FROM science_lesson_versions WHERE job_id=%s LIMIT 1', (job_id,)).fetchone()
-    if not exists:
-        snapshot_job(job_id, 'initial_snapshot', 'Automatic baseline before version tracking')
+        row = con.execute(
+            'SELECT * FROM science_lesson_jobs WHERE id=%s FOR UPDATE',
+            (job_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, 'Lesson studio job not found')
+        exists = con.execute(
+            'SELECT 1 FROM science_lesson_versions WHERE job_id=%s LIMIT 1',
+            (job_id,),
+        ).fetchone()
+        if not exists:
+            _insert_job_snapshot(
+                con,
+                job_id,
+                row,
+                'initial_snapshot',
+                'Automatic baseline before version tracking',
+            )
 
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/versions', dependencies=[Depends(require_admin)])
@@ -129,6 +144,7 @@ def list_lesson_versions(job_id: str):
         'policy': {
             'immutable_snapshots': True,
             'serialized_snapshot_allocation': True,
+            'serialized_initial_snapshot_creation': True,
             'restore_invalidates_approval': True,
             'restore_invalidates_external_reviews': True,
             'restore_requires_visible_content_hash': True,

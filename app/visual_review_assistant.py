@@ -10,6 +10,7 @@ from .main import app
 from .security import require_admin
 from .science_lesson_studio import _gemini_text
 from .services.source_asset_runtime import render_asset_bytes
+from .services.ai_governance import model_settings
 
 
 def _schema() -> None:
@@ -142,7 +143,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
             source_asset_fingerprint=excluded.source_asset_fingerprint,
             updated_at=now()
         """, (question_id,row['document_id'],row['source_page'],json.dumps(suggestion,ensure_ascii=False),
-              confidence,'lesson_studio_gemini',fingerprint))
+              confidence,'gemini:'+str(model_settings()['gemini_lesson_studio']),fingerprint))
     return {'question_id':question_id,'suggestion':suggestion,'stored':True,'auto_approved':False}
 
 

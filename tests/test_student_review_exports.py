@@ -8,6 +8,7 @@ import unittest
 import fitz
 from PIL import Image
 
+from app.student_portal import PAGE as STUDENT_PORTAL_PAGE
 from app.student_review_exports import (
     _compact_asset_data_uri,
     _review_html,
@@ -106,6 +107,12 @@ class StudentReviewExportTests(unittest.TestCase):
         self.assertNotIn("<script>x</script>", html)
         self.assertIn("&lt;b&gt;Q&lt;/b&gt;", html)
         self.assertIn("A&amp;B", html)
+
+    def test_student_portal_keeps_past_attempt_downloads_available(self):
+        """A student can return later and download any listed completed attempt review."""
+        self.assertIn("downloadAttemptFromPortal", STUDENT_PORTAL_PAGE)
+        self.assertIn("/review-pdf", STUDENT_PORTAL_PAGE)
+        self.assertIn("تنزيل مذكرة أخطائي PDF", STUDENT_PORTAL_PAGE)
 
     def test_student_export_routes_use_post_and_student_ownership(self):
         """Exports stay POST-only and the attempt lookup binds the student code."""

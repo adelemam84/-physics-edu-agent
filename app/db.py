@@ -99,25 +99,9 @@ def init_db():
             AND a.document_id=q.document_id
             AND a.page_number=coalesce(q.source_page,q.page)""")
 
-        # Auto-approve only questions that now pass every deterministic production
-        # gate and have no remaining QA note. This never invents text/answers and
-        # never overrides source-candidate mismatches or scientific review notes.
-        con.execute("""UPDATE questions q SET approved=TRUE
-          WHERE q.approved=FALSE
-            AND q.document_id IS NOT NULL
-            AND coalesce(q.source_page,q.page) IS NOT NULL
-            AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
-            AND q.subject_id IS NOT NULL AND q.grade_level_id IS NOT NULL
-            AND q.curriculum_version_id IS NOT NULL AND q.term_id IS NOT NULL
-            AND q.unit_id IS NOT NULL AND q.lesson_id IS NOT NULL
-            AND q.question_type<>'unknown' AND q.difficulty<>'unclassified'
-            AND EXISTS(SELECT 1 FROM question_assets a
-              WHERE a.question_id=q.id AND a.document_id=q.document_id
-                AND a.page_number=coalesce(q.source_page,q.page))
-            AND EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
-            AND EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id)
-            AND NOT EXISTS(SELECT 1 FROM question_review_notes qr
-              WHERE qr.question_id=q.id AND qr.status='open')""")
+        # Readiness is intentionally not approval. Startup migrations may repair
+        # deterministic metadata, but they never flip a question to approved.
+        # A reviewer must explicitly approve through the guarded admin write path.
 
     # Lesson Studio schema changes are startup migrations. Keeping these DDL
     # statements out of request handlers avoids repeated ACCESS EXCLUSIVE locks.

@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
         run_phase2_bootstrap()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.8.0", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.8.1", lifespan=lifespan)
 
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
@@ -191,25 +191,19 @@ def detect_questions(document_id:int):
 
 @app.patch('/api/admin/questions/{question_id}',dependencies=[Depends(require_admin)])
 def patch_question(question_id:int,p:QuestionPatch):
-    data=p.model_dump(exclude_none=True)
-    if not data: return {'updated':False}
-    allowed=set(QuestionPatch.model_fields)
-    if not set(data)<=allowed: raise HTTPException(400,'Invalid fields')
-    cols=[];vals=[]
-    for k,v in data.items():
-        cols.append(f"{k}=%s");vals.append(v)
-    vals.append(question_id)
-    with connect() as con:
-        row=con.execute(f"UPDATE questions SET {','.join(cols)} WHERE id=%s RETURNING id",vals).fetchone()
-    if not row: raise HTTPException(404,'Question not found')
-    return {'updated':True,'id':question_id}
+    from .services.question_admin_runtime import patch_question_record
+    return patch_question_record(question_id,p.model_dump(exclude_unset=True))
 
-@app.post('/api/admin/questions',dependencies=[Depends(require_admin)])
+@app.post('/api/admin/questions',dependencies=[Depends(require_admin)],deprecated=True)
 def create_manual_question(p:ManualQuestionCreate):
-    with connect() as con:
-        row=con.execute("INSERT INTO questions(document_id,page_number,text_verbatim,question_type,lesson_id,subject_id,grade_level_id,curriculum_version_id,term_id,unit_id,difficulty,accepted_answer,approved) VALUES(NULL,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE) RETURNING id",
-          (p.page,p.text_verbatim,p.question_type,p.lesson_id,p.subject_id,p.grade_level_id,p.curriculum_version_id,p.term_id,p.unit_id,p.difficulty,p.accepted_answer)).fetchone()
-    return {'id':row['id']}
+    raise HTTPException(
+        409,
+        {
+            'message':'لا يمكن إنشاء سؤال بلا مصدر PDF',
+            'use':'POST /api/documents/{document_id}/questions/manual',
+            'policy':'pdf_only_verbatim_questions',
+        },
+    )
 
 @app.post('/api/admin/students',dependencies=[Depends(require_admin)])
 def create_student(p:StudentCreate):

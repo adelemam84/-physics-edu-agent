@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Literal
 
+from .ai_governance import get_task_policy
+
 ResearchTask = Literal['source_analysis', 'lesson_support', 'question_review', 'visual_review']
 
 
@@ -37,6 +39,8 @@ def build_orchestration_plan(
     if page_count < 1:
         raise ValueError('page_count must be positive')
 
+    policy = get_task_policy(task)
+
     if not provider_configured:
         source_mode = 'provider_unavailable'
     elif task in {'visual_review', 'question_review'}:
@@ -49,12 +53,12 @@ def build_orchestration_plan(
     return OrchestrationPlan(
         task=task,
         primary_role='workflow_owner_and_final_gate',
-        secondary_provider='gemini_source_engine',
+        secondary_provider='gemini_source_engine' if policy.provider == 'gemini' else policy.provider,
         source_mode=source_mode,
-        requires_source=True,
-        can_write_question_bank=False,
-        can_auto_approve=False,
-        can_publish=False,
+        requires_source=policy.source_grounded,
+        can_write_question_bank=policy.can_write_question_bank,
+        can_auto_approve=policy.can_auto_approve,
+        can_publish=policy.can_publish,
         post_validation=(
             'source_document_match',
             'source_page_scope_match',

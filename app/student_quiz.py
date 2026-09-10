@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -11,6 +11,7 @@ from .db import connect
 from .security import require_admin
 from .parent_notifications import queue_attempt_notifications
 from .services.grading import grade_answer
+from .student_security import resolve_student_code
 
 def is_correct(answer: str, accepted: str | None) -> bool:
     """Backward-compatible wrapper used by lesson diagnostics and older modules."""
@@ -21,15 +22,15 @@ class AnswerIn(BaseModel):
     answer: str
 
 class SubmitAttempt(BaseModel):
-    student_code: str
+    student_code: str | None = None
     answers: list[AnswerIn]
     attempt_id: int | None = None
 
 class StartAttempt(BaseModel):
-    student_code: str
+    student_code: str | None = None
 
 class SaveAnswer(BaseModel):
-    student_code: str
+    student_code: str | None = None
     question_id: int
     answer: str
 
@@ -73,9 +74,8 @@ def student_quiz(quiz_id: int):
         return {**q,"questions":items}
 
 @app.post("/api/student/quizzes/{quiz_id}/start")
-def start_quiz_attempt(quiz_id:int,p:StartAttempt):
-    code=p.student_code.strip()
-    if not code: raise HTTPException(400,"أدخل كود الطالب")
+def start_quiz_attempt(quiz_id:int,p:StartAttempt, request: Request):
+    code=resolve_student_code(request, p.student_code)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -111,8 +111,8 @@ def start_quiz_attempt(quiz_id:int,p:StartAttempt):
                 "resumed":False,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
 
 @app.put("/api/student/attempts/{attempt_id}/answer")
-def save_quiz_answer(attempt_id:int,p:SaveAnswer):
-    code=p.student_code.strip()
+def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
+    code=resolve_student_code(request, p.student_code)
     with connect() as con:
         a=con.execute("""SELECT a.id,a.quiz_id,a.started_at,a.completed_at,s.external_code,q.duration_minutes
           FROM attempts a JOIN students s ON s.id=a.student_id JOIN quizzes q ON q.id=a.quiz_id WHERE a.id=%s""",(attempt_id,)).fetchone()
@@ -134,19 +134,19 @@ def save_quiz_answer(attempt_id:int,p:SaveAnswer):
         return {"ok":True,"attempt_id":attempt_id,"question_id":p.question_id}
 
 @app.get("/api/student/attempts/{attempt_id}/saved")
-def saved_quiz_answers(attempt_id:int,student_code:str):
+def saved_quiz_answers(attempt_id:int, request: Request, student_code: str | None = None):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
         a=con.execute("""SELECT a.id,a.completed_at,s.external_code FROM attempts a JOIN students s ON s.id=a.student_id
           WHERE a.id=%s""",(attempt_id,)).fetchone()
-        if not a or a["external_code"]!=student_code.strip(): raise HTTPException(404,"المحاولة غير موجودة")
+        if not a or a["external_code"]!=code: raise HTTPException(404,"المحاولة غير موجودة")
         rows=list(con.execute("""SELECT question_id,answer_text FROM attempt_answers
           WHERE attempt_id=%s ORDER BY id""",(attempt_id,)).fetchall())
         return {"attempt_id":attempt_id,"completed":a["completed_at"] is not None,"answers":rows}
 
 @app.post("/api/student/quizzes/{quiz_id}/submit")
-def submit_quiz(quiz_id:int,p:SubmitAttempt):
-    code=p.student_code.strip()
-    if not code: raise HTTPException(400,"أدخل كود الطالب")
+def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
+    code=resolve_student_code(request, p.student_code)
     with connect() as con:
         student=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not student: raise HTTPException(404,"كود الطالب غير صحيح")

@@ -14,7 +14,7 @@ Neither side can impersonate final readiness on its own.
 - Admin page: `/admin/e2e-content-acceptance`
 - Admin API: `/api/admin/e2e-content-acceptance`
 
-Both are protected by the existing administrator authentication gate.
+Both routes are independently protected by the existing administrator authentication gate.
 
 ## Matrix stages
 
@@ -33,12 +33,15 @@ The matrix checks, in visible workflow order:
 11. teacher approval bound to the current content and diagram manifest;
 12. at least one complete current final-PDF release path.
 
+The Lesson Studio system stage does not trust the aggregate `platform_ready` flag by itself. The upstream `schema`, `runtime`, and `release_binding_integrity` checks must each be present and passing; a missing check fails closed as a system blocker.
+
 ## Decision contract
 
 `overall_ready` is true only when:
 
 - `content_complete` is true for the current curriculum;
-- Lesson Studio `acceptance_ready` is true; and
+- Lesson Studio `acceptance_ready` is true;
+- the Lesson Studio `schema`, `runtime`, and `release_binding_integrity` checks are explicitly present and passing; and
 - every matrix stage is currently passing.
 
 System-owned blockers are selected as `next_action` before teacher/human work. Missing upstream Lesson Studio checks fail closed rather than being treated as success.

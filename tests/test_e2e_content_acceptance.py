@@ -152,12 +152,12 @@ class E2EContentAcceptanceTests(unittest.TestCase):
         self.assertIn('لا تعتمد مصدرًا أو سؤالًا أو مدرسًا', PAGE)
 
     def test_html_route_uses_admin_dependency(self):
-        """The administrative HTML shell must be protected independently of its JSON API."""
-        source = inspect.getsource(e2e_content_acceptance_page)
-        route_source = inspect.getsource(__import__('app.e2e_content_acceptance', fromlist=['x']))
-        self.assertIn('return PAGE', source)
+        """The exact administrative HTML route must enforce require_admin before returning its shell."""
+        route_source = inspect.getsource(e2e_content_acceptance_page)
         self.assertIn("'/admin/e2e-content-acceptance'", route_source)
+        self.assertIn('response_class=HTMLResponse', route_source)
         self.assertIn('dependencies=[Depends(require_admin)]', route_source)
+        self.assertIn('return PAGE', route_source)
 
 
 if __name__ == '__main__':

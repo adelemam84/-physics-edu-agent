@@ -19,6 +19,7 @@ class OpenApiContractTests(unittest.TestCase):
             "/api/admin/lesson-studio/jobs/{job_id}/handwriting-pipeline",
             "/api/admin/content-completion",
             "/api/admin/project-closure",
+            "/api/admin/ai-operations/summary",
         }
         self.assertTrue(expected.issubset(paths), expected - set(paths))
 

@@ -269,6 +269,19 @@ class AcceptanceWorkQueueTests(unittest.TestCase):
         self.assertNotIn('curriculum:inactive', ids)
         self.assertFalse(snapshot['ready'])
 
+    def test_blocked_e2e_with_empty_detailed_queue_has_remediation(self):
+        """Phase AA rejection must always produce a concrete next action even when detailed evidence looks clean."""
+        snapshot = acceptance_work_queue_snapshot(
+            content_snapshot=_content(),
+            studio_snapshot=_studio(),
+            e2e_snapshot=_e2e(False),
+        )
+        self.assertFalse(snapshot['ready'])
+        self.assertIsNotNone(snapshot['next_action'])
+        self.assertEqual(snapshot['next_action']['id'], 'e2e:blocked')
+        self.assertEqual(snapshot['next_action']['owner'], 'system')
+        self.assertEqual(snapshot['next_action']['path'], '/admin/e2e-content-acceptance')
+
     def test_e2e_ready_with_open_evidence_is_blocked_as_inconsistent(self):
         """Aggregate readiness may never override concrete open evidence."""
         snapshot = acceptance_work_queue_snapshot(

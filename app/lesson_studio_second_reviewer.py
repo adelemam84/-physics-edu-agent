@@ -11,9 +11,12 @@ from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job, _schema
 from .services.lesson_integrity import review_source_hash
+from .services.ai_governance import model_settings
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
-REVIEW_MODEL = os.getenv('LESSON_STUDIO_REVIEW_MODEL', 'gpt-5.6-sol').strip() or 'gpt-5.6-sol'
+_AI_MODELS = model_settings()
+REVIEW_MODEL = str(_AI_MODELS['openai_scientific_reviewer'])
+REVIEW_REASONING_EFFORT = str(_AI_MODELS['openai_scientific_reviewer_reasoning'])
 
 
 def _schema_review() -> None:
@@ -26,6 +29,7 @@ def reviewer_status() -> dict:
         'configured': bool(OPENAI_API_KEY),
         'provider': 'openai' if OPENAI_API_KEY else None,
         'model': REVIEW_MODEL,
+        'reasoning_effort': REVIEW_REASONING_EFFORT,
         'role': 'independent_advisory_scientific_review',
         'can_modify_lesson': False,
         'can_auto_approve': False,
@@ -74,7 +78,7 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
     )
     body = {
         'model': REVIEW_MODEL,
-        'reasoning': {'effort': 'high'},
+        'reasoning': {'effort': REVIEW_REASONING_EFFORT},
         'input': [
             {'role': 'developer', 'content': [{'type': 'input_text', 'text': developer}]},
             {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},

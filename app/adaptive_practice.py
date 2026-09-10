@@ -1,8 +1,9 @@
 from __future__ import annotations
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from .main import app
 from .db import connect
 from .security import require_admin
+from .student_security import resolve_student_code
 
 def _latest_remedial_targets(con,student_id:int):
     last=con.execute("""SELECT a.id,a.quiz_id,a.completed_at FROM attempts a JOIN quizzes q ON q.id=a.quiz_id
@@ -104,9 +105,10 @@ def adaptive_practice(student_id:int,count:int=10):
     return build_adaptive_practice(student_id,count)
 
 @app.get("/api/student/adaptive-practice")
-def student_adaptive_practice(student_code:str,count:int=10):
+def student_adaptive_practice(request: Request, student_code: str | None = None, count:int=10):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
-        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
     if not st: raise HTTPException(404,"كود الطالب غير صحيح")
     data=build_adaptive_practice(st["id"],count)
     data["student_name"]=st["name"]
@@ -114,8 +116,8 @@ def student_adaptive_practice(student_code:str,count:int=10):
 
 
 @app.post("/api/student/adaptive-practice/create")
-def create_student_adaptive_quiz(student_code:str,count:int=10):
-    code=student_code.strip()
+def create_student_adaptive_quiz(request: Request, student_code: str | None = None, count:int=10):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
     if not st:

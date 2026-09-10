@@ -10,6 +10,7 @@ from app import student_quiz  # noqa: F401,E402
 from app import student_admin  # noqa: F401,E402
 from app import admin_dashboard  # noqa: F401,E402
 from app import student_reports  # noqa: F401,E402
+from app import student_review_exports  # noqa: F401,E402
 from app import academic  # noqa: F401,E402
 from app import academic_admin  # noqa: F401,E402
 from app import knowledge_map  # noqa: F401,E402

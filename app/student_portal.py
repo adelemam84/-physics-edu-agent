@@ -1,13 +1,14 @@
 from __future__ import annotations
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from .main import app
 from .db import connect
 from .adaptive_practice import build_adaptive_practice
+from .student_security import resolve_student_code
 
 @app.get("/api/student/portal")
-def student_portal(student_code:str):
-    code=student_code.strip()
+def student_portal(request: Request, student_code: str | None = None):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
         st=con.execute("SELECT id,name,external_code FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")

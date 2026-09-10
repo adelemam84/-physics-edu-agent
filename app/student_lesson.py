@@ -1,23 +1,24 @@
 from __future__ import annotations
 from decimal import Decimal
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from .main import app
 from .db import connect
 from .student_quiz import is_correct
+from .student_security import resolve_student_code
 
 class DiagnosticAnswer(BaseModel):
     question_id:int
     answer:str
 
 class DiagnosticSubmit(BaseModel):
-    student_code:str
+    student_code: str | None = None
     answers:list[DiagnosticAnswer]
 
 @app.get("/api/student/lessons/{lesson_id}")
-def student_lesson(lesson_id:int,student_code:str):
-    code=student_code.strip()
+def student_lesson(lesson_id:int, request: Request, student_code: str | None = None):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -51,8 +52,8 @@ def student_lesson(lesson_id:int,student_code:str):
       "content_note":"محتوى القراءة أدناه من نص صفحات PDF المصدرية المرتبطة بأسئلة هذا الدرس والمعتمدة في النظام؛ لا تتم إضافة معلومات علمية من خارج المصدر."}
 
 @app.post("/api/student/lessons/{lesson_id}/diagnostic")
-def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit):
-    code=p.student_code.strip()
+def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit, request: Request):
+    code=resolve_student_code(request, p.student_code)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")

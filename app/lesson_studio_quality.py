@@ -187,6 +187,11 @@ def _build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict
     }
 
 
+def build_quality_snapshot(job_id: str, row: dict, sources: list[dict]) -> dict:
+    """Public no-I/O quality evaluator for callers that already own a coherent row/source snapshot."""
+    return _build_quality_snapshot(job_id, row, sources)
+
+
 def _locked_job_state(con, job_id: str) -> tuple[dict, list[dict]]:
     """Lock the lesson and its OCR-source review rows before a final gate mutation."""
     row = con.execute(

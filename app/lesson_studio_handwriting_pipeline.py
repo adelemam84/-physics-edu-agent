@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import Depends
 
-from .lesson_studio_quality import _build_quality_snapshot
+from .lesson_studio_quality import build_quality_snapshot
 from .main import app
 from .security import require_admin
 from .science_lesson_studio import _job
@@ -43,7 +43,7 @@ def handwriting_pipeline_snapshot(job_id: str) -> dict:
         })
 
     diagrams = list(structured.get("diagram_specs") or [])
-    quality = _build_quality_snapshot(job_id, dict(row), [dict(x) for x in sources])
+    quality = build_quality_snapshot(job_id, dict(row), [dict(x) for x in sources])
     checks = {item["id"]: item for item in quality.get("checks") or []}
 
     source_preserved = bool((checks.get("source_preserved") or {}).get("ok"))

@@ -237,24 +237,178 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
             "adaptive_recommended": pct < 85,
             "parent_notifications":notify,"time_expired":expired,"score_policy":policy,"recorded_percentage":round(recorded,2),"attempts_used":len(history)}
 
-STUDENT = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبار العلوم</title><style>
-body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:900px;margin:auto;padding:18px}.box,.q{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.asset{max-width:100%;border-radius:10px}.row{display:flex;gap:8px;flex-wrap:wrap}input,button{padding:11px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}input.answer{width:100%;box-sizing:border-box}.muted{color:#667085}.result{font-size:22px;font-weight:700}</style><main>
-<div class=box><h1 id=title>اختبار العلوم</h1><div class=row><input id=code placeholder="كود الطالب"><button onclick=startAttempt()>بدء / استكمال الاختبار</button><button id=submitBtn onclick=submitQuiz() disabled>إنهاء الاختبار وإظهار النتيجة</button></div><div id=timer class=result></div><div id=msg class=muted></div></div><div id=items></div><div id=result class=box style="display:none"></div>
+STUDENT = r'''<!doctype html>
+<html lang="ar" dir="rtl">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>اختبار الفيزياء</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#667085;--line:#e4e7ec;--brand:#2447a8;--soft:#eef3ff;--ok:#067647;--bad:#b42318}
+*{box-sizing:border-box}body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);margin:0;color:var(--text)}
+main{max-width:920px;margin:auto;padding:18px 18px 90px}.box,.q{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #1018280a}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+a{color:var(--brand);text-decoration:none}.muted{color:var(--muted)}.status{font-size:13px}.result{font-size:22px;font-weight:800}
+input,button{padding:11px;border:1px solid #cbd2df;border-radius:10px;font:inherit}button{cursor:pointer;background:#fff}button.primary{background:var(--brand);border-color:var(--brand);color:#fff}button:disabled{opacity:.5;cursor:not-allowed}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #84adff;outline-offset:2px}.answer{width:100%;margin-top:10px}.asset{max-width:100%;max-height:520px;display:block;margin:10px auto;border-radius:12px}
+.q-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.pill{display:inline-block;background:var(--soft);color:var(--brand);border-radius:999px;padding:5px 9px;font-size:12px;font-weight:700}
+.progress{height:9px;background:#eaecf0;border-radius:999px;overflow:hidden;margin:9px 0}.progress>span{display:block;height:100%;background:var(--brand);width:0;transition:width .2s ease}
+.save-ok{color:var(--ok)}.save-bad{color:var(--bad)}.sticky-actions{position:sticky;bottom:8px;z-index:10;background:#ffffffed;backdrop-filter:blur(8px)}
+@media(max-width:650px){main{padding:10px 10px 92px}.box,.q{padding:13px;border-radius:14px}.row>*{flex:1 1 100%}.result{font-size:18px}.sticky-actions{bottom:4px}.q{scroll-margin-top:10px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+<main>
+<div class="box">
+  <div class="top"><a href="/student">← بوابة الطالب</a><span id="sessionBadge" class="pill">فحص الجلسة...</span></div>
+  <h1 id="title">اختبار الفيزياء</h1>
+  <div class="row" id="loginRow">
+    <label for="code" class="muted">كود الطالب</label>
+    <input id="code" autocomplete="one-time-code" placeholder="أدخل كود الطالب">
+    <button class="primary" onclick="startAttempt()">بدء / استكمال الاختبار</button>
+  </div>
+  <div id="timer" class="result"></div>
+  <div class="progress" aria-label="نسبة الإجابات"><span id="progressBar"></span></div>
+  <div id="progressText" class="muted"></div>
+  <div id="msg" class="status muted" aria-live="polite"></div>
+</div>
+<div id="items"></div>
+<div class="box sticky-actions">
+  <div class="row">
+    <button class="primary" id="submitBtn" onclick="submitQuiz()" disabled>إنهاء الاختبار وإظهار النتيجة</button>
+    <button onclick="location.href='/student'">العودة للبوابة</button>
+  </div>
+</div>
+<div id="result" class="box" style="display:none" aria-live="polite"></div>
+
 <script>
-const quizId=Number(location.pathname.split('/').pop());let data=null,attemptId=null,saveTimer=null,expiresAt=null,timerHandle=null,autoSubmitting=false;
-function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-async function load(){let r=await fetch('/api/student/quizzes/'+quizId),x=await r.json();if(!r.ok){msg.textContent=x.detail||'تعذر تحميل الاختبار';return}data=x;title.textContent=x.title;items.innerHTML=x.questions.map(q=>`<div class=q><b>سؤال ${q.position}</b>${q.has_asset?`<div><img class=asset src="/api/practice/questions/${q.id}/asset"></div>`:''}<div>${esc(q.text_verbatim)}</div><input class=answer id="a_${q.id}" placeholder="اكتب الإجابة" disabled oninput="queueSave(${q.id})"></div>`).join('');msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'}
+const quizId=Number(location.pathname.split('/').pop());
+let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false;
+const saveTimers=new Map();
+
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function apiError(x,fallback){return typeof x?.detail==='string'?x.detail:(x?.detail?.message||fallback)}
+function updateProgress(){
+  if(!data){progressText.textContent='';return}
+  const answers=data.questions.filter(q=>(document.getElementById('a_'+q.id)?.value||'').trim()).length;
+  const total=data.questions.length||0,pct=total?Math.round(answers*100/total):0;
+  progressText.textContent='تمت الإجابة عن '+answers+' من '+total+' أسئلة';
+  progressBar.style.width=pct+'%';
+}
+async function sessionInfo(){
+  return fetch('/api/student/session',{cache:'no-store'}).then(r=>r.json()).catch(()=>({authenticated:false}));
+}
+async function ensureSession(){
+  let s=await sessionInfo();
+  if(s.authenticated){sessionBadge.textContent='جلسة آمنة · '+(s.student?.name||'الطالب');loginRow.querySelector('label').style.display='none';code.style.display='none';return true}
+  let v=code.value.trim();
+  if(!v)throw new Error('أدخل كود الطالب');
+  let r=await fetch('/api/student/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:v})});
+  let x=await r.json().catch(()=>null);
+  if(!r.ok)throw new Error(apiError(x,'تعذر تسجيل الدخول'));
+  code.value='';code.style.display='none';loginRow.querySelector('label').style.display='none';
+  sessionBadge.textContent='جلسة آمنة · '+(x.student?.name||'الطالب');
+  return true;
+}
+async function load(){
+  let r=await fetch('/api/student/quizzes/'+quizId,{cache:'no-store'}),x=await r.json().catch(()=>null);
+  if(!r.ok){msg.textContent=apiError(x,'تعذر تحميل الاختبار');return}
+  data=x;title.textContent=x.title;
+  items.innerHTML=x.questions.map(q=>`<section class="q" id="q_${q.id}">
+    <div class="q-head"><b>سؤال ${q.position}</b><span id="save_${q.id}" class="muted"></span></div>
+    ${q.has_asset?`<img class="asset" src="/api/practice/questions/${q.id}/asset" alt="صورة السؤال ${q.position}" loading="lazy">`:''}
+    <div>${esc(q.text_verbatim)}</div>
+    <input class="answer" id="a_${q.id}" aria-label="إجابة السؤال ${q.position}" placeholder="اكتب الإجابة" disabled oninput="queueSave(${q.id})">
+  </section>`).join('');
+  updateProgress();
+  let s=await sessionInfo();
+  if(s.authenticated){sessionBadge.textContent='جلسة آمنة · '+(s.student?.name||'الطالب');code.style.display='none';loginRow.querySelector('label').style.display='none';msg.textContent='يمكنك بدء أو استكمال المحاولة.'}
+  else{sessionBadge.textContent='تسجيل الدخول مطلوب';msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'}
+}
 async function startAttempt(){try{await ensureAttempt()}catch(e){msg.textContent=e.message}}
-async function ensureAttempt(){if(attemptId)return attemptId;if(!code.value.trim())throw new Error('أدخل كود الطالب');let r=await fetch('/api/student/quizzes/'+quizId+'/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value})}),x=await r.json();if(!r.ok)throw new Error(typeof x.detail==='string'?x.detail:JSON.stringify(x.detail));attemptId=x.attempt_id;expiresAt=x.expires_at?new Date(x.expires_at):null;submitBtn.disabled=false;document.querySelectorAll('.answer').forEach(el=>el.disabled=false);startTimer();let sr=await fetch('/api/student/attempts/'+attemptId+'/saved?student_code='+encodeURIComponent(code.value)),sx=await sr.json();if(sr.ok){for(let a of sx.answers||[]){let el=document.getElementById('a_'+a.question_id);if(el)el.value=a.answer_text||''}}msg.textContent=x.resumed?'تم استكمال محاولتك السابقة.':'بدأت محاولة جديدة ويتم حفظ الإجابات تلقائيًا.';return attemptId}
-function queueSave(qid){if(expiresAt&&Date.now()>=expiresAt.getTime())return;clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveAnswer(qid),500)}
-function startTimer(){clearInterval(timerHandle);if(!expiresAt){timer.textContent='بدون وقت محدد';return}function tick(){let ms=expiresAt.getTime()-Date.now();if(ms<=0){timer.textContent='انتهى الوقت';document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;clearInterval(timerHandle);if(!autoSubmitting){autoSubmitting=true;submitQuiz(true)}return}let s=Math.floor(ms/1000),m=Math.floor(s/60),sec=s%60;timer.textContent='الوقت المتبقي: '+m+':'+String(sec).padStart(2,'0')}tick();timerHandle=setInterval(tick,1000)}
-async function saveAnswer(qid){try{let id=await ensureAttempt();let el=document.getElementById('a_'+qid);let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,question_id:qid,answer:el.value})});if(r.ok)msg.textContent='تم حفظ الإجابة تلقائيًا.'}catch(e){msg.textContent=e.message}}
-async function submitQuiz(fromTimer=false){if(!data)return;try{await ensureAttempt()}catch(e){msg.textContent=e.message;return}let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code.value,answers,attempt_id:attemptId})}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}clearInterval(timerHandle);document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;result.style.display='block';result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div>${x.time_expired?'<p class="muted">تم التسليم بعد انتهاء الوقت باستخدام آخر إجابات محفوظة قبل انتهاء المدة.</p>':''}<p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p><p class=muted>تم حفظ النتيجة وتجهيز إشعار ولي الأمر المسجل والموافق على رسائل واتساب.</p><div class=row><button onclick="downloadAttemptReview()">تنزيل الاختبار بإجاباتي PDF</button><button onclick="downloadMistakesReview()">تنزيل مذكرة أخطائي PDF</button></div>${x.adaptive_recommended?'<button onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيظل النظام يتابع نقاط القوة والضعف من المحاولات التالية.</p>'}`;scrollTo({top:document.body.scrollHeight,behavior:'smooth'})}
-async function downloadReview(url,filename,payload){msg.textContent='جارٍ تجهيز ملف المراجعة...';try{let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok){let x=await r.json().catch(()=>null);msg.textContent=typeof x?.detail==='string'?x.detail:'تعذر إنشاء ملف المراجعة';return}let blob=await r.blob(),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);msg.textContent='تم تجهيز ملف المراجعة.'}catch(e){msg.textContent='تعذر الاتصال أثناء تجهيز ملف المراجعة. تحقق من الإنترنت وحاول مرة أخرى.'}}
-function downloadAttemptReview(){if(!attemptId)return;return downloadReview('/api/student/attempts/'+attemptId+'/review-pdf','attempt-'+attemptId+'-review.pdf',{student_code:code.value,max_questions:100})}
-function downloadMistakesReview(){return downloadReview('/api/student/review/mistakes-pdf','my-mistakes-review.pdf',{student_code:code.value,max_questions:100})}
-async function startAdaptive(){msg.textContent='جارٍ تجهيز التدريب العلاجي...';let r=await fetch('/api/student/adaptive-practice/create?student_code='+encodeURIComponent(code.value)+'&count=10',{method:'POST'}),x=await r.json();if(!r.ok){msg.textContent=typeof x.detail==='string'?x.detail:JSON.stringify(x.detail);return}location.href=x.student_path}load();
-</script></main></html>'''
+async function ensureAttempt(){
+  if(attemptId)return attemptId;
+  await ensureSession();
+  let r=await fetch('/api/student/quizzes/'+quizId+'/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  let x=await r.json().catch(()=>null);
+  if(!r.ok)throw new Error(apiError(x,'تعذر بدء الاختبار'));
+  attemptId=x.attempt_id;expiresAt=x.expires_at?new Date(x.expires_at):null;submitBtn.disabled=false;
+  document.querySelectorAll('.answer').forEach(el=>el.disabled=false);
+  startTimer();
+  let sr=await fetch('/api/student/attempts/'+attemptId+'/saved',{cache:'no-store'}),sx=await sr.json().catch(()=>null);
+  if(sr.ok){for(let a of sx.answers||[]){let el=document.getElementById('a_'+a.question_id);if(el)el.value=a.answer_text||''}}
+  updateProgress();
+  msg.textContent=x.resumed?'تم استكمال محاولتك السابقة.':'بدأت محاولة جديدة ويتم حفظ كل إجابة تلقائيًا.';
+  return attemptId;
+}
+function queueSave(qid){
+  if(expiresAt&&Date.now()>=expiresAt.getTime())return;
+  updateProgress();
+  clearTimeout(saveTimers.get(qid));
+  let badge=document.getElementById('save_'+qid);if(badge){badge.textContent='بانتظار الحفظ';badge.className='muted'}
+  saveTimers.set(qid,setTimeout(()=>saveAnswer(qid),500));
+}
+function startTimer(){
+  clearInterval(timerHandle);
+  if(!expiresAt){timer.textContent='بدون وقت محدد';return}
+  function tick(){
+    let ms=expiresAt.getTime()-Date.now();
+    if(ms<=0){
+      timer.textContent='انتهى الوقت';document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;clearInterval(timerHandle);
+      if(!autoSubmitting){autoSubmitting=true;submitQuiz(true)}
+      return
+    }
+    let s=Math.floor(ms/1000),m=Math.floor(s/60),sec=s%60;
+    timer.textContent='الوقت المتبقي: '+m+':'+String(sec).padStart(2,'0')
+  }
+  tick();timerHandle=setInterval(tick,1000)
+}
+async function saveAnswer(qid){
+  try{
+    let id=await ensureAttempt(),el=document.getElementById('a_'+qid),badge=document.getElementById('save_'+qid);
+    let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({question_id:qid,answer:el.value})});
+    let x=await r.json().catch(()=>null);
+    if(!r.ok)throw new Error(apiError(x,'تعذر حفظ الإجابة'));
+    if(badge){badge.textContent='تم الحفظ';badge.className='save-ok'}
+  }catch(e){
+    let badge=document.getElementById('save_'+qid);if(badge){badge.textContent='لم تُحفظ';badge.className='save-bad'}
+    msg.textContent=e.message
+  }finally{saveTimers.delete(qid)}
+}
+async function submitQuiz(fromTimer=false){
+  if(!data)return;
+  try{await ensureAttempt()}catch(e){msg.textContent=e.message;return}
+  for(const timer of saveTimers.values())clearTimeout(timer);saveTimers.clear();
+  let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));
+  let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers,attempt_id:attemptId})});
+  let x=await r.json().catch(()=>null);
+  if(!r.ok){msg.textContent=apiError(x,'تعذر تسليم الاختبار');return}
+  clearInterval(timerHandle);document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;
+  result.style.display='block';
+  result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div>
+    ${x.time_expired?'<p class="muted">تم التسليم بعد انتهاء الوقت باستخدام آخر إجابات محفوظة قبل انتهاء المدة.</p>':''}
+    <p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p>
+    <p class=muted>تم حفظ النتيجة. التصحيح النهائي حتمي من الإجابات المعتمدة في بنك الأسئلة.</p>
+    <div class=row><button onclick="downloadAttemptReview()">تنزيل الاختبار بإجاباتي PDF</button><button onclick="downloadMistakesReview()">تنزيل مذكرة أخطائي PDF</button></div>
+    ${x.adaptive_recommended?'<button class="primary" onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيستمر النظام في متابعة نقاط القوة والضعف.</p>'}`;
+  result.scrollIntoView({behavior:'smooth',block:'start'})
+}
+async function downloadReview(url,filename,payload){
+  msg.textContent='جارٍ تجهيز ملف المراجعة...';
+  try{
+    let r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!r.ok){let x=await r.json().catch(()=>null);msg.textContent=apiError(x,'تعذر إنشاء ملف المراجعة');return}
+    let blob=await r.blob(),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);msg.textContent='تم تجهيز ملف المراجعة.'
+  }catch(e){msg.textContent='تعذر الاتصال أثناء تجهيز ملف المراجعة.'}
+}
+function downloadAttemptReview(){if(!attemptId)return;return downloadReview('/api/student/attempts/'+attemptId+'/review-pdf','attempt-'+attemptId+'-review.pdf',{max_questions:100})}
+function downloadMistakesReview(){return downloadReview('/api/student/review/mistakes-pdf','my-mistakes-review.pdf',{max_questions:100})}
+async function startAdaptive(){
+  msg.textContent='جارٍ تجهيز التدريب العلاجي...';
+  let r=await fetch('/api/student/adaptive-practice/create?count=10',{method:'POST'}),x=await r.json().catch(()=>null);
+  if(!r.ok){msg.textContent=apiError(x,'تعذر إنشاء التدريب');return}
+  location.href=x.student_path
+}
+load();
+</script>
+</main></html>'''
 
 @app.get("/student/quiz/{quiz_id}",response_class=HTMLResponse)
 def student_quiz_page(quiz_id:int):

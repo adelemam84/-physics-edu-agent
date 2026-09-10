@@ -44,8 +44,9 @@ class StudentReviewExportTests(unittest.TestCase):
         self.assertTrue(data.startswith(b"%PDF"))
         doc = fitz.open(stream=data, filetype="pdf")
         text = "\n".join(page.get_text() for page in doc)
-        self.assertIn("2 A", text)
-        self.assertIn("3 A", text)
+        normalized = " ".join(text.split())
+        self.assertIn("2 A", normalized)
+        self.assertIn("3 A", normalized)
         self.assertGreater(len(text.strip()), 80)
         doc.close()
 

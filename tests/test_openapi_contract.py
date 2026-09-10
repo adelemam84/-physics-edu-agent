@@ -20,6 +20,11 @@ class OpenApiContractTests(unittest.TestCase):
             "/api/admin/content-completion",
             "/api/admin/project-closure",
             "/api/admin/ai-operations/summary",
+            "/api/admin/question-catalog",
+            "/api/admin/question-stats",
+            "/api/admin/review/documents",
+            "/api/admin/questions/{question_id}/readiness",
+            "/api/admin/documents/{document_id}/questions/manual",
         }
         self.assertTrue(expected.issubset(paths), expected - set(paths))
 

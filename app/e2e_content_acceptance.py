@@ -59,6 +59,15 @@ def e2e_content_acceptance_snapshot(
     covered_lessons = int(coverage.get('covered_lessons') or 0)
     open_qa = int(coverage.get('open_qa_total') or 0)
 
+    schema = _studio_check(studio, 'schema')
+    runtime = _studio_check(studio, 'runtime')
+    release_binding_integrity = _studio_check(studio, 'release_binding_integrity')
+    system_checks = (schema, runtime, release_binding_integrity)
+    studio_platform_ok = bool(
+        studio.get('platform_ready') and all(bool(item.get('ok')) for item in system_checks)
+    )
+    failed_system_checks = [str(item.get('id') or 'unknown') for item in system_checks if not item.get('ok')]
+
     reference_pdf = _studio_check(studio, 'reference_pdf')
     curriculum_map = _studio_check(studio, 'curriculum_map')
     structured_lesson = _studio_check(studio, 'handwritten_job')
@@ -107,12 +116,12 @@ def e2e_content_acceptance_snapshot(
         _stage(
             'lesson_studio_platform',
             'Lesson Studio سليم برمجيًا وتشغيليًا',
-            bool(studio.get('platform_ready')),
+            studio_platform_ok,
             'system',
             (
-                'لا توجد موانع system في فحص Lesson Studio'
-                if studio.get('platform_ready')
-                else 'يوجد مانع system في فحص Lesson Studio'
+                'فحوص schema/runtime/release_binding_integrity موجودة وناجحة'
+                if studio_platform_ok
+                else 'فحوص النظام غير ناجحة أو ناقصة: ' + ', '.join(failed_system_checks or ['platform_ready'])
             ),
             '/admin/lesson-studio/acceptance',
         ),
@@ -181,12 +190,12 @@ def e2e_content_acceptance_snapshot(
 
     content_ready = bool(content.get('content_complete'))
     studio_ready = bool(studio.get('acceptance_ready'))
-    overall_ready = bool(content_ready and studio_ready and not blockers)
+    overall_ready = bool(content_ready and studio_ready and studio_platform_ok and not blockers)
 
     return {
         'version': app.version,
         'overall_ready': overall_ready,
-        'platform_ready': bool(studio.get('platform_ready')),
+        'platform_ready': studio_platform_ok,
         'curriculum_content_ready': content_ready,
         'lesson_studio_acceptance_ready': studio_ready,
         'matrix': matrix,
@@ -211,6 +220,7 @@ def e2e_content_acceptance_snapshot(
             'no_teacher_approval_is_synthesized': True,
             'no_scientific_content_is_invented': True,
             'curriculum_and_lesson_studio_must_both_pass': True,
+            'system_checks_must_be_present_and_pass': True,
             'system_blockers_are_prioritized_before_human_work': True,
         },
     }
@@ -233,7 +243,11 @@ load();
 </script></main></html>'''
 
 
-@app.get('/admin/e2e-content-acceptance', response_class=HTMLResponse)
+@app.get(
+    '/admin/e2e-content-acceptance',
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_admin)],
+)
 def e2e_content_acceptance_page():
     """Render the final end-to-end curriculum and Lesson Studio acceptance matrix."""
     return PAGE

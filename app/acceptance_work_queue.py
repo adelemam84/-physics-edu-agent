@@ -291,6 +291,18 @@ def acceptance_work_queue_snapshot(
     else:
         e2e_ready = bool(e2e.get('overall_ready'))
 
+    if not e2e_ready and not queue:
+        queue.append(_queue_item(
+            'e2e:blocked',
+            'system',
+            0,
+            'system',
+            'مصفوفة القبول End-to-End ما زالت محجوبة',
+            'Phase AA غير جاهزة رغم عدم وجود مهمة تفصيلية في هذه القائمة؛ افتح مصفوفة القبول لرؤية الدليل الحاجب وإصلاح مصدره.',
+            '/admin/e2e-content-acceptance',
+            {'overall_ready': False, 'fallback': True},
+        ))
+
     if e2e_ready and queue:
         queue.append(_queue_item(
             'system:e2e-queue-inconsistency',
@@ -335,6 +347,7 @@ def acceptance_work_queue_snapshot(
             'no_scientific_content_invention': True,
             'malformed_or_missing_evidence_fails_closed': True,
             'unknown_failed_studio_checks_are_blocking': True,
+            'blocked_e2e_always_has_remediation': True,
         },
     }
 

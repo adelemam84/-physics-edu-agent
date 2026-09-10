@@ -1,10 +1,19 @@
 from __future__ import annotations
 from fastapi import Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Literal
 from .main import app
 from .db import connect
 from .security import require_admin
+
+class AttemptPolicy(BaseModel):
+    """Validated attempt policy used by the quiz administration API."""
+
+    max_attempts: int = Field(default=1, ge=1, le=20)
+    retry_wait_minutes: int = Field(default=0, ge=0, le=10080)
+    score_policy: Literal["highest", "latest"] = "highest"
+
 
 class QuizGenerate(BaseModel):
     title: str = "اختبار"

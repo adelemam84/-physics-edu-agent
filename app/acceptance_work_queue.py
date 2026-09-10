@@ -75,7 +75,7 @@ def _nonnegative_int(value: object) -> bool:
 
 
 def _lesson_rows(value: object) -> list[dict] | None:
-    """Validate lesson evidence IDs, coverage flags, counts, and uniqueness fail-closed."""
+    """Validate lesson evidence IDs, coverage flags, counts, consistency, and uniqueness fail-closed."""
     rows = _dict_rows(value)
     if rows is None:
         return None
@@ -85,9 +85,13 @@ def _lesson_rows(value: object) -> list[dict] | None:
         if not _nonnegative_int(lesson_id) or lesson_id == 0 or lesson_id in seen:
             return None
         seen.add(lesson_id)
-        if not isinstance(row.get('covered'), bool):
+        covered = row.get('covered')
+        mapping_count = row.get('approved_explanatory_mapping_count')
+        if not isinstance(covered, bool):
             return None
-        if not _nonnegative_int(row.get('approved_explanatory_mapping_count')):
+        if not _nonnegative_int(mapping_count):
+            return None
+        if covered != (mapping_count > 0):
             return None
     return rows
 
@@ -263,6 +267,24 @@ def acceptance_work_queue_snapshot(
             {'check_id': check_id},
         ))
 
+    if checks is not None:
+        for check in checks:
+            check_id = check['id']
+            if check_id in _EXPECTED_STUDIO_CHECKS or check['ok']:
+                continue
+            owner = check['owner']
+            priority = 0 if owner == 'system' else 3
+            queue.append(_queue_item(
+                f'lesson-studio:{check_id}',
+                'system' if owner == 'system' else 'lesson_studio',
+                priority,
+                owner,
+                str(check.get('label') or check_id),
+                str(check.get('detail') or 'فحص Lesson Studio إضافي غير ناجح.'),
+                _STUDIO_PATHS.get(check_id, '/admin/lesson-studio/acceptance'),
+                {'check_id': check_id, 'unexpected': True},
+            ))
+
     if not isinstance(e2e.get('overall_ready'), bool):
         queue.append(_malformed_item('e2e_content_acceptance', 'overall_ready', '/admin/e2e-content-acceptance'))
         e2e_ready = False
@@ -312,6 +334,7 @@ def acceptance_work_queue_snapshot(
             'no_teacher_approval_synthesis': True,
             'no_scientific_content_invention': True,
             'malformed_or_missing_evidence_fails_closed': True,
+            'unknown_failed_studio_checks_are_blocking': True,
         },
     }
 

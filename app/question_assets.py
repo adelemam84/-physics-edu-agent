@@ -20,22 +20,29 @@ def _resolve_visual_review(con, question_id:int) -> None:
                    WHERE question_id=%s AND reason_code='visual_asset_required' AND status='open'""",
                 (question_id,))
 
-def _maybe_approve_question(con, question_id:int) -> bool:
-    row=con.execute("""SELECT q.approved,
+def _question_ready_for_human_approval(con, question_id:int) -> bool:
+    """Return deterministic readiness only; never grant approval."""
+    row=con.execute("""SELECT
+      q.document_id IS NOT NULL AND coalesce(q.source_page,q.page) IS NOT NULL has_source,
       q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>'' has_answer,
       q.lesson_id IS NOT NULL AND q.subject_id IS NOT NULL AND q.grade_level_id IS NOT NULL
-        AND q.curriculum_version_id IS NOT NULL AND q.term_id IS NOT NULL has_scope,
+        AND q.curriculum_version_id IS NOT NULL AND q.term_id IS NOT NULL
+        AND q.unit_id IS NOT NULL has_scope,
       q.question_type<>'unknown' AND q.difficulty<>'unclassified' classified,
       EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id) has_concept,
       EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id) has_skill,
-      NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=q.id AND qr.status='open') qa_clear
+      EXISTS(SELECT 1 FROM question_assets a
+        WHERE a.question_id=q.id AND a.document_id=q.document_id
+          AND a.page_number=coalesce(q.source_page,q.page)) asset_valid,
+      NOT EXISTS(SELECT 1 FROM question_review_notes qr
+        WHERE qr.question_id=q.id AND qr.status='open') qa_clear
       FROM questions q WHERE q.id=%s""",(question_id,)).fetchone()
     if not row:
         return False
-    ready=all(bool(row[k]) for k in ('has_answer','has_scope','classified','has_concept','has_skill','qa_clear'))
-    if ready and not row['approved']:
-        con.execute("UPDATE questions SET approved=TRUE WHERE id=%s",(question_id,))
-    return ready
+    return all(bool(row[k]) for k in (
+        'has_source','has_answer','has_scope','classified',
+        'has_concept','has_skill','asset_valid','qa_clear'
+    ))
 
 def _store_asset_row(con, question_id:int, document_id:int, page_number:int, key:str,
                      crop_x:float, crop_y:float, crop_width:float, crop_height:float,
@@ -50,7 +57,7 @@ def _store_asset_row(con, question_id:int, document_id:int, page_number:int, key
         RETURNING *""",
         (question_id,document_id,page_number,key,crop_x,crop_y,crop_width,crop_height,iw,ih)).fetchone()
     _resolve_visual_review(con,question_id)
-    _maybe_approve_question(con,question_id)
+    _question_ready_for_human_approval(con,question_id)
     return row
 
 class AssetCrop(BaseModel):

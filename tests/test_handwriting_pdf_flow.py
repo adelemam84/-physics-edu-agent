@@ -11,7 +11,7 @@ from app.lesson_studio_workspace import WORKSPACE
 class HandwritingPdfFlowTests(unittest.TestCase):
     """Protect the teacher-facing handwritten lesson to reviewed PDF flow."""
 
-    @patch("app.lesson_studio_handwriting_pipeline._build_quality_snapshot")
+    @patch("app.lesson_studio_handwriting_pipeline.build_quality_snapshot")
     @patch("app.lesson_studio_handwriting_pipeline._job")
     def test_pipeline_exposes_exact_quality_and_pdf_readiness(self, job_mock, quality_mock):
         """The handwriting snapshot must reuse the canonical quality gate rather than inventing readiness."""
@@ -56,7 +56,7 @@ class HandwritingPdfFlowTests(unittest.TestCase):
         self.assertTrue(all(stage["ok"] for stage in snapshot["stages"]))
         quality_mock.assert_called_once()
 
-    @patch("app.lesson_studio_handwriting_pipeline._build_quality_snapshot")
+    @patch("app.lesson_studio_handwriting_pipeline.build_quality_snapshot")
     @patch("app.lesson_studio_handwriting_pipeline._job")
     def test_pipeline_points_to_first_blocking_stage(self, job_mock, quality_mock):
         """Low OCR readiness remains the next action and PDF export stays blocked."""

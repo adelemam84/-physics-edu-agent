@@ -3,10 +3,15 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from app.e2e_content_acceptance import PAGE, e2e_content_acceptance_snapshot
+from app.e2e_content_acceptance import (
+    PAGE,
+    e2e_content_acceptance_page,
+    e2e_content_acceptance_snapshot,
+)
 
 
 def _content(*, ready: bool = True) -> dict:
+    """Build a deterministic curriculum completion fixture."""
     return {
         'active': True,
         'academic_year': '2026/2027',
@@ -23,7 +28,9 @@ def _content(*, ready: bool = True) -> dict:
 
 
 def _studio(*, ready: bool = True, platform_ready: bool = True) -> dict:
-    check_ids = (
+    """Build a complete Lesson Studio acceptance fixture including mandatory system checks."""
+    system_ids = ('schema', 'runtime', 'release_binding_integrity')
+    teacher_ids = (
         'reference_pdf',
         'curriculum_map',
         'handwritten_job',
@@ -32,10 +39,20 @@ def _studio(*, ready: bool = True, platform_ready: bool = True) -> dict:
         'teacher_approval',
         'final_pdf',
     )
+    system_ok = bool(platform_ready)
     return {
-        'acceptance_ready': ready,
-        'platform_ready': platform_ready,
+        'acceptance_ready': ready and system_ok,
+        'platform_ready': system_ok,
         'checks': [
+            {
+                'id': check_id,
+                'ok': system_ok,
+                'owner': 'system',
+                'label': check_id,
+                'detail': 'ready' if system_ok else 'system gate open',
+            }
+            for check_id in system_ids
+        ] + [
             {
                 'id': check_id,
                 'ok': ready,
@@ -43,7 +60,7 @@ def _studio(*, ready: bool = True, platform_ready: bool = True) -> dict:
                 'label': check_id,
                 'detail': 'ready' if ready else 'human gate open',
             }
-            for check_id in check_ids
+            for check_id in teacher_ids
         ],
     }
 
@@ -82,8 +99,8 @@ class E2EContentAcceptanceTests(unittest.TestCase):
         self.assertEqual(snapshot['next_action']['owner'], 'system')
         self.assertGreater(snapshot['summary']['human_blockers'], 0)
 
-    def test_missing_studio_check_fails_closed(self):
-        """A missing upstream acceptance check must never be interpreted as a pass."""
+    def test_missing_teacher_studio_check_fails_closed(self):
+        """A missing teacher-owned upstream acceptance check must never be interpreted as a pass."""
         studio = _studio(ready=True)
         studio['checks'] = [item for item in studio['checks'] if item['id'] != 'final_pdf']
         snapshot = e2e_content_acceptance_snapshot(
@@ -94,6 +111,22 @@ class E2EContentAcceptanceTests(unittest.TestCase):
         self.assertFalse(final_pdf['ok'])
         self.assertEqual(final_pdf['owner'], 'system')
         self.assertFalse(snapshot['overall_ready'])
+
+    def test_missing_system_studio_check_fails_closed_even_if_platform_flag_is_true(self):
+        """The aggregate platform flag cannot hide a missing schema/runtime/integrity check."""
+        studio = _studio(ready=True)
+        studio['platform_ready'] = True
+        studio['acceptance_ready'] = True
+        studio['checks'] = [item for item in studio['checks'] if item['id'] != 'runtime']
+        snapshot = e2e_content_acceptance_snapshot(
+            content_snapshot=_content(ready=True),
+            studio_snapshot=studio,
+        )
+        platform = next(item for item in snapshot['matrix'] if item['id'] == 'lesson_studio_platform')
+        self.assertFalse(platform['ok'])
+        self.assertFalse(snapshot['platform_ready'])
+        self.assertFalse(snapshot['overall_ready'])
+        self.assertEqual(snapshot['next_action']['id'], 'lesson_studio_platform')
 
     def test_inactive_curriculum_is_never_vacuously_ready(self):
         """No active curriculum means the combined acceptance remains blocked."""
@@ -117,6 +150,14 @@ class E2EContentAcceptanceTests(unittest.TestCase):
             self.assertNotIn(token, source)
         self.assertNotIn("METHOD:'POST'", PAGE.upper())
         self.assertIn('لا تعتمد مصدرًا أو سؤالًا أو مدرسًا', PAGE)
+
+    def test_html_route_uses_admin_dependency(self):
+        """The administrative HTML shell must be protected independently of its JSON API."""
+        source = inspect.getsource(e2e_content_acceptance_page)
+        route_source = inspect.getsource(__import__('app.e2e_content_acceptance', fromlist=['x']))
+        self.assertIn('return PAGE', source)
+        self.assertIn("'/admin/e2e-content-acceptance'", route_source)
+        self.assertIn('dependencies=[Depends(require_admin)]', route_source)
 
 
 if __name__ == '__main__':

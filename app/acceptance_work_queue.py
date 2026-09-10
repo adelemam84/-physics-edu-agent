@@ -61,12 +61,69 @@ def _queue_item(
 
 
 def _dict_rows(value: object) -> list[dict] | None:
-    """Validate an upstream list of dictionaries and fail closed on malformed entries."""
+    """Validate the outer diagnostic-list shape before source-specific field checks."""
     if not isinstance(value, list):
         return None
     if any(not isinstance(item, dict) for item in value):
         return None
     return [dict(item) for item in value]
+
+
+def _nonnegative_int(value: object) -> bool:
+    """Return whether a diagnostic numeric field is an actual non-negative integer."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _lesson_rows(value: object) -> list[dict] | None:
+    """Validate lesson evidence IDs, coverage flags, counts, and uniqueness fail-closed."""
+    rows = _dict_rows(value)
+    if rows is None:
+        return None
+    seen: set[int] = set()
+    for row in rows:
+        lesson_id = row.get('id')
+        if not _nonnegative_int(lesson_id) or lesson_id == 0 or lesson_id in seen:
+            return None
+        seen.add(lesson_id)
+        if not isinstance(row.get('covered'), bool):
+            return None
+        if not _nonnegative_int(row.get('approved_explanatory_mapping_count')):
+            return None
+    return rows
+
+
+def _qa_rows(value: object) -> list[dict] | None:
+    """Validate QA reason IDs, live counts, and uniqueness without coercing malformed data."""
+    rows = _dict_rows(value)
+    if rows is None:
+        return None
+    seen: set[str] = set()
+    for row in rows:
+        reason = row.get('reason_code')
+        if not isinstance(reason, str) or not reason.strip() or reason in seen:
+            return None
+        seen.add(reason)
+        if not _nonnegative_int(row.get('total')):
+            return None
+    return rows
+
+
+def _studio_check_rows(value: object) -> list[dict] | None:
+    """Validate Lesson Studio check IDs, booleans, owners, and duplicate IDs fail-closed."""
+    rows = _dict_rows(value)
+    if rows is None:
+        return None
+    seen: set[str] = set()
+    for row in rows:
+        check_id = row.get('id')
+        if not isinstance(check_id, str) or not check_id.strip() or check_id in seen:
+            return None
+        seen.add(check_id)
+        if not isinstance(row.get('ok'), bool):
+            return None
+        if row.get('owner') not in {'system', 'teacher'}:
+            return None
+    return rows
 
 
 def _malformed_item(source: str, field: str, path: str) -> dict:
@@ -99,11 +156,17 @@ def acceptance_work_queue_snapshot(
     )
 
     queue: list[dict] = []
-    active = bool(content.get('active'))
-    if not active:
+    active_value = content.get('active')
+    if not isinstance(active_value, bool):
+        queue.append(_malformed_item('content_completion', 'active', '/admin/content-completion'))
+        active = False
+    else:
+        active = active_value
+
+    if not active and isinstance(active_value, bool):
         queue.append(_queue_item(
             'curriculum:inactive',
-            'curriculum_source',
+            'curriculum_setup',
             1,
             'teacher',
             'ضبط المنهج الحالي النشط',
@@ -112,14 +175,14 @@ def acceptance_work_queue_snapshot(
             {'reason': content.get('reason')},
         ))
 
-    lessons = _dict_rows(content.get('lessons'))
+    lessons = _lesson_rows(content.get('lessons'))
     if active and lessons is None:
         queue.append(_malformed_item('content_completion', 'lessons', '/admin/content-completion'))
     elif active:
         for lesson in lessons or []:
-            if lesson.get('covered'):
+            if lesson['covered']:
                 continue
-            lesson_id = lesson.get('id')
+            lesson_id = lesson['id']
             title = str(lesson.get('title') or f'Lesson {lesson_id}')
             queue.append(_queue_item(
                 f'curriculum-source:{lesson_id}',
@@ -134,19 +197,17 @@ def acceptance_work_queue_snapshot(
                     'title': title,
                     'term_id': lesson.get('term_id'),
                     'chapter': lesson.get('chapter'),
-                    'approved_explanatory_mapping_count': int(
-                        lesson.get('approved_explanatory_mapping_count') or 0
-                    ),
+                    'approved_explanatory_mapping_count': lesson['approved_explanatory_mapping_count'],
                 },
             ))
 
-    qa_rows = _dict_rows(content.get('qa_open_by_reason'))
+    qa_rows = _qa_rows(content.get('qa_open_by_reason'))
     if active and qa_rows is None:
         queue.append(_malformed_item('content_completion', 'qa_open_by_reason', '/admin/current-corpus'))
-    else:
+    elif active:
         for row in qa_rows or []:
-            reason = str(row.get('reason_code') or 'unknown')
-            count = max(int(row.get('total') or 0), 0)
+            reason = row['reason_code']
+            count = row['total']
             if not count:
                 continue
             if reason == 'visual_transcription_required':
@@ -166,12 +227,12 @@ def acceptance_work_queue_snapshot(
                 {'reason_code': reason, 'count': count},
             ))
 
-    checks = _dict_rows(studio.get('checks'))
+    checks = _studio_check_rows(studio.get('checks'))
     if checks is None:
         queue.append(_malformed_item('lesson_studio_acceptance', 'checks', '/admin/lesson-studio/acceptance'))
         checks_by_id: dict[str, dict] = {}
     else:
-        checks_by_id = {str(item.get('id')): item for item in checks if item.get('id')}
+        checks_by_id = {item['id']: item for item in checks}
 
     for check_id in _EXPECTED_STUDIO_CHECKS:
         check = checks_by_id.get(check_id)
@@ -187,9 +248,9 @@ def acceptance_work_queue_snapshot(
                 {'check_id': check_id, 'missing': True},
             ))
             continue
-        if check.get('ok'):
+        if check['ok']:
             continue
-        owner = str(check.get('owner') or 'system')
+        owner = check['owner']
         priority = 0 if owner == 'system' else 3
         queue.append(_queue_item(
             f'lesson-studio:{check_id}',
@@ -235,7 +296,9 @@ def acceptance_work_queue_snapshot(
             'total_open': len(queue),
             'system_open': system_open,
             'teacher_open': teacher_open,
-            'uncovered_lessons': sum(1 for item in queue if item['category'] == 'curriculum_source'),
+            'uncovered_lessons': sum(
+                1 for item in queue if item['id'].startswith('curriculum-source:')
+            ),
             'question_qa_buckets': sum(1 for item in queue if item['category'] == 'question_qa'),
             'lesson_studio_open': sum(
                 1 for item in queue if item['id'].startswith('lesson-studio:')

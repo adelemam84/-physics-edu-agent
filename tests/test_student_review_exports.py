@@ -46,8 +46,17 @@ class StudentReviewExportTests(unittest.TestCase):
         doc = fitz.open(stream=data, filetype="pdf")
         text = "\n".join(page.get_text() for page in doc)
         normalized = " ".join(text.split())
-        self.assertIn("2 A", normalized)
-        self.assertIn("3 A", normalized)
+        rendered_html = _review_html(
+            title="مراجعة الاختبار",
+            subtitle="الطالب: أحمد",
+            rows=rows,
+            mistakes_only=False,
+            score_line="الدرجة: 0 / 1",
+        )
+        self.assertIn("2 A", rendered_html)
+        self.assertIn("3 A", rendered_html)
+        self.assertTrue("2 A" in normalized or "A 2" in normalized)
+        self.assertTrue("3 A" in normalized or "A 3" in normalized)
         self.assertGreater(len(text.strip()), 80)
         doc.close()
 
@@ -113,6 +122,8 @@ class StudentReviewExportTests(unittest.TestCase):
         self.assertIn("downloadAttemptFromPortal", STUDENT_PORTAL_PAGE)
         self.assertIn("/review-pdf", STUDENT_PORTAL_PAGE)
         self.assertIn("تنزيل مذكرة أخطائي PDF", STUDENT_PORTAL_PAGE)
+        self.assertIn("تعذر الاتصال أثناء تجهيز مذكرة الأخطاء", STUDENT_PORTAL_PAGE)
+        self.assertIn("تعذر الاتصال أثناء تجهيز مراجعة الاختبار", STUDENT_PORTAL_PAGE)
 
     def test_student_export_routes_use_post_and_student_ownership(self):
         """Exports stay POST-only and the attempt lookup binds the student code."""

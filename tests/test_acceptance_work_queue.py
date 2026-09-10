@@ -69,7 +69,7 @@ def _studio(*, failing: str | None = None, owner: str = 'teacher') -> dict:
         })
     return {
         'checks': checks,
-        'platform_ready': not (failing in {'schema', 'runtime', 'release_binding_integrity'}),
+        'platform_ready': failing not in {'schema', 'runtime', 'release_binding_integrity'},
         'acceptance_ready': failing is None,
     }
 
@@ -147,8 +147,63 @@ class AcceptanceWorkQueueTests(unittest.TestCase):
         self.assertIn('malformed:lesson_studio_acceptance:checks', ids)
         self.assertGreater(snapshot['summary']['system_open'], 0)
 
+    def test_malformed_lesson_boolean_fails_closed(self):
+        """A truthy string may never impersonate the Boolean lesson coverage flag."""
+        content = _content()
+        content['lessons'][0]['covered'] = 'false'
+        snapshot = acceptance_work_queue_snapshot(
+            content_snapshot=content,
+            studio_snapshot=_studio(),
+            e2e_snapshot=_e2e(False),
+        )
+        ids = {item['id'] for item in snapshot['items']}
+        self.assertIn('malformed:content_completion:lessons', ids)
+        self.assertFalse(snapshot['ready'])
+
+    def test_malformed_qa_total_fails_closed_without_exception(self):
+        """Nonnumeric QA totals become diagnostics rather than raising during integer coercion."""
+        content = _content()
+        content['qa_open_by_reason'] = [
+            {'reason_code': 'visual_transcription_required', 'total': 'seven'}
+        ]
+        snapshot = acceptance_work_queue_snapshot(
+            content_snapshot=content,
+            studio_snapshot=_studio(),
+            e2e_snapshot=_e2e(False),
+        )
+        ids = {item['id'] for item in snapshot['items']}
+        self.assertIn('malformed:content_completion:qa_open_by_reason', ids)
+        self.assertFalse(snapshot['ready'])
+
+    def test_malformed_studio_boolean_owner_and_duplicates_fail_closed(self):
+        """Studio checks require Boolean ok flags, known owners, and unique IDs."""
+        cases = []
+
+        studio = _studio()
+        studio['checks'][0]['ok'] = 'false'
+        cases.append(studio)
+
+        studio = _studio()
+        studio['checks'][0]['owner'] = 'robot'
+        cases.append(studio)
+
+        studio = _studio()
+        studio['checks'].append(dict(studio['checks'][0]))
+        cases.append(studio)
+
+        for malformed_studio in cases:
+            with self.subTest(checks=malformed_studio['checks']):
+                snapshot = acceptance_work_queue_snapshot(
+                    content_snapshot=_content(),
+                    studio_snapshot=malformed_studio,
+                    e2e_snapshot=_e2e(False),
+                )
+                ids = {item['id'] for item in snapshot['items']}
+                self.assertIn('malformed:lesson_studio_acceptance:checks', ids)
+                self.assertFalse(snapshot['ready'])
+
     def test_inactive_curriculum_has_explicit_setup_task(self):
-        """An inactive curriculum is a visible prerequisite, not zero uncovered lessons masquerading as completion."""
+        """An inactive curriculum is a setup prerequisite and never counts as an uncovered lesson."""
         content = {
             'active': False,
             'content_complete': False,
@@ -159,7 +214,23 @@ class AcceptanceWorkQueueTests(unittest.TestCase):
             studio_snapshot=_studio(),
             e2e_snapshot=_e2e(False),
         )
-        self.assertTrue(any(item['id'] == 'curriculum:inactive' for item in snapshot['items']))
+        item = next(x for x in snapshot['items'] if x['id'] == 'curriculum:inactive')
+        self.assertEqual(item['category'], 'curriculum_setup')
+        self.assertEqual(snapshot['summary']['uncovered_lessons'], 0)
+        self.assertFalse(snapshot['ready'])
+
+    def test_malformed_active_flag_fails_closed(self):
+        """A non-Boolean active flag is diagnostic corruption, not an inactive curriculum assertion."""
+        content = _content()
+        content['active'] = 'false'
+        snapshot = acceptance_work_queue_snapshot(
+            content_snapshot=content,
+            studio_snapshot=_studio(),
+            e2e_snapshot=_e2e(False),
+        )
+        ids = {item['id'] for item in snapshot['items']}
+        self.assertIn('malformed:content_completion:active', ids)
+        self.assertNotIn('curriculum:inactive', ids)
         self.assertFalse(snapshot['ready'])
 
     def test_e2e_ready_with_open_evidence_is_blocked_as_inconsistent(self):

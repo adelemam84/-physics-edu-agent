@@ -245,6 +245,7 @@ def legacy_questions(
     return result["items"]
 
 
+@app.get("/api/admin/question-stats", dependencies=[Depends(require_admin)])
 @app.get("/api/question-stats", dependencies=[Depends(require_admin)], deprecated=True)
 def question_stats():
     with connect() as con:
@@ -288,6 +289,7 @@ def question_stats():
     }
 
 
+@app.get("/api/admin/review/documents", dependencies=[Depends(require_admin)])
 @app.get("/api/documents", dependencies=[Depends(require_admin)], deprecated=True)
 def legacy_documents():
     with connect() as con:
@@ -302,6 +304,7 @@ def legacy_documents():
         )
 
 
+@app.get("/api/admin/review/documents/{document_id}/pages", dependencies=[Depends(require_admin)])
 @app.get(
     "/api/documents/{document_id}/pages",
     dependencies=[Depends(require_admin)],
@@ -328,6 +331,7 @@ def legacy_document_pages(document_id: int):
         )
 
 
+@app.get("/api/admin/review/documents/{document_id}/page/{page}/text", dependencies=[Depends(require_admin)])
 @app.get(
     "/api/documents/{document_id}/page/{page}/text",
     dependencies=[Depends(require_admin)],
@@ -349,6 +353,7 @@ def legacy_page_text(document_id: int, page: int):
     }
 
 
+@app.get("/api/admin/review/documents/{document_id}/page/{page}/preview", dependencies=[Depends(require_admin)])
 @app.get(
     "/api/documents/{document_id}/page/{page}/preview",
     dependencies=[Depends(require_admin)],
@@ -403,6 +408,7 @@ def legacy_page_preview(document_id: int, page: int):
     )
 
 
+@app.get("/api/admin/questions/{question_id}/readiness", dependencies=[Depends(require_admin)])
 @app.get(
     "/api/questions/{question_id}/readiness",
     dependencies=[Depends(require_admin)],
@@ -479,6 +485,7 @@ def legacy_patch_question(question_id: int, patch: QuestionCompatPatch):
     return patch_question_record(question_id, patch.model_dump(exclude_unset=True))
 
 
+@app.post("/api/admin/documents/{document_id}/questions/manual", dependencies=[Depends(require_admin)])
 @app.post(
     "/api/documents/{document_id}/questions/manual",
     dependencies=[Depends(require_admin)],

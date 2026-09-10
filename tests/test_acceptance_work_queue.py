@@ -131,6 +131,26 @@ class AcceptanceWorkQueueTests(unittest.TestCase):
         self.assertEqual(item['owner'], 'system')
         self.assertFalse(snapshot['ready'])
 
+    def test_unknown_failed_studio_check_is_never_ignored(self):
+        """A future or unknown failed Studio check must remain a blocking work item."""
+        studio = _studio()
+        studio['checks'].append({
+            'id': 'future_integrity_gate',
+            'ok': False,
+            'owner': 'system',
+            'label': 'future gate',
+            'detail': 'blocked',
+        })
+        snapshot = acceptance_work_queue_snapshot(
+            content_snapshot=_content(),
+            studio_snapshot=studio,
+            e2e_snapshot=_e2e(True),
+        )
+        ids = {item['id'] for item in snapshot['items']}
+        self.assertIn('lesson-studio:future_integrity_gate', ids)
+        self.assertIn('system:e2e-queue-inconsistency', ids)
+        self.assertFalse(snapshot['ready'])
+
     def test_malformed_upstream_lists_fail_closed(self):
         """Malformed lesson or check evidence must create explicit system blockers."""
         content = _content()
@@ -159,6 +179,22 @@ class AcceptanceWorkQueueTests(unittest.TestCase):
         ids = {item['id'] for item in snapshot['items']}
         self.assertIn('malformed:content_completion:lessons', ids)
         self.assertFalse(snapshot['ready'])
+
+    def test_contradictory_lesson_coverage_and_mapping_count_fails_closed(self):
+        """Coverage cannot be true unless its approved page-ready source mapping count is positive."""
+        for covered, count in ((True, 0), (False, 1)):
+            content = _content()
+            content['lessons'][0]['covered'] = covered
+            content['lessons'][0]['approved_explanatory_mapping_count'] = count
+            with self.subTest(covered=covered, count=count):
+                snapshot = acceptance_work_queue_snapshot(
+                    content_snapshot=content,
+                    studio_snapshot=_studio(),
+                    e2e_snapshot=_e2e(False),
+                )
+                ids = {item['id'] for item in snapshot['items']}
+                self.assertIn('malformed:content_completion:lessons', ids)
+                self.assertFalse(snapshot['ready'])
 
     def test_malformed_qa_total_fails_closed_without_exception(self):
         """Nonnumeric QA totals become diagnostics rather than raising during integer coercion."""

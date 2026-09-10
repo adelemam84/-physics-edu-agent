@@ -6,19 +6,20 @@ import io
 
 import fitz
 from PIL import Image, ImageOps
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .db import connect
 from .main import app
 from .services.source_asset_runtime import render_asset_bytes
+from .student_security import resolve_student_code
 
 
 class StudentReviewExportRequest(BaseModel):
     """Authorize one student-owned review export without putting the code in the URL."""
 
-    student_code: str = Field(min_length=1, max_length=100)
+    student_code: str | None = Field(default=None, max_length=100)
     max_questions: int = Field(default=100, ge=1, le=200)
 
 
@@ -324,9 +325,10 @@ def render_student_review_pdf(
 
 
 @app.post("/api/student/attempts/{attempt_id}/review-pdf")
-def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequest):
+def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequest, request: Request):
     """Download one completed student-owned attempt with answers and source-backed correction."""
-    attempt, rows = _attempt_bundle(attempt_id, payload.student_code)
+    code = resolve_student_code(request, payload.student_code)
+    attempt, rows = _attempt_bundle(attempt_id, code)
     max_score = float(attempt.get("max_score") or 0)
     score = float(attempt.get("score") or 0)
     percentage = round(score / max_score * 100, 1) if max_score else 0.0
@@ -345,9 +347,10 @@ def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequ
 
 
 @app.post("/api/student/review/mistakes-pdf")
-def student_mistakes_review_pdf(payload: StudentReviewExportRequest):
+def student_mistakes_review_pdf(payload: StudentReviewExportRequest, request: Request):
     """Download a deduplicated personal mistake notebook from completed attempts."""
-    student, rows = _mistake_bundle(payload.student_code, payload.max_questions)
+    code = resolve_student_code(request, payload.student_code)
+    student, rows = _mistake_bundle(code, payload.max_questions)
     data = render_student_review_pdf(
         title="مذكرة أخطائي",
         subtitle=f"الطالب: {student.get('name') or ''} · {len(rows)} سؤال للمراجعة",

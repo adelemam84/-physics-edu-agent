@@ -266,7 +266,7 @@ def governance_snapshot() -> dict:
     if not providers["gemini"]["configured"]:
         recommendations.append({
             "priority": "required_for_ai_source_tools",
-            "title_ar": "إدخال GEMINI_API_KEY",
+            "title_ar": "إعداد مفتاح Gemini",
             "reason_ar": "محرك PDF والمرئيات وOCR الأساسي لن يعمل بدون المفتاح.",
         })
     elif not providers["gemini"]["file_search_configured"]:
@@ -279,7 +279,7 @@ def governance_snapshot() -> dict:
     if not providers["openai"]["configured"]:
         recommendations.append({
             "priority": "recommended_high_stakes",
-            "title_ar": "إدخال OPENAI_API_KEY",
+            "title_ar": "إعداد مفتاح OpenAI",
             "reason_ar": "يفعّل المراجع العلمي الثاني المستقل قبل اعتماد المدرس.",
         })
 

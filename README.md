@@ -60,3 +60,14 @@ uvicorn app.main:app --reload
 - Cookie-authenticated admin mutations are same-origin protected; production responses include baseline security headers.
 - Bulk visual-asset ZIP ingestion closes diagram QA only after durable images are stored and other quality gates pass.
 - Current-source progress is available from `/api/current-curriculum/status`.
+
+
+## AI Governance & Operations
+
+- `/admin/ai-operations` is the secret-free model/task control plane.
+- Gemini 3.8 Flash owns source-grounded PDF, multimodal and visual/OCR assistance.
+- GPT-5.6 Sol is reserved for independent high-stakes scientific review.
+- Mathpix is an optional second OCR verifier for STEM notation.
+- Grading, adaptive question selection and validated scientific diagram rendering remain deterministic.
+- No generative provider can write directly to the question bank, auto-approve scientific content, or publish it.
+- Model names and review reasoning effort remain environment-configurable without code edits.

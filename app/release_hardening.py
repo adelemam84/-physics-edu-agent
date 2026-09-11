@@ -49,19 +49,22 @@ def next_release_status() -> dict:
         'question_bank_auto_write_disabled': research.get('guardrails',{}).get('question_bank_auto_write') is False,
         'exam_blueprint_23_23_active': blueprint.get('blueprint',{}).get('objective_questions') == 23 and blueprint.get('blueprint',{}).get('essay_questions') == 23,
     }
-    blockers=[]
+    runtime_blockers=[]
+    content_gates=[]
     if not checks['gemini_api_key_configured']:
-        blockers.append('GEMINI_API_KEY is not visible to the deployed runtime yet')
+        runtime_blockers.append('GEMINI_API_KEY is not visible to the deployed runtime yet')
     if not checks['file_search_store_configured']:
-        blockers.append('Gemini File Search Store has not been provisioned yet')
+        runtime_blockers.append('Gemini File Search Store has not been provisioned yet')
     if not blueprint.get('active_shape_feasible',False):
         gaps=blueprint.get('gaps',{})
-        blockers.append(f"23+23 exam bank gap: objective={gaps.get('objective',0)}, essay={gaps.get('essay',0)}")
+        content_gates.append(f"23+23 exam bank gap: objective={gaps.get('objective',0)}, essay={gaps.get('essay',0)}")
     return {
         'version':NEXT_RELEASE,
-        'release_state':'code_ready_pending_runtime_activation' if blockers else 'runtime_ready',
+        'release_state':_classify_release_state(runtime_blockers,content_gates),
         'checks':checks,
-        'blockers':blockers,
+        'runtime_blockers':runtime_blockers,
+        'content_gates':content_gates,
+        'blockers':runtime_blockers+content_gates,
         'gemini_source_sync':sync,
         'exam_blueprint':{
             'total_questions':46,

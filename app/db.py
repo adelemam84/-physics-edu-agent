@@ -160,6 +160,110 @@ def _positive_float_env(name: str, default: float) -> float:
     return value if value > 0 else float(default)
 
 
+def _nonnegative_int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return int(default)
+    return value if value >= 0 else int(default)
+
+
+def database_resilience_profile(env: Mapping[str, str] | None = None) -> dict:
+    """Return secret-free connection retry and transaction timeout policy."""
+    source = env if env is not None else os.environ
+
+    def positive_int(name: str, default: int) -> int:
+        try:
+            value = int(source.get(name, str(default)))
+        except (TypeError, ValueError):
+            return int(default)
+        return value if value > 0 else int(default)
+
+    def nonnegative_int(name: str, default: int) -> int:
+        try:
+            value = int(source.get(name, str(default)))
+        except (TypeError, ValueError):
+            return int(default)
+        return value if value >= 0 else int(default)
+
+    return {
+        "connect_timeout_seconds": positive_int(
+            "DATABASE_CONNECT_TIMEOUT_SECONDS", 10
+        ),
+        "connect_retries": nonnegative_int("DATABASE_CONNECT_RETRIES", 2),
+        "retry_base_delay_ms": positive_int(
+            "DATABASE_RETRY_BASE_DELAY_MS", 150
+        ),
+        "retry_max_delay_ms": positive_int(
+            "DATABASE_RETRY_MAX_DELAY_MS", 1200
+        ),
+        "runtime_statement_timeout_ms": positive_int(
+            "DATABASE_STATEMENT_TIMEOUT_MS", 45000
+        ),
+        "runtime_lock_timeout_ms": positive_int(
+            "DATABASE_LOCK_TIMEOUT_MS", 5000
+        ),
+        "migration_statement_timeout_ms": positive_int(
+            "DATABASE_MIGRATION_STATEMENT_TIMEOUT_MS", 180000
+        ),
+        "migration_lock_timeout_ms": positive_int(
+            "DATABASE_MIGRATION_LOCK_TIMEOUT_MS", 30000
+        ),
+        "transaction_retries": 0,
+        "secret_values_returned": False,
+    }
+
+
+def _open_connection(
+    database_url: str,
+    *,
+    autocommit: bool = False,
+    application_name: str = "physics-edu-agent",
+):
+    """Retry connection establishment only; never replay a started transaction."""
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required")
+    import psycopg
+    from psycopg.rows import dict_row
+
+    policy = database_resilience_profile()
+    retries = int(policy["connect_retries"])
+    delay_ms = int(policy["retry_base_delay_ms"])
+    max_delay_ms = int(policy["retry_max_delay_ms"])
+
+    for attempt in range(retries + 1):
+        try:
+            return psycopg.connect(
+                database_url,
+                row_factory=dict_row,
+                connect_timeout=int(policy["connect_timeout_seconds"]),
+                autocommit=autocommit,
+                application_name=application_name,
+            )
+        except psycopg.OperationalError:
+            if attempt >= retries:
+                raise
+            wait_ms = min(max_delay_ms, delay_ms * (2 ** attempt))
+            time.sleep(wait_ms / 1000.0)
+
+
+def _apply_transaction_timeouts(con, *, migration: bool) -> None:
+    """Apply transaction-local limits compatible with PgBouncer transaction mode."""
+    policy = database_resilience_profile()
+    if migration:
+        statement_ms = int(policy["migration_statement_timeout_ms"])
+        lock_ms = int(policy["migration_lock_timeout_ms"])
+    else:
+        statement_ms = int(policy["runtime_statement_timeout_ms"])
+        lock_ms = int(policy["runtime_lock_timeout_ms"])
+    con.execute(
+        """SELECT
+             set_config('statement_timeout', %s, true),
+             set_config('lock_timeout', %s, true)""",
+        (f"{statement_ms}ms", f"{lock_ms}ms"),
+    )
+
+
 def _acquire_startup_advisory_lock(
     con,
     *,
@@ -189,19 +293,14 @@ def startup_migration_lock():
     """Serialize startup DDL and force all nested DB work onto the direct connection."""
     if not DIRECT_DATABASE_URL:
         raise RuntimeError("DATABASE_URL is required")
-    import psycopg
-    from psycopg.rows import dict_row
-
     wait_seconds = _positive_float_env(
         "STARTUP_MIGRATION_LOCK_WAIT_SECONDS", 20.0
     )
     poll_seconds = _positive_float_env(
         "STARTUP_MIGRATION_LOCK_POLL_SECONDS", 0.25
     )
-    con = psycopg.connect(
+    con = _open_connection(
         DIRECT_DATABASE_URL,
-        row_factory=dict_row,
-        connect_timeout=10,
         autocommit=True,
         application_name="physics-edu-startup-lock",
     )
@@ -233,16 +332,17 @@ def connect():
     database_url = _selected_database_url()
     if not database_url:
         raise RuntimeError("DATABASE_URL is required")
-    import psycopg
-    from psycopg.rows import dict_row
-    timeout = max(1, int(_positive_float_env("DATABASE_CONNECT_TIMEOUT_SECONDS", 10)))
-    con = psycopg.connect(
+    migration = _DIRECT_DATABASE_CONTEXT.get()
+    con = _open_connection(
         database_url,
-        row_factory=dict_row,
-        connect_timeout=timeout,
-        application_name="physics-edu-agent",
+        application_name=(
+            "physics-edu-migration"
+            if migration
+            else "physics-edu-runtime"
+        ),
     )
     try:
+        _apply_transaction_timeouts(con, migration=migration)
         yield con
         con.commit()
     except Exception:

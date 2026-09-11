@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import Depends, Response
 
 from .main import app
 from .operations_readiness import build_operations_readiness
@@ -27,7 +27,10 @@ def runtime_health_snapshot() -> dict:
         readiness_snapshot=readiness,
     )
     identity = dict(observability.get("runtime_identity") or {})
-    config_state = dict(identity.get("config_state") or {})
+    config_state = {
+        str(key): bool(value)
+        for key, value in dict(identity.get("config_state") or {}).items()
+    }
 
     ready = bool(readiness.get("ready_for_technical_handoff"))
     obs_state = str(observability.get("state") or "unhealthy")
@@ -93,5 +96,6 @@ def runtime_health_snapshot() -> dict:
 
 
 @app.get("/api/admin/runtime-health", dependencies=[Depends(require_admin)])
-def runtime_health_api():
+def runtime_health_api(response: Response):
+    response.headers["Cache-Control"] = "no-store"
     return runtime_health_snapshot()

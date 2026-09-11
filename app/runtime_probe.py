@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import Response
@@ -7,6 +8,8 @@ from fastapi import Response
 from .db import connect
 from .main import app
 from .services.runtime_identity import runtime_identity
+
+logger = logging.getLogger(__name__)
 
 
 def lightweight_runtime_readiness() -> dict:
@@ -51,17 +54,33 @@ def lightweight_runtime_readiness() -> dict:
     if identity.get("provider") == "vercel" and identity.get("production_environment"):
         deployment_ok = bool(identity.get("current_runtime_is_production_main"))
 
-    ready = bool(
-        db_ok
-        and all(critical_config.values())
-        and deployment_ok
+    blockers: list[str] = []
+    if not db_ok:
+        blockers.append("database_runtime")
+    blockers.extend(
+        f"config:{name}"
+        for name, configured in critical_config.items()
+        if not configured
     )
+    if not deployment_ok:
+        blockers.append("deployment_provenance")
+
+    ready = not blockers
+    if not ready:
+        logger.warning(
+            "runtime_readiness_not_ready blockers=%s provenance_source=%s drift_state=%s",
+            ",".join(blockers),
+            identity.get("provenance_source") or "unknown",
+            identity.get("drift_state") or "unknown",
+        )
+
     return {
         "ready": ready,
         "database": db_ok,
         "critical_config": critical_config,
         "optional_capabilities": optional_capabilities,
         "deployment_ok": deployment_ok,
+        "blockers": blockers,
         "version": app.version,
     }
 

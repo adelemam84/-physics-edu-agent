@@ -74,7 +74,7 @@ def _attempt_bundle(attempt_id: int, student_code: str) -> tuple[dict, list[dict
     with connect() as con:
         attempt = con.execute(
             """SELECT a.id,a.student_id,a.quiz_id,a.score,a.max_score,a.started_at,a.completed_at,a.submitted_at,
-                      s.name student_name,s.external_code,qz.title quiz_title
+                      s.name student_name,qz.title quiz_title
                FROM attempts a
                JOIN students s ON s.id=a.student_id
                LEFT JOIN quizzes qz ON qz.id=a.quiz_id
@@ -119,7 +119,7 @@ def _mistake_bundle(student_code: str, limit: int) -> tuple[dict, list[dict]]:
     limit = min(max(int(limit), 1), 200)
     with connect() as con:
         student = con.execute(
-            "SELECT id,name,external_code FROM students WHERE external_code=%s",
+            "SELECT id,name FROM students WHERE external_code=%s",
             (code,),
         ).fetchone()
         if not student:

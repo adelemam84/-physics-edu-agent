@@ -23,6 +23,11 @@ class ProjectClosureProvenanceTests(unittest.TestCase):
                 'release_state': 'runtime_ready',
                 'exam_blueprint': {'ready': True},
             },
+            'operations': {
+                'ready_for_technical_handoff': True,
+                'technical_blockers': [],
+                'content_gates': [],
+            },
             'research': {
                 'configured': True,
                 'orchestrator': {'status': 'active'},
@@ -71,6 +76,7 @@ class ProjectClosureProvenanceTests(unittest.TestCase):
             patch.object(closure, 'completion_audit_snapshot', return_value=inputs['completion']),
             patch.object(closure, 'next_release_status', return_value=inputs['release']),
             patch.object(closure, 'research_engine_status', return_value=inputs['research']),
+            patch.object(closure, 'build_operations_readiness', return_value=inputs['operations']),
             patch.object(closure, 'current_curriculum_phase2_status', return_value=inputs['corpus']),
             patch.object(closure, 'release_readiness_snapshot', return_value=inputs['lesson']),
             patch.object(closure, '_deployment_provenance', return_value=inputs['deployment']),
@@ -108,12 +114,50 @@ class ProjectClosureProvenanceTests(unittest.TestCase):
         """Full closure requires Phase X acceptance plus a production runtime self-report from main."""
         result = self._snapshot(self._base_inputs())
         self.assertTrue(result['code_complete'])
+        self.assertTrue(result['technical_ready'])
         self.assertTrue(result['content_complete'])
         self.assertTrue(result['production_runtime_verified'])
         self.assertEqual(result['closure_state'], 'production_and_content_complete')
         signoff = {item['id']: item['status'] for item in result['signoff']}
         self.assertEqual(signoff['phase_x_acceptance'], 'complete')
         self.assertEqual(signoff['production_release'], 'complete')
+
+    def test_technical_blocker_does_not_rewrite_code_but_blocks_closure(self):
+        """Technical readiness must be a separate closure dimension from source-code completeness."""
+        inputs = self._base_inputs()
+        inputs['operations'] = {
+            'ready_for_technical_handoff': False,
+            'technical_blockers': [{
+                'id': 'object_storage',
+                'name': 'Object storage',
+                'detail': 'missing credentials',
+                'path': '/admin/readiness',
+            }],
+            'content_gates': [],
+        }
+        result = self._snapshot(inputs)
+        self.assertTrue(result['code_complete'])
+        self.assertFalse(result['technical_ready'])
+        self.assertEqual(result['closure_state'], 'technical_attention_required')
+        self.assertEqual(
+            {item['id']: item['status'] for item in result['signoff']}['application_runtime'],
+            'blocked',
+        )
+
+    def test_release_content_gate_blocks_content_complete_not_code_or_technical(self):
+        """A 23+23 content gap must remain a content gate rather than a technical/code defect."""
+        inputs = self._base_inputs()
+        inputs['operations'] = {
+            'ready_for_technical_handoff': True,
+            'technical_blockers': [],
+            'content_gates': ['23+23 exam bank gap: objective=0, essay=16'],
+        }
+        result = self._snapshot(inputs)
+        self.assertTrue(result['code_complete'])
+        self.assertTrue(result['technical_ready'])
+        self.assertFalse(result['content_complete'])
+        self.assertEqual(result['closure_state'], 'production_code_complete_external_gates_open')
+        self.assertTrue(result['final_policy']['release_content_gates_block_content_complete'])
 
     def test_phase_x_system_blocker_prevents_code_complete(self):
         """A Phase X system blocker must remain a software/runtime blocker in the final closure manifest."""

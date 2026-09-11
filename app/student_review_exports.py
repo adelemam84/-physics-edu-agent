@@ -18,9 +18,8 @@ from .services.rate_limit import enforce_subject_policy
 
 
 class StudentReviewExportRequest(BaseModel):
-    """Authorize one student-owned review export without putting the code in the URL."""
+    """Configure one student-owned review export; ownership comes from the signed session."""
 
-    student_code: str | None = Field(default=None, max_length=100)
     max_questions: int = Field(default=100, ge=1, le=200)
 
 
@@ -328,7 +327,7 @@ def render_student_review_pdf(
 @app.post("/api/student/attempts/{attempt_id}/review-pdf")
 def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequest, request: Request):
     """Download one completed student-owned attempt with answers and source-backed correction."""
-    code = resolve_student_code(request, payload.student_code)
+    code = resolve_student_code(request)
     enforce_subject_policy(
         code,
         name='student_review_pdf',

@@ -15,6 +15,19 @@ def admin_configured() -> bool:
     return bool(os.getenv("ADMIN_API_KEY", "").strip())
 
 
+def admin_session_secret_configured() -> bool:
+    """Whether browser admin sessions use a dedicated signing secret."""
+    return bool(os.getenv("ADMIN_SESSION_SECRET", "").strip())
+
+
+def admin_session_secret_source() -> str:
+    if admin_session_secret_configured():
+        return "dedicated"
+    if admin_configured():
+        return "admin_api_key_fallback"
+    return "missing"
+
+
 def _expected_key() -> str:
     return os.getenv("ADMIN_API_KEY", "").strip()
 

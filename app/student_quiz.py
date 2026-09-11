@@ -47,10 +47,13 @@ def legacy_publish_quiz(quiz_id: int, published: bool = True):
 def student_quiz(quiz_id: int, request: Request):
     # Published quiz metadata/questions still require a valid student session so
     # exam content cannot be enumerated before login.
-    resolve_student_code(request)
+    code=resolve_student_code(request)
     with connect() as con:
+        st=con.execute("SELECT id FROM students WHERE external_code=%s",(code,)).fetchone()
+        if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
-          WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
+          WHERE id=%s AND published=TRUE AND lifecycle_status='published'
+            AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
         items=list(con.execute("""SELECT qq.position,qq.points,x.id,x.text_verbatim,x.question_type,
                     EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id) has_asset
@@ -80,7 +83,8 @@ def start_quiz_attempt(quiz_id:int, request: Request):
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
-          WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
+          WHERE id=%s AND published=TRUE AND lifecycle_status='published'
+            AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
         stats=con.execute("""SELECT count(*) FILTER(WHERE completed_at IS NOT NULL) completed,
           max(completed_at) FILTER(WHERE completed_at IS NOT NULL) last_completed FROM attempts
@@ -151,7 +155,8 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
         student=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not student: raise HTTPException(404,"كود الطالب غير صحيح")
         quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
-          WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
+          WHERE id=%s AND published=TRUE AND lifecycle_status='published'
+            AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,student["id"])).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
         rows=list(con.execute("""SELECT qq.question_id,qq.points,x.accepted_answer
               FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id

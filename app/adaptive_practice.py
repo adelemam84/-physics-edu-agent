@@ -84,6 +84,8 @@ def build_adaptive_practice(student_id:int,count:int=10):
           CASE WHEN EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id AND qc.concept_id=ANY(%s)) THEN 1 ELSE 0 END concept_priority,
           CASE WHEN EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=ANY(%s)) THEN 1 ELSE 0 END skill_priority
           FROM questions q WHERE q.approved=TRUE AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+          AND q.lesson_id IS NOT NULL AND q.question_type<>'unknown' AND q.difficulty<>'unclassified'
+          AND NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=q.id AND qr.status='open')
           AND (%s IS NULL OR q.subject_id=%s) AND (%s IS NULL OR q.grade_level_id=%s)
           AND (%s IS NULL OR q.curriculum_version_id=%s) AND (%s IS NULL OR q.term_id=%s)
           AND EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=q.id)
@@ -133,23 +135,36 @@ def create_student_adaptive_quiz(request: Request, count:int=10):
     questions=data.get("questions") or []
     if not questions:
         raise HTTPException(409,data.get("reason") or "لا توجد أسئلة علاجية مناسبة حاليًا")
-    title=f'تدريب علاجي - طالب #{st["id"]}'
+    title='تدريب علاجي شخصي'
     with connect() as con:
-        recent=con.execute("""SELECT id,title FROM quizzes WHERE title=%s AND published=TRUE
-          AND created_at>=now()-interval '5 minutes' ORDER BY id DESC LIMIT 1""",(title,)).fetchone()
+        recent=con.execute("""SELECT q.id,q.title FROM quizzes q
+          WHERE q.owner_student_id=%s AND q.published=TRUE
+            AND q.lifecycle_status='published'
+            AND q.created_at>=now()-interval '5 minutes'
+            AND EXISTS(
+              SELECT 1 FROM quiz_audit_log al
+              WHERE al.quiz_id=q.id AND al.action='adaptive_publish'
+            )
+          ORDER BY q.id DESC LIMIT 1""",(st["id"],)).fetchone()
         if recent:
             return {"quiz_id":recent["id"],"title":recent["title"],"question_count":len(questions),
                     "student_path":f'/student/quiz/{recent["id"]}',"policy":data.get("policy"),"reused":True}
         first=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id
           FROM questions WHERE id=%s""",(questions[0]["id"],)).fetchone()
-        quiz=con.execute("""INSERT INTO quizzes(title,published,lifecycle_status,quality_score,subject_id,grade_level_id,curriculum_version_id,term_id,max_attempts,retry_wait_minutes,score_policy,published_at)
-          VALUES(%s,TRUE,'published',100,%s,%s,%s,%s,1,0,'latest',now()) RETURNING id,title,published,lifecycle_status""",
-          (title,first["subject_id"],first["grade_level_id"],first["curriculum_version_id"],first["term_id"])).fetchone()
+        quiz=con.execute("""INSERT INTO quizzes(
+            title,published,lifecycle_status,quality_score,subject_id,grade_level_id,
+            curriculum_version_id,term_id,max_attempts,retry_wait_minutes,score_policy,
+            published_at,owner_student_id
+          )
+          VALUES(%s,TRUE,'published',100,%s,%s,%s,%s,1,0,'latest',now(),%s)
+          RETURNING id,title,published,lifecycle_status,owner_student_id""",
+          (title,first["subject_id"],first["grade_level_id"],first["curriculum_version_id"],
+           first["term_id"],st["id"])).fetchone()
         for i,q in enumerate(questions,1):
             con.execute("INSERT INTO quiz_questions(quiz_id,question_id,position) VALUES(%s,%s,%s)",
                         (quiz["id"],q["id"],i))
         con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
           VALUES(%s,'adaptive_publish',NULL,'published',100,%s::jsonb)""",
-          (quiz["id"],'{"system_generated":true,"purpose":"adaptive_practice","source_policy":"approved_source_questions_only"}'))
+          (quiz["id"],'{"system_generated":true,"purpose":"adaptive_practice","audience":"single_student","source_policy":"approved_source_questions_only"}'))
     return {"quiz_id":quiz["id"],"title":quiz["title"],"question_count":len(questions),
             "student_path":f'/student/quiz/{quiz["id"]}',"policy":data.get("policy"),"reused":False}

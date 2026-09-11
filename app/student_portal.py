@@ -35,13 +35,16 @@ def student_portal(request: Request):
           FROM quizzes q LEFT JOIN subjects s ON s.id=q.subject_id LEFT JOIN grade_levels g ON g.id=q.grade_level_id
           LEFT JOIN curriculum_versions cv ON cv.id=q.curriculum_version_id
           WHERE q.published=TRUE AND q.lifecycle_status='published'
-          ORDER BY q.published_at DESC NULLS LAST,q.id DESC LIMIT 50""",(st["id"],st["id"],st["id"],st["id"],st["id"])).fetchall())
+            AND (q.owner_student_id IS NULL OR q.owner_student_id=%s)
+          ORDER BY q.published_at DESC NULLS LAST,q.id DESC LIMIT 50""",
+          (st["id"],st["id"],st["id"],st["id"],st["id"],st["id"])).fetchall())
         current_curriculum=con.execute("""SELECT cv.id,cv.academic_year,cv.version_label,
           (SELECT count(*) FROM documents d WHERE d.curriculum_version_id=cv.id) source_documents,
           (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id) total_questions,
           (SELECT count(*) FROM questions q WHERE q.curriculum_version_id=cv.id AND q.approved=TRUE) approved_questions,
           (SELECT count(*) FROM question_review_notes qr JOIN questions q ON q.id=qr.question_id WHERE q.curriculum_version_id=cv.id AND qr.status='open') qa_open,
-          (SELECT count(*) FROM quizzes z WHERE z.curriculum_version_id=cv.id AND z.published=TRUE) published_quizzes
+          (SELECT count(*) FROM quizzes z WHERE z.curriculum_version_id=cv.id AND z.published=TRUE
+            AND z.owner_student_id IS NULL) published_quizzes
           FROM curriculum_versions cv
           WHERE cv.subject_id=1 AND cv.grade_level_id=6 AND cv.active=TRUE
           ORDER BY cv.id DESC LIMIT 1""").fetchone()

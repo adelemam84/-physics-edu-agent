@@ -46,6 +46,26 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempts_student_quiz_submitted ON attempts(student_id,quiz_id,submitted_at DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_guardians_student_active_optin ON guardians(student_id,active,whatsapp_opt_in)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_position ON quiz_questions(quiz_id,position)")
+        con.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS owner_student_id bigint REFERENCES students(id) ON DELETE CASCADE")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_quizzes_owner_student ON quizzes(owner_student_id,created_at DESC)")
+        # Legacy adaptive quizzes were globally published before student ownership
+        # existed. Archive any still-public legacy rows so they cannot leak across
+        # student portals; students can generate a new isolated remedial quiz.
+        con.execute("""WITH affected AS (
+          UPDATE quizzes q
+          SET published=FALSE,lifecycle_status='archived',
+              archived_at=coalesce(archived_at,now()),ready_at=NULL
+          WHERE q.owner_student_id IS NULL AND q.published=TRUE
+            AND EXISTS(
+              SELECT 1 FROM quiz_audit_log al
+              WHERE al.quiz_id=q.id AND al.action='adaptive_publish'
+            )
+          RETURNING q.id,q.quality_score
+        )
+        INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
+        SELECT id,'legacy_adaptive_isolation','published','archived',quality_score,
+               '{"reason":"missing_owner_student_id"}'::jsonb
+        FROM affected""")
         con.execute("""CREATE TABLE IF NOT EXISTS request_rate_limits(
           scope text NOT NULL,
           subject_hash text NOT NULL,

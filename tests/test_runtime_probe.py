@@ -43,6 +43,8 @@ class LightweightRuntimeReadinessTests(unittest.TestCase):
             "provider": "vercel",
             "production_environment": production,
             "current_runtime_is_production_main": main,
+            "provenance_source": "vercel_git" if main else "unavailable",
+            "drift_state": "production_main" if main else "production_metadata_invalid",
             "config_state": {
                 "database": True,
                 "admin_access": True,
@@ -63,6 +65,7 @@ class LightweightRuntimeReadinessTests(unittest.TestCase):
         self.assertTrue(data["optional_capabilities"]["gemini"])
         self.assertTrue(data["optional_capabilities"]["file_search_store"])
         self.assertTrue(data["deployment_ok"])
+        self.assertEqual(data["blockers"], [])
 
     def test_missing_persisted_file_search_store_does_not_block_technical_readiness(self):
         with patch.object(runtime_probe, "runtime_identity", return_value=self._identity()), \
@@ -94,6 +97,7 @@ class LightweightRuntimeReadinessTests(unittest.TestCase):
             data = runtime_probe.lightweight_runtime_readiness()
         self.assertFalse(data["ready"])
         self.assertFalse(data["critical_config"]["object_storage"])
+        self.assertIn("config:object_storage", data["blockers"])
 
     def test_invalid_production_provenance_is_not_ready(self):
         with patch.object(
@@ -105,6 +109,19 @@ class LightweightRuntimeReadinessTests(unittest.TestCase):
             data = runtime_probe.lightweight_runtime_readiness()
         self.assertFalse(data["ready"])
         self.assertFalse(data["deployment_ok"])
+        self.assertIn("deployment_provenance", data["blockers"])
+
+    def test_database_failure_is_named_without_exposing_exception_details(self):
+        def failing_connect():
+            raise RuntimeError("postgresql://secret-value")
+
+        with patch.object(runtime_probe, "runtime_identity", return_value=self._identity()), \
+             patch.object(runtime_probe, "connect", side_effect=failing_connect), \
+             patch.dict(os.environ, {"GEMINI_FILE_SEARCH_STORE": ""}, clear=False):
+            data = runtime_probe.lightweight_runtime_readiness()
+        self.assertFalse(data["ready"])
+        self.assertIn("database_runtime", data["blockers"])
+        self.assertNotIn("secret-value", repr(data))
 
     def test_preview_does_not_require_production_main_metadata(self):
         with patch.object(

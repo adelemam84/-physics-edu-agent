@@ -4,7 +4,7 @@ import re
 from decimal import Decimal
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .main import app
 from .db import connect
@@ -22,15 +22,12 @@ class AnswerIn(BaseModel):
     answer: str
 
 class SubmitAttempt(BaseModel):
-    student_code: str | None = None
+    model_config = ConfigDict(extra="forbid")
     answers: list[AnswerIn]
     attempt_id: int | None = None
 
-class StartAttempt(BaseModel):
-    student_code: str | None = None
-
 class SaveAnswer(BaseModel):
-    student_code: str | None = None
+    model_config = ConfigDict(extra="forbid")
     question_id: int
     answer: str
 
@@ -74,8 +71,8 @@ def student_quiz(quiz_id: int):
         return {**q,"questions":items}
 
 @app.post("/api/student/quizzes/{quiz_id}/start")
-def start_quiz_attempt(quiz_id:int,p:StartAttempt, request: Request):
-    code=resolve_student_code(request, p.student_code)
+def start_quiz_attempt(quiz_id:int, request: Request):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -112,7 +109,7 @@ def start_quiz_attempt(quiz_id:int,p:StartAttempt, request: Request):
 
 @app.put("/api/student/attempts/{attempt_id}/answer")
 def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
-    code=resolve_student_code(request, p.student_code)
+    code=resolve_student_code(request)
     with connect() as con:
         a=con.execute("""SELECT a.id,a.quiz_id,a.started_at,a.completed_at,s.external_code,q.duration_minutes
           FROM attempts a JOIN students s ON s.id=a.student_id JOIN quizzes q ON q.id=a.quiz_id WHERE a.id=%s""",(attempt_id,)).fetchone()
@@ -134,8 +131,8 @@ def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
         return {"ok":True,"attempt_id":attempt_id,"question_id":p.question_id}
 
 @app.get("/api/student/attempts/{attempt_id}/saved")
-def saved_quiz_answers(attempt_id:int, request: Request, student_code: str | None = None):
-    code=resolve_student_code(request, student_code)
+def saved_quiz_answers(attempt_id:int, request: Request):
+    code=resolve_student_code(request)
     with connect() as con:
         a=con.execute("""SELECT a.id,a.completed_at,s.external_code FROM attempts a JOIN students s ON s.id=a.student_id
           WHERE a.id=%s""",(attempt_id,)).fetchone()
@@ -146,7 +143,7 @@ def saved_quiz_answers(attempt_id:int, request: Request, student_code: str | Non
 
 @app.post("/api/student/quizzes/{quiz_id}/submit")
 def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
-    code=resolve_student_code(request, p.student_code)
+    code=resolve_student_code(request)
     with connect() as con:
         student=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not student: raise HTTPException(404,"كود الطالب غير صحيح")

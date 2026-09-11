@@ -106,8 +106,8 @@ def adaptive_practice(student_id:int,count:int=10):
     return build_adaptive_practice(student_id,count)
 
 @app.get("/api/student/adaptive-practice")
-def student_adaptive_practice(request: Request, student_code: str | None = None, count:int=10):
-    code=resolve_student_code(request, student_code)
+def student_adaptive_practice(request: Request, count:int=10):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
     if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -117,8 +117,8 @@ def student_adaptive_practice(request: Request, student_code: str | None = None,
 
 
 @app.post("/api/student/adaptive-practice/create")
-def create_student_adaptive_quiz(request: Request, student_code: str | None = None, count:int=10):
-    code=resolve_student_code(request, student_code)
+def create_student_adaptive_quiz(request: Request, count:int=10):
+    code=resolve_student_code(request)
     enforce_subject_policy(
         code,
         name="adaptive_quiz_create",

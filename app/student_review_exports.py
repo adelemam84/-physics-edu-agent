@@ -8,7 +8,7 @@ import fitz
 from PIL import Image, ImageOps
 from fastapi import HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .db import connect
 from .main import app
@@ -18,9 +18,9 @@ from .services.rate_limit import enforce_subject_policy
 
 
 class StudentReviewExportRequest(BaseModel):
-    """Authorize one student-owned review export without putting the code in the URL."""
+    """Configure one student-owned review export; ownership comes from the signed session."""
 
-    student_code: str | None = Field(default=None, max_length=100)
+    model_config = ConfigDict(extra="forbid")
     max_questions: int = Field(default=100, ge=1, le=200)
 
 
@@ -75,7 +75,7 @@ def _attempt_bundle(attempt_id: int, student_code: str) -> tuple[dict, list[dict
     with connect() as con:
         attempt = con.execute(
             """SELECT a.id,a.student_id,a.quiz_id,a.score,a.max_score,a.started_at,a.completed_at,a.submitted_at,
-                      s.name student_name,s.external_code,qz.title quiz_title
+                      s.name student_name,qz.title quiz_title
                FROM attempts a
                JOIN students s ON s.id=a.student_id
                LEFT JOIN quizzes qz ON qz.id=a.quiz_id
@@ -120,7 +120,7 @@ def _mistake_bundle(student_code: str, limit: int) -> tuple[dict, list[dict]]:
     limit = min(max(int(limit), 1), 200)
     with connect() as con:
         student = con.execute(
-            "SELECT id,name,external_code FROM students WHERE external_code=%s",
+            "SELECT id,name FROM students WHERE external_code=%s",
             (code,),
         ).fetchone()
         if not student:
@@ -328,7 +328,7 @@ def render_student_review_pdf(
 @app.post("/api/student/attempts/{attempt_id}/review-pdf")
 def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequest, request: Request):
     """Download one completed student-owned attempt with answers and source-backed correction."""
-    code = resolve_student_code(request, payload.student_code)
+    code = resolve_student_code(request)
     enforce_subject_policy(
         code,
         name='student_review_pdf',
@@ -356,7 +356,7 @@ def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequ
 @app.post("/api/student/review/mistakes-pdf")
 def student_mistakes_review_pdf(payload: StudentReviewExportRequest, request: Request):
     """Download a deduplicated personal mistake notebook from completed attempts."""
-    code = resolve_student_code(request, payload.student_code)
+    code = resolve_student_code(request)
     enforce_subject_policy(
         code,
         name='student_review_pdf',

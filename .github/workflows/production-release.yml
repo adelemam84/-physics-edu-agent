@@ -1,0 +1,155 @@
+name: Controlled Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Optional exact main SHA to require before releasing
+        required: false
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - .release/production.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-production
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_GsqjHJAXTirB3YVlUto63rma
+  VERCEL_PROJECT_ID: prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL
+  VERCEL_CLI_VERSION: 59.15.1
+  PRODUCTION_URL: https://physics-edu-agent.vercel.app
+
+jobs:
+  release:
+    name: Test, stage, verify, promote
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Verify main release context
+        env:
+          EXPECTED_SHA: ${{ github.event.inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          if [ -n "${EXPECTED_SHA:-}" ] && [ "$EXPECTED_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Expected SHA $EXPECTED_SHA but workflow is running $GITHUB_SHA"
+            exit 1
+          fi
+
+      - name: Require Vercel release credential
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "::error::Repository/production environment secret VERCEL_TOKEN is required"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile Python
+        run: python -m compileall -q app index.py
+
+      - name: Run deterministic regression suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Pull production configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build production artifact
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Stage production deployment without assigning domain
+        id: stage
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN")"
+          test -n "$DEPLOYMENT_URL"
+          echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Verify staged health contract
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: |
+          set -euo pipefail
+          vercel curl /health --deployment "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" > /tmp/health.json
+          vercel curl /health/ready --deployment "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" > /tmp/ready.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/health.json').read_text())
+          ready = json.loads(Path('/tmp/ready.json').read_text())
+          if health.get('status') != 'ok':
+              raise SystemExit(f"staged /health failed: {health}")
+          if ready.get('status') != 'ready':
+              raise SystemExit(f"staged /health/ready failed: {ready}")
+          print('staged health checks passed')
+          PY
+
+      - name: Promote verified deployment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: vercel promote "$DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
+
+      - name: Verify canonical production
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/prod-health.json
+          curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/prod-ready.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path('/tmp/prod-health.json').read_text())
+          ready = json.loads(Path('/tmp/prod-ready.json').read_text())
+          if health.get('status') != 'ok':
+              raise SystemExit(f"production /health failed: {health}")
+          if ready.get('status') != 'ready':
+              raise SystemExit(f"production /health/ready failed: {ready}")
+          print('production health checks passed')
+          PY
+
+      - name: Release summary
+        env:
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: |
+          {
+            echo "### Controlled production release"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Staged deployment: $DEPLOYMENT_URL"
+            echo "- Production: $PRODUCTION_URL"
+            echo "- Gates: compile + unit tests + staged health + readiness + production smoke"
+          } >> "$GITHUB_STEP_SUMMARY"

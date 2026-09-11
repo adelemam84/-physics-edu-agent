@@ -118,10 +118,11 @@ class FileSearchProductionBootstrapTests(unittest.TestCase):
     def test_application_lifespan_runs_safe_bootstrap_after_db_bootstrap(self):
         source = inspect.getsource(main.lifespan)
         self.assertIn("with startup_migration_lock():", source)
-        self.assertIn("run_phase2_bootstrap(release_schema_ready=True)", source)
+        self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", source)
+        self.assertNotIn("run_phase2_bootstrap(", source)
         self.assertIn("bootstrap_store_if_enabled()", source)
         self.assertLess(
-            source.index("run_phase2_bootstrap(release_schema_ready=True)"),
+            source.index("ensure_phase2_schemas(release_schema_ready=True)"),
             source.index("bootstrap_store_if_enabled()"),
         )
 

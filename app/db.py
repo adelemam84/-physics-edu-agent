@@ -46,6 +46,33 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempts_student_quiz_submitted ON attempts(student_id,quiz_id,submitted_at DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_guardians_student_active_optin ON guardians(student_id,active,whatsapp_opt_in)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_position ON quiz_questions(quiz_id,position)")
+        con.execute("""CREATE TABLE IF NOT EXISTS request_rate_limits(
+          scope text NOT NULL,
+          subject_hash text NOT NULL,
+          window_start timestamptz NOT NULL DEFAULT now(),
+          hits integer NOT NULL DEFAULT 0,
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          PRIMARY KEY(scope,subject_hash)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_request_rate_limits_updated ON request_rate_limits(updated_at)")
+        con.execute("""CREATE TABLE IF NOT EXISTS ai_usage_events(
+          id bigserial PRIMARY KEY,
+          provider text NOT NULL,
+          task text NOT NULL,
+          model text,
+          status text NOT NULL,
+          latency_ms integer,
+          input_tokens bigint NOT NULL DEFAULT 0,
+          output_tokens bigint NOT NULL DEFAULT 0,
+          total_tokens bigint NOT NULL DEFAULT 0,
+          estimated_cost_usd numeric(18,8),
+          usage_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+          metadata_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+          error_code text,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created ON ai_usage_events(created_at DESC)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_task_provider ON ai_usage_events(task,provider,created_at DESC)")
         con.execute("""CREATE TABLE IF NOT EXISTS question_review_notes(
           question_id bigint PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
           reason_code text NOT NULL,

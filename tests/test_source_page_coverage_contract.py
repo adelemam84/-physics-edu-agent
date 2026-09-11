@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import unittest
 
 from fastapi import HTTPException
@@ -87,6 +88,16 @@ class SourcePageCoverageContractTests(unittest.TestCase):
             reviewed_count=7,
             extracted=2,
         )
+
+    def test_physical_page_count_has_fallbacks_beyond_document_files(self):
+        from app.source_review import _source_page_coverage_snapshot
+        source = inspect.getsource(_source_page_coverage_snapshot)
+        self.assertIn("greatest(", source)
+        self.assertIn("max(f.page_count)", source)
+        self.assertIn("max(p.page_number)", source)
+        self.assertIn("max(coalesce(q.source_page,q.page))", source)
+        self.assertIn("generate_series(1,d.physical_page_count)", source)
+
 
 
 if __name__ == "__main__":

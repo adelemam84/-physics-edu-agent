@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import math
 import os
 import time
+from datetime import datetime, timezone
 
 from fastapi import Depends
 from fastapi.responses import HTMLResponse
@@ -11,6 +13,7 @@ from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
 from .services.ai_telemetry import usage_snapshot
+from .services.rate_limit import policy
 
 
 def _float_env(name: str, default: float) -> float:
@@ -129,6 +132,91 @@ def _ai_probe(hours: int = 24) -> dict:
     }
 
 
+RATE_LIMIT_POLICY_DEFAULTS = {
+    "admin_login": (8, 900),
+    "student_login": (12, 600),
+    "adaptive_quiz_create": (6, 3600),
+    "student_review_pdf": (20, 3600),
+    "admin_ai_research": (30, 3600),
+    "admin_lesson_process": (12, 3600),
+    "admin_second_review": (10, 3600),
+    "admin_visual_review": (30, 3600),
+    "admin_visual_review_batch": (8, 3600),
+}
+
+
+def _rate_limit_probe(near_pct: float) -> dict:
+    try:
+        with connect() as con:
+            rows = list(con.execute(
+                """SELECT scope,hits,window_start
+                   FROM request_rate_limits
+                   WHERE updated_at >= now() - interval '7 days'"""
+            ).fetchall())
+    except Exception as exc:
+        return {
+            "ok": False,
+            "state": "probe_failed",
+            "error": exc.__class__.__name__,
+            "active_subjects": 0,
+            "near_limit_subjects": 0,
+            "blocked_subjects": 0,
+            "scopes": [],
+        }
+
+    now = datetime.now(timezone.utc)
+    grouped: dict[str, dict] = {}
+    for raw in rows:
+        scope = str(raw.get("scope") or "")
+        defaults = RATE_LIMIT_POLICY_DEFAULTS.get(scope)
+        if not defaults:
+            continue
+        limit, window_seconds = policy(
+            scope,
+            default_limit=defaults[0],
+            default_window_seconds=defaults[1],
+        )
+        started = raw.get("window_start")
+        if started is None:
+            continue
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if (now - started).total_seconds() >= window_seconds:
+            continue
+        hits = max(0, int(raw.get("hits") or 0))
+        item = grouped.setdefault(scope, {
+            "scope": scope,
+            "limit": int(limit),
+            "window_seconds": int(window_seconds),
+            "active_subjects": 0,
+            "near_limit_subjects": 0,
+            "blocked_subjects": 0,
+            "max_hits": 0,
+        })
+        item["active_subjects"] += 1
+        item["max_hits"] = max(item["max_hits"], hits)
+        near_threshold = max(1, int(math.ceil(limit * near_pct / 100.0)))
+        if hits >= near_threshold:
+            item["near_limit_subjects"] += 1
+        if hits > limit:
+            item["blocked_subjects"] += 1
+
+    scopes = sorted(grouped.values(), key=lambda x: x["scope"])
+    return {
+        "ok": True,
+        "state": "observed" if scopes else "idle",
+        "active_subjects": sum(x["active_subjects"] for x in scopes),
+        "near_limit_subjects": sum(x["near_limit_subjects"] for x in scopes),
+        "blocked_subjects": sum(x["blocked_subjects"] for x in scopes),
+        "scopes": scopes,
+        "privacy": {
+            "raw_subjects_returned": False,
+            "subject_hashes_returned": False,
+            "only_aggregates_returned": True,
+        },
+    }
+
+
 def _signal(
     signal_id: str,
     name: str,
@@ -157,11 +245,20 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
     ai_failure_error_pct = _float_env("TECH_OBSERVABILITY_AI_FAILURE_ERROR_PCT", 25.0)
     ai_latency_warn_ms = _int_env("TECH_OBSERVABILITY_AI_LATENCY_WARN_MS", 15000)
     sync_stale_minutes = _int_env("TECH_OBSERVABILITY_SYNC_STALE_MINUTES", 30)
+    rate_limit_near_pct = min(
+        100.0,
+        max(1.0, _float_env("TECH_OBSERVABILITY_RATE_LIMIT_NEAR_PCT", 80.0)),
+    )
+    rate_limit_blocked_error_subjects = max(
+        1,
+        _int_env("TECH_OBSERVABILITY_RATE_LIMIT_BLOCKED_ERROR_SUBJECTS", 5),
+    )
 
     readiness = readiness_snapshot if readiness_snapshot is not None else build_operations_readiness()
     db = _database_probe()
     ai = _ai_probe(24)
     sync = _sync_probe(sync_stale_minutes)
+    rate_limits = _rate_limit_probe(rate_limit_near_pct)
 
     signals: list[dict] = []
 
@@ -254,6 +351,41 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             "/admin/research-engine", sync,
         ))
 
+    if not rate_limits["ok"]:
+        signals.append(_signal(
+            "rate_limit_probe", "Rate-limit telemetry", "error", False,
+            "تعذر قراءة ضغط Rate Limits",
+            "/admin/technical-observability", rate_limits,
+        ))
+    elif rate_limits["blocked_subjects"] >= rate_limit_blocked_error_subjects:
+        signals.append(_signal(
+            "rate_limit_pressure", "Rate-limit pressure", "error", False,
+            f'{rate_limits["blocked_subjects"]} subjects تجاوزت الحدود الحالية',
+            "/admin/technical-observability", rate_limits,
+        ))
+    elif rate_limits["blocked_subjects"] > 0:
+        signals.append(_signal(
+            "rate_limit_pressure", "Rate-limit pressure", "warning", False,
+            f'{rate_limits["blocked_subjects"]} subject محجوب مؤقتًا بسبب 429',
+            "/admin/technical-observability", rate_limits,
+        ))
+    elif rate_limits["near_limit_subjects"] > 0:
+        signals.append(_signal(
+            "rate_limit_near", "Rate-limit pressure", "warning", False,
+            f'{rate_limits["near_limit_subjects"]} subject قريب من الحد المؤقت',
+            "/admin/technical-observability", rate_limits,
+        ))
+    else:
+        signals.append(_signal(
+            "rate_limit_health", "Rate-limit pressure", "info", True,
+            (
+                f'{rate_limits["active_subjects"]} subject نشط بدون ضغط'
+                if rate_limits["active_subjects"]
+                else "لا يوجد ضغط Rate Limit نشط"
+            ),
+            "/admin/technical-observability", rate_limits,
+        ))
+
     if not readiness.get("ready_for_technical_handoff"):
         signals.append(_signal(
             "technical_readiness", "Technical readiness", "error", False,
@@ -286,6 +418,8 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             "ai_failure_error_pct": ai_failure_error_pct,
             "ai_latency_warn_ms": ai_latency_warn_ms,
             "sync_stale_minutes": sync_stale_minutes,
+            "rate_limit_near_pct": rate_limit_near_pct,
+            "rate_limit_blocked_error_subjects": rate_limit_blocked_error_subjects,
         },
         "content_gates_are_not_technical_errors": True,
     }

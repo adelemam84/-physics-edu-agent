@@ -21,6 +21,7 @@ class TechnicalObservabilityTests(unittest.TestCase):
         db=None,
         ai=None,
         sync=None,
+        rate_limits=None,
         readiness=None,
     ):
         db = db or {"ok": True, "latency_ms": 25, "error": None}
@@ -41,10 +42,24 @@ class TechnicalObservabilityTests(unittest.TestCase):
             "failed": 0,
             "stale_processing": 0,
         }
+        rate_limits = rate_limits or {
+            "ok": True,
+            "state": "idle",
+            "active_subjects": 0,
+            "near_limit_subjects": 0,
+            "blocked_subjects": 0,
+            "scopes": [],
+            "privacy": {
+                "raw_subjects_returned": False,
+                "subject_hashes_returned": False,
+                "only_aggregates_returned": True,
+            },
+        }
         readiness = readiness or self._readiness()
         with patch.object(obs, "_database_probe", return_value=db), \
              patch.object(obs, "_ai_probe", return_value=ai), \
              patch.object(obs, "_sync_probe", return_value=sync), \
+             patch.object(obs, "_rate_limit_probe", return_value=rate_limits), \
              patch.object(obs, "_int_env", side_effect=lambda name, default: default), \
              patch.object(obs, "_float_env", side_effect=lambda name, default: default):
             return obs.technical_observability_snapshot(readiness_snapshot=readiness)
@@ -104,6 +119,65 @@ class TechnicalObservabilityTests(unittest.TestCase):
         self.assertEqual(data["state"], "degraded")
         signal = next(x for x in data["signals"] if x["id"] == "source_sync_failed")
         self.assertEqual(signal["severity"], "warning")
+
+    def test_rate_limit_near_threshold_degrades_without_exposing_subjects(self):
+        rate_limits = {
+            "ok": True,
+            "state": "observed",
+            "active_subjects": 2,
+            "near_limit_subjects": 1,
+            "blocked_subjects": 0,
+            "scopes": [{
+                "scope": "admin_ai_research",
+                "limit": 30,
+                "window_seconds": 3600,
+                "active_subjects": 2,
+                "near_limit_subjects": 1,
+                "blocked_subjects": 0,
+                "max_hits": 25,
+            }],
+            "privacy": {
+                "raw_subjects_returned": False,
+                "subject_hashes_returned": False,
+                "only_aggregates_returned": True,
+            },
+        }
+        data = self._snapshot(rate_limits=rate_limits)
+        self.assertEqual(data["state"], "degraded")
+        signal = next(x for x in data["signals"] if x["id"] == "rate_limit_near")
+        self.assertEqual(signal["severity"], "warning")
+        self.assertFalse(signal["evidence"]["privacy"]["subject_hashes_returned"])
+        self.assertFalse(signal["evidence"]["privacy"]["raw_subjects_returned"])
+        for scope in signal["evidence"]["scopes"]:
+            self.assertNotIn("subject_hash", scope)
+            self.assertNotIn("subject", scope)
+
+    def test_repeated_rate_limit_blocks_are_unhealthy(self):
+        rate_limits = {
+            "ok": True,
+            "state": "observed",
+            "active_subjects": 7,
+            "near_limit_subjects": 7,
+            "blocked_subjects": 5,
+            "scopes": [{
+                "scope": "admin_login",
+                "limit": 8,
+                "window_seconds": 900,
+                "active_subjects": 7,
+                "near_limit_subjects": 7,
+                "blocked_subjects": 5,
+                "max_hits": 12,
+            }],
+            "privacy": {
+                "raw_subjects_returned": False,
+                "subject_hashes_returned": False,
+                "only_aggregates_returned": True,
+            },
+        }
+        data = self._snapshot(rate_limits=rate_limits)
+        self.assertEqual(data["state"], "unhealthy")
+        signal = next(x for x in data["signals"] if x["id"] == "rate_limit_pressure")
+        self.assertEqual(signal["severity"], "error")
 
     def test_observability_alert_adapter_ignores_green_and_duplicate_readiness(self):
         alerts = _observability_alerts({

@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
         init_db()
         from .services.corpus_phase2_runtime import run_phase2_bootstrap
         run_phase2_bootstrap()
+        from .file_search_store import bootstrap_store_if_enabled
+        bootstrap_store_if_enabled()
     yield
 
 app = FastAPI(title="Science Education Platform", version="1.8.1", lifespan=lifespan)

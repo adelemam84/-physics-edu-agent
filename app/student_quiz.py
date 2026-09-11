@@ -44,7 +44,10 @@ def legacy_publish_quiz(quiz_id: int, published: bool = True):
         return q
 
 @app.get("/api/student/quizzes/{quiz_id}")
-def student_quiz(quiz_id: int):
+def student_quiz(quiz_id: int, request: Request):
+    # Published quiz metadata/questions still require a valid student session so
+    # exam content cannot be enumerated before login.
+    resolve_student_code(request)
     with connect() as con:
         q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'""",(quiz_id,)).fetchone()
@@ -304,9 +307,9 @@ async function ensureSession(){
   sessionBadge.textContent='جلسة آمنة · '+(x.student?.name||'الطالب');
   return true;
 }
-async function load(){
+async function loadQuiz(){
   let r=await fetch('/api/student/quizzes/'+quizId,{cache:'no-store'}),x=await r.json().catch(()=>null);
-  if(!r.ok){msg.textContent=apiError(x,'تعذر تحميل الاختبار');return}
+  if(!r.ok){msg.textContent=apiError(x,'تعذر تحميل الاختبار');return false}
   data=x;title.textContent=x.title;
   items.innerHTML=x.questions.map(q=>`<section class="q" id="q_${q.id}">
     <div class="q-head"><b>سؤال ${q.position}</b><span id="save_${q.id}" class="muted"></span></div>
@@ -315,14 +318,25 @@ async function load(){
     <input class="answer" id="a_${q.id}" aria-label="إجابة السؤال ${q.position}" placeholder="اكتب الإجابة" disabled oninput="queueSave(${q.id})">
   </section>`).join('');
   updateProgress();
+  return true
+}
+async function load(){
   let s=await sessionInfo();
-  if(s.authenticated){sessionBadge.textContent='جلسة آمنة · '+(s.student?.name||'الطالب');code.style.display='none';loginRow.querySelector('label').style.display='none';msg.textContent='يمكنك بدء أو استكمال المحاولة.'}
-  else{sessionBadge.textContent='تسجيل الدخول مطلوب';msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'}
+  if(s.authenticated){
+    sessionBadge.textContent='جلسة آمنة · '+(s.student?.name||'الطالب');
+    code.style.display='none';loginRow.querySelector('label').style.display='none';
+    if(await loadQuiz())msg.textContent='يمكنك بدء أو استكمال المحاولة.'
+  }else{
+    sessionBadge.textContent='تسجيل الدخول مطلوب';
+    items.innerHTML='';
+    msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'
+  }
 }
 async function startAttempt(){try{await ensureAttempt()}catch(e){msg.textContent=e.message}}
 async function ensureAttempt(){
   if(attemptId)return attemptId;
   await ensureSession();
+  if(!data && !await loadQuiz())throw new Error('تعذر تحميل الاختبار');
   let r=await fetch('/api/student/quizzes/'+quizId+'/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   let x=await r.json().catch(()=>null);
   if(!r.ok)throw new Error(apiError(x,'تعذر بدء الاختبار'));

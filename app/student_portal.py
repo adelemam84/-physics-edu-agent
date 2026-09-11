@@ -10,7 +10,7 @@ from .student_security import resolve_student_code
 def student_portal(request: Request):
     code=resolve_student_code(request)
     with connect() as con:
-        st=con.execute("SELECT id,name,external_code FROM students WHERE external_code=%s",(code,)).fetchone()
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         attempts=list(con.execute("""SELECT a.id,a.quiz_id,q.title quiz_title,a.score,a.max_score,a.completed_at,
           round(100.0*a.score/nullif(a.max_score,0),1) percentage

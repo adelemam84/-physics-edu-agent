@@ -4,7 +4,7 @@ import re
 from decimal import Decimal
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .main import app
 from .db import connect
@@ -22,10 +22,12 @@ class AnswerIn(BaseModel):
     answer: str
 
 class SubmitAttempt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     answers: list[AnswerIn]
     attempt_id: int | None = None
 
 class SaveAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     question_id: int
     answer: str
 

@@ -19,6 +19,7 @@ class OpenApiContractTests(unittest.TestCase):
             "/api/admin/lesson-studio/jobs/{job_id}/handwriting-pipeline",
             "/api/admin/content-completion",
             "/api/admin/project-closure",
+            "/api/admin/operations-readiness",
             "/api/admin/ai-operations/summary",
             "/api/admin/ai-operations/usage",
             "/api/admin/ai-operations/budget",

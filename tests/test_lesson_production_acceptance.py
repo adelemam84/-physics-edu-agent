@@ -8,7 +8,7 @@ from app.lesson_studio_acceptance import (
     _job_binding_summary,
     _schema_snapshot,
 )
-from app.services.corpus_phase2_runtime import run_phase2_bootstrap
+from app.services.corpus_phase2_runtime import ensure_phase2_schemas, run_phase2_bootstrap
 from app.services.lesson_diagram_integrity import diagram_manifest
 from app.services.lesson_integrity import review_source_hash
 
@@ -144,18 +144,23 @@ class LessonProductionAcceptanceTests(unittest.TestCase):
         self.assertIn("'bounded': True", source)
 
     def test_acceptance_schemas_are_initialized_before_phase2_data_work(self):
-        """Release, reference, map, and history schemas must initialize before phase-two data queries."""
-        source = inspect.getsource(run_phase2_bootstrap)
+        """Schema DDL must be complete and unlocked before Phase 2 business-data queries."""
+        schema_source = inspect.getsource(ensure_phase2_schemas)
         required = (
             'ensure_release_state_schema()',
             'reference_schema()',
             '_map_schema()',
             '_history_schema()',
         )
-        first_data_read = source.index('with connect() as con:')
         for marker in required:
-            self.assertIn(marker, source)
-            self.assertLess(source.index(marker), first_data_read)
+            self.assertIn(marker, schema_source)
+
+        run_source = inspect.getsource(run_phase2_bootstrap)
+        lock_pos = run_source.index('with startup_migration_lock():')
+        schema_pos = run_source.index('ensure_phase2_schemas(')
+        first_data_read = run_source.index('with connect() as con:')
+        self.assertLess(lock_pos, schema_pos)
+        self.assertLess(schema_pos, first_data_read)
 
 
 if __name__ == '__main__':

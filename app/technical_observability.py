@@ -143,6 +143,7 @@ RATE_LIMIT_POLICY_DEFAULTS = {
     "admin_second_review": (10, 3600),
     "admin_visual_review": (30, 3600),
     "admin_visual_review_batch": (8, 3600),
+    "admin_phase2_bootstrap": (2, 3600),
 }
 
 

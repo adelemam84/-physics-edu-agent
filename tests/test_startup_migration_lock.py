@@ -65,20 +65,17 @@ class StartupMigrationLockTests(unittest.TestCase):
     def test_application_lifespan_serializes_schema_but_not_external_provider(self):
         source = inspect.getsource(main.lifespan)
         self.assertIn("with startup_migration_lock():", source)
-        self.assertIn("run_phase2_bootstrap(release_schema_ready=True)", source)
+        self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", source)
+        self.assertNotIn("run_phase2_bootstrap(", source)
         lock_start = source.index("with startup_migration_lock():")
         init_pos = source.index("init_db()")
-        phase2_pos = source.index("run_phase2_bootstrap(release_schema_ready=True)")
+        phase2_pos = source.index("ensure_phase2_schemas(release_schema_ready=True)")
         provider_pos = source.index("bootstrap_store_if_enabled()")
         self.assertLess(lock_start, init_pos)
         self.assertLess(init_pos, phase2_pos)
         self.assertLess(phase2_pos, provider_pos)
 
-    def test_phase2_can_skip_release_schema_when_init_db_already_applied_it(self):
-        con = MagicMock()
-        context = MagicMock()
-        context.__enter__.return_value = con
-        context.__exit__.return_value = False
+    def test_phase2_schema_bootstrap_can_skip_release_schema_when_init_db_applied_it(self):
         with patch(
             "app.services.lesson_release_state.ensure_release_state_schema"
         ) as release_schema, patch(
@@ -87,18 +84,13 @@ class StartupMigrationLockTests(unittest.TestCase):
             "app.science_reference_curriculum_map._map_schema"
         ) as map_schema, patch(
             "app.lesson_studio_version_history._history_schema"
-        ) as history_schema, patch.object(
-            phase2, "connect", return_value=context
-        ), patch.object(
-            phase2, "_active_context", return_value=None
-        ):
-            result = phase2.run_phase2_bootstrap(release_schema_ready=True)
+        ) as history_schema:
+            phase2.ensure_phase2_schemas(release_schema_ready=True)
 
         release_schema.assert_not_called()
         reference_schema.assert_called_once_with()
         map_schema.assert_called_once_with()
         history_schema.assert_called_once_with()
-        self.assertEqual(result, {"active": False})
 
     def test_direct_phase2_bootstrap_still_ensures_release_schema(self):
         con = MagicMock()
@@ -114,12 +106,15 @@ class StartupMigrationLockTests(unittest.TestCase):
         ), patch(
             "app.lesson_studio_version_history._history_schema"
         ), patch.object(
+            phase2, "startup_migration_lock"
+        ) as migration_lock, patch.object(
             phase2, "connect", return_value=context
         ), patch.object(
             phase2, "_active_context", return_value=None
         ):
             phase2.run_phase2_bootstrap()
 
+        migration_lock.assert_called_once_with()
         release_schema.assert_called_once_with()
 
 

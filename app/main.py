@@ -22,10 +22,10 @@ from .release_candidate import source_corpus_benchmark, release_readiness
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if os.getenv('DATABASE_URL'):
-        from .services.corpus_phase2_runtime import run_phase2_bootstrap
+        from .services.corpus_phase2_runtime import ensure_phase2_schemas
         with startup_migration_lock():
             init_db()
-            run_phase2_bootstrap(release_schema_ready=True)
+            ensure_phase2_schemas(release_schema_ready=True)
         # External provider bootstrap has its own advisory lock and must not hold
         # the global schema lock while waiting on the network.
         from .file_search_store import bootstrap_store_if_enabled

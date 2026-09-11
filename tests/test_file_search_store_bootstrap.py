@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-import inspect
+import asyncio
 import os
 import unittest
 from unittest.mock import patch
@@ -115,14 +115,60 @@ class FileSearchProductionBootstrapTests(unittest.TestCase):
         self.assertEqual(result["reason"], "provider_error")
         self.assertEqual(result["status_code"], 502)
 
-    def test_application_lifespan_runs_safe_bootstrap_after_db_bootstrap(self):
-        source = inspect.getsource(main.lifespan)
-        self.assertIn("with startup_migration_lock():", source)
-        self.assertIn("run_phase2_bootstrap(release_schema_ready=True)", source)
-        self.assertIn("bootstrap_store_if_enabled()", source)
-        self.assertLess(
-            source.index("run_phase2_bootstrap(release_schema_ready=True)"),
-            source.index("bootstrap_store_if_enabled()"),
+    def test_application_lifespan_executes_schema_only_startup_in_order(self):
+        events = []
+
+        @contextmanager
+        def fake_startup_lock():
+            events.append("lock_enter")
+            try:
+                yield
+            finally:
+                events.append("lock_exit")
+
+        async def exercise():
+            async with main.lifespan(main.app):
+                events.append("yield")
+
+        with patch.dict(
+            os.environ,
+            {"DATABASE_URL": "postgresql://test"},
+            clear=False,
+        ), patch.object(
+            main,
+            "startup_migration_lock",
+            side_effect=fake_startup_lock,
+        ), patch.object(
+            main,
+            "init_db",
+            side_effect=lambda: events.append("init_db"),
+        ), patch(
+            "app.services.corpus_phase2_runtime.ensure_phase2_schemas",
+            side_effect=lambda **kwargs: events.append(
+                ("ensure_phase2_schemas", kwargs)
+            ),
+        ) as ensure, patch(
+            "app.services.corpus_phase2_runtime.run_phase2_bootstrap"
+        ) as business_bootstrap, patch.object(
+            file_search_store,
+            "bootstrap_store_if_enabled",
+            side_effect=lambda: events.append("file_search_bootstrap"),
+        ) as provider_bootstrap:
+            asyncio.run(exercise())
+
+        ensure.assert_called_once_with(release_schema_ready=True)
+        business_bootstrap.assert_not_called()
+        provider_bootstrap.assert_called_once_with()
+        self.assertEqual(
+            events,
+            [
+                "lock_enter",
+                "init_db",
+                ("ensure_phase2_schemas", {"release_schema_ready": True}),
+                "lock_exit",
+                "file_search_bootstrap",
+                "yield",
+            ],
         )
 
 

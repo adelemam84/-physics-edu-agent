@@ -12,7 +12,7 @@ from app.student_security import (
     COOKIE_NAME,
     make_student_session_token,
     parse_student_session_token,
-    resolve_student_code,
+    resolve_student_id,
 )
 
 
@@ -47,31 +47,33 @@ class StudentSessionSecurityTests(unittest.TestCase):
     def tearDown(self):
         self.env.stop()
 
-    def test_token_round_trip(self):
-        token = make_student_session_token(17, "STU-017")
+    def test_token_round_trip_contains_no_student_login_code(self):
+        token = make_student_session_token(17)
+        self.assertNotIn("STU-017", token)
+        self.assertTrue(token.startswith("v2.17."))
         session = parse_student_session_token(token)
         self.assertIsNotNone(session)
         self.assertEqual(session.student_id, 17)
-        self.assertEqual(session.external_code, "STU-017")
+        self.assertFalse(hasattr(session, "external_code"))
 
     def test_tampered_token_is_rejected(self):
-        token = make_student_session_token(17, "STU-017")
+        token = make_student_session_token(17)
         tampered = token[:-1] + ("0" if token[-1] != "0" else "1")
         self.assertIsNone(parse_student_session_token(tampered))
 
     def test_cookie_session_is_the_only_student_identity_source(self):
-        token = make_student_session_token(17, "STU-017")
+        token = make_student_session_token(17)
         request = request_with_cookie(token)
-        self.assertEqual(resolve_student_code(request), "STU-017")
+        self.assertEqual(resolve_student_id(request), 17)
 
     def test_missing_session_is_rejected(self):
         request = request_with_cookie()
         with self.assertRaises(HTTPException) as ctx:
-            resolve_student_code(request)
+            resolve_student_id(request)
         self.assertEqual(ctx.exception.status_code, 401)
 
     def test_token_expiry_is_enforced(self):
-        token = make_student_session_token(17, "STU-017")
+        token = make_student_session_token(17)
         with patch("app.student_security.time.time", return_value=time.time() + 13 * 60 * 60):
             self.assertIsNone(parse_student_session_token(token))
 

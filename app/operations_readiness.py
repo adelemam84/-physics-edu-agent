@@ -15,12 +15,13 @@ from .teacher_intervention_cases import intervention_summary
 
 
 def _student_session_configured() -> bool:
-    return bool(
-        os.getenv("STUDENT_SESSION_SECRET", "").strip()
-        or os.getenv("ADMIN_SESSION_SECRET", "").strip()
-        or os.getenv("ADMIN_API_KEY", "").strip()
-        or os.getenv("DATABASE_URL", "").strip()
-    )
+    """Controlled launch requires a dedicated student-session signing secret.
+
+    Runtime fallback keys remain available for local/backward compatibility, but
+    production readiness must not couple student sessions to admin or database
+    credentials.
+    """
+    return bool(os.getenv("STUDENT_SESSION_SECRET", "").strip())
 
 
 def build_operations_readiness() -> dict:
@@ -43,7 +44,7 @@ def build_operations_readiness() -> dict:
             "id": "student_session",
             "name": "جلسة الطالب الآمنة",
             "ok": _student_session_configured(),
-            "detail": "توقيع جلسات الطالب متاح" if _student_session_configured() else "لا يوجد مصدر توقيع متاح لجلسات الطالب",
+            "detail": "STUDENT_SESSION_SECRET مستقل ومفعّل" if _student_session_configured() else "يلزم ضبط STUDENT_SESSION_SECRET مستقل قبل التشغيل المتحكم",
             "path": "/student",
         },
         {

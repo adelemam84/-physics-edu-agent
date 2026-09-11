@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
@@ -41,15 +41,18 @@ def _positive_decimal_env(name: str) -> Decimal | None:
 def budget_config() -> AIBudgetConfig:
     """Read optional operator-managed AI budgets.
 
-    Budgets are disabled unless explicitly configured. This keeps development and
-    existing production behavior unchanged while allowing a hard ceiling later
-    without a code deployment.
+    Budgets are disabled unless explicitly configured. This keeps existing behavior
+    unchanged while allowing a hard ceiling later without a code deployment.
     """
     return AIBudgetConfig(
         daily_calls=_positive_int_env("AI_DAILY_CALL_BUDGET"),
         daily_cost_usd=_positive_decimal_env("AI_DAILY_COST_BUDGET_USD"),
         monthly_cost_usd=_positive_decimal_env("AI_MONTHLY_COST_BUDGET_USD"),
     )
+
+
+def _configured(cfg: AIBudgetConfig) -> bool:
+    return any((cfg.daily_calls, cfg.daily_cost_usd, cfg.monthly_cost_usd))
 
 
 def _usage_totals() -> dict:
@@ -121,7 +124,19 @@ def budget_snapshot() -> dict:
 
 
 def enforce_ai_budget(*, provider: str, task: str, model: str | None = None) -> dict:
-    """Fail closed only when an explicitly configured budget is exhausted."""
+    """Fail closed only when an explicitly configured budget is exhausted.
+
+    With no budget settings this function performs no database query, so normal AI
+    requests keep their existing latency profile.
+    """
+    cfg = budget_config()
+    if not _configured(cfg):
+        return {
+            "configured": False,
+            "level": "not_configured",
+            "hard_block_active": False,
+        }
+
     snap = budget_snapshot()
     if snap["hard_block_active"]:
         exceeded = [

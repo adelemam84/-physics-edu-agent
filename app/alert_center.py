@@ -10,6 +10,7 @@ from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
 from .services.active_content_integrity import active_content_integrity_snapshot
+from .technical_observability import technical_observability_snapshot
 
 
 def _technical_readiness_alerts(snapshot: dict) -> list[dict]:
@@ -44,6 +45,34 @@ def _technical_readiness_alerts(snapshot: dict) -> list[dict]:
           "title":"تعارض في حالة الجاهزية التقنية",
           "detail":"الحالة تعلن عدم الجاهزية بدون Technical blocker محدد",
           "path":"/admin/operations-readiness",
+        })
+    return alerts
+
+
+def _observability_alerts(snapshot: dict) -> list[dict]:
+    signals=snapshot.get("signals")
+    if not isinstance(signals,list):
+        return [{
+          "severity":"error","source":"observability",
+          "title":"تعذر قراءة Technical Observability",
+          "detail":"signals مفقود أو بصيغة غير صالحة",
+          "path":"/admin/technical-observability",
+        }]
+    alerts=[]
+    for item in signals:
+        if not isinstance(item,dict):
+            continue
+        if item.get("ok") is True or item.get("id")=="technical_readiness":
+            continue
+        severity=str(item.get("severity") or "warning")
+        if severity not in {"error","warning"}:
+            continue
+        alerts.append({
+          "severity":severity,
+          "source":"observability",
+          "title":str(item.get("name") or item.get("id") or "Technical signal"),
+          "detail":str(item.get("detail") or "إشارة تشغيلية تحتاج مراجعة"),
+          "path":str(item.get("path") or "/admin/technical-observability"),
         })
     return alerts
 
@@ -128,6 +157,7 @@ def collect_alerts():
     if missing:
         alerts.append({"severity":"warning","source":"configuration","title":"إعدادات تشغيل ناقصة","detail":"، ".join(missing),"path":"/admin/readiness"})
 
+    readiness=None
     try:
         readiness=build_operations_readiness()
         alerts.extend(_technical_readiness_alerts(readiness))
@@ -137,6 +167,20 @@ def collect_alerts():
           "title":"تعذر تشغيل فحص الجاهزية التقنية",
           "detail":"Operations Readiness لم تُرجع snapshot صالحًا",
           "path":"/admin/operations-readiness",
+        })
+
+    try:
+        alerts.extend(_observability_alerts(
+          technical_observability_snapshot(
+            readiness_snapshot=readiness if isinstance(readiness,dict) else None
+          )
+        ))
+    except Exception:
+        alerts.append({
+          "severity":"error","source":"observability",
+          "title":"تعذر تشغيل Technical Observability",
+          "detail":"فشل تجميع مؤشرات DB / AI / Source Sync",
+          "path":"/admin/technical-observability",
         })
 
     rank={"error":0,"warning":1,"info":2}
@@ -152,7 +196,7 @@ def collect_alerts():
 
 PAGE=r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>مركز التنبيهات</title><style>
 body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:1000px;margin:auto;padding:18px}.box{background:#fff;padding:16px;border-radius:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.alert{padding:12px;border-radius:12px;margin:9px 0;border:1px solid #ddd}.error{color:#b42318;border-color:#f3b4ad}.warning{color:#b54708;border-color:#f1cf9d}.info{color:#175cd3;border-color:#b9cdf7}.ok{color:#067647}.muted{color:#667085}a{color:inherit}</style><main>
-<div class=box><a href="/admin/dashboard">لوحة التحكم</a> · <a href="/admin/readiness">جاهزية النظام</a> · <a href="/admin/diagnostics">تشخيص البيانات</a></div>
+<div class=box><a href="/admin/dashboard">لوحة التحكم</a> · <a href="/admin/readiness">جاهزية النظام</a> · <a href="/admin/diagnostics">تشخيص البيانات</a> · <a href="/admin/technical-observability">Technical Observability</a></div>
 <div class=box><h1>مركز التنبيهات</h1><div id=sum class=muted></div><div id=list>جارٍ التحميل...</div></div>
 <script>
 function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}

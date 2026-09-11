@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import Depends
 from fastapi.responses import HTMLResponse
 
-from .db import connect, database_connection_profile
+from .db import connect, database_connection_profile, database_resilience_profile
 from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
@@ -263,6 +263,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
     rate_limits = _rate_limit_probe(rate_limit_near_pct)
     identity = runtime_identity(application_version=app.version)
     database_profile = database_connection_profile()
+    database_resilience = database_resilience_profile()
 
     signals: list[dict] = []
 
@@ -317,6 +318,17 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             ),
             "/admin/technical-observability", database_profile,
         ))
+
+    signals.append(_signal(
+        "database_resilience", "Database resilience", "info", True,
+        (
+            f'Connect retries={database_resilience.get("connect_retries")} · '
+            f'Runtime statement={database_resilience.get("runtime_statement_timeout_ms")}ms · '
+            f'Lock={database_resilience.get("runtime_lock_timeout_ms")}ms · '
+            'Transaction replay=disabled'
+        ),
+        "/admin/technical-observability", database_resilience,
+    ))
 
     if not ai["ok"]:
         signals.append(_signal(
@@ -477,6 +489,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
         },
         "runtime_identity": identity,
         "database_connection": database_profile,
+        "database_resilience": database_resilience,
         "content_gates_are_not_technical_errors": True,
     }
 

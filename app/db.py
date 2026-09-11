@@ -1,9 +1,87 @@
 from __future__ import annotations
 import os
+import time
 from contextlib import contextmanager
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STORAGE_BACKEND = "neon_postgresql" if DATABASE_URL else "not_configured"
+
+STARTUP_MIGRATION_LOCK_KEY = 2026091101
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return float(default)
+    return value if value > 0 else float(default)
+
+
+def _acquire_startup_advisory_lock(
+    con,
+    *,
+    wait_seconds: float,
+    poll_seconds: float,
+) -> int:
+    """Acquire the shared startup lock with a bounded wait; return attempts."""
+    deadline = time.monotonic() + max(0.1, float(wait_seconds))
+    attempts = 0
+    while True:
+        attempts += 1
+        row = con.execute(
+            "SELECT pg_try_advisory_lock(%s) acquired",
+            (STARTUP_MIGRATION_LOCK_KEY,),
+        ).fetchone()
+        if row and bool(row["acquired"]):
+            return attempts
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                "Timed out waiting for startup migration lock"
+            )
+        time.sleep(max(0.01, float(poll_seconds)))
+
+
+@contextmanager
+def startup_migration_lock():
+    """Serialize serverless startup DDL across concurrent cold starts."""
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is required")
+    import psycopg
+    from psycopg.rows import dict_row
+
+    wait_seconds = _positive_float_env(
+        "STARTUP_MIGRATION_LOCK_WAIT_SECONDS", 20.0
+    )
+    poll_seconds = _positive_float_env(
+        "STARTUP_MIGRATION_LOCK_POLL_SECONDS", 0.25
+    )
+    con = psycopg.connect(
+        DATABASE_URL,
+        row_factory=dict_row,
+        connect_timeout=10,
+        autocommit=True,
+        application_name="physics-edu-startup-lock",
+    )
+    acquired = False
+    try:
+        _acquire_startup_advisory_lock(
+            con,
+            wait_seconds=wait_seconds,
+            poll_seconds=poll_seconds,
+        )
+        acquired = True
+        yield
+    finally:
+        if acquired:
+            try:
+                con.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (STARTUP_MIGRATION_LOCK_KEY,),
+                )
+            except Exception:
+                pass
+        con.close()
+
 
 @contextmanager
 def connect():

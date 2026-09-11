@@ -149,7 +149,7 @@ def _signal(
     }
 
 
-def technical_observability_snapshot() -> dict:
+def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) -> dict:
     db_warn_ms = _int_env("TECH_OBSERVABILITY_DB_WARN_MS", 500)
     db_error_ms = _int_env("TECH_OBSERVABILITY_DB_ERROR_MS", 2000)
     ai_min_calls = _int_env("TECH_OBSERVABILITY_AI_MIN_CALLS", 5)
@@ -158,7 +158,7 @@ def technical_observability_snapshot() -> dict:
     ai_latency_warn_ms = _int_env("TECH_OBSERVABILITY_AI_LATENCY_WARN_MS", 15000)
     sync_stale_minutes = _int_env("TECH_OBSERVABILITY_SYNC_STALE_MINUTES", 30)
 
-    readiness = build_operations_readiness()
+    readiness = readiness_snapshot if readiness_snapshot is not None else build_operations_readiness()
     db = _database_probe()
     ai = _ai_probe(24)
     sync = _sync_probe(sync_stale_minutes)

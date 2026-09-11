@@ -109,7 +109,7 @@ def start_quiz_attempt(quiz_id:int, request: Request):
 
 @app.put("/api/student/attempts/{attempt_id}/answer")
 def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
-    code=resolve_student_code(request, p.student_code)
+    code=resolve_student_code(request)
     with connect() as con:
         a=con.execute("""SELECT a.id,a.quiz_id,a.started_at,a.completed_at,s.external_code,q.duration_minutes
           FROM attempts a JOIN students s ON s.id=a.student_id JOIN quizzes q ON q.id=a.quiz_id WHERE a.id=%s""",(attempt_id,)).fetchone()
@@ -143,7 +143,7 @@ def saved_quiz_answers(attempt_id:int, request: Request):
 
 @app.post("/api/student/quizzes/{quiz_id}/submit")
 def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
-    code=resolve_student_code(request, p.student_code)
+    code=resolve_student_code(request)
     with connect() as con:
         student=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not student: raise HTTPException(404,"كود الطالب غير صحيح")

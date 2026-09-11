@@ -257,21 +257,21 @@ def build_learning_suite(student_code: str):
 
 
 @app.get("/api/student/learning-suite")
-def learning_suite_api(request: Request, student_code: str | None = None):
-    return build_learning_suite(resolve_student_code(request, student_code))
+def learning_suite_api(request: Request):
+    return build_learning_suite(resolve_student_code(request))
 
 
 @app.get("/api/student/review-queue")
-def review_queue_api(request: Request, student_code: str | None = None, limit: int = 12):
+def review_queue_api(request: Request, limit: int = 12):
     with connect() as con:
-        st = _student(con, resolve_student_code(request, student_code))
+        st = _student(con, resolve_student_code(request))
         return {"student": st, "questions": _review_queue(con, st["id"], limit)}
 
 
 @app.get("/api/student/exam-readiness")
-def exam_readiness_api(request: Request, student_code: str | None = None):
+def exam_readiness_api(request: Request):
     with connect() as con:
-        st = _student(con, resolve_student_code(request, student_code))
+        st = _student(con, resolve_student_code(request))
         return {"student": st, "readiness": _readiness(con, st["id"]), "mock_exam": _mock_exam(con, st["id"])}
 
 

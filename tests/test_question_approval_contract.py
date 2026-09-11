@@ -23,6 +23,19 @@ class QuestionApprovalContractTests(unittest.TestCase):
         self.assertNotIn("SET approved=TRUE", source)
         self.assertNotIn("SET approved=TRUE", helper)
         self.assertIn("_question_ready_for_human_approval", source)
+        self.assertIn("'approval_changed':False", source)
+
+    def test_asset_admin_copy_and_catalog_match_manual_approval_policy(self):
+        page = question_assets.ASSET_ADMIN
+        self.assertIn("/api/admin/question-catalog?limit=", page)
+        self.assertNotIn("/api/questions?limit=1000", page)
+        self.assertIn("لا يعتمد السؤال تلقائيًا", page)
+        self.assertIn("جاهز للاعتماد اليدوي", page)
+        self.assertNotIn("ويُعتمد السؤال تلقائيًا", page)
+
+    def test_visual_note_append_handles_null_details(self):
+        source = inspect.getsource(question_assets._resolve_visual_review)
+        self.assertIn("coalesce(details,'')", source)
 
     def test_verbatim_text_is_not_a_patchable_admin_field(self):
         self.assertNotIn("text_verbatim", question_admin_runtime.ALLOWED_FIELDS)

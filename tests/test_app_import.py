@@ -7,7 +7,12 @@ class VercelEntrypointTests(unittest.TestCase):
         return importlib.import_module("index").app
 
     def test_vercel_entrypoint_imports_without_runtime_import_errors(self):
-        self.assertEqual(self._app().version, "1.8.0")
+        self.assertEqual(self._app().version, "1.8.1")
+
+    def test_release_status_uses_canonical_application_version(self):
+        from app import release_hardening
+        self.assertEqual(release_hardening.NEXT_RELEASE, self._app().version)
+        self.assertNotIn("app.version =", __import__("inspect").getsource(release_hardening))
 
     def test_release_health_and_research_routes_are_registered(self):
         paths={route.path for route in self._app().routes}

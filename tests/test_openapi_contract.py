@@ -31,6 +31,7 @@ class OpenApiContractTests(unittest.TestCase):
             "/api/student/mastery",
             "/api/student/learning-suite",
             "/api/student/adaptive-practice/create",
+            "/api/student/command-center",
         }
         self.assertTrue(expected.issubset(paths), expected - set(paths))
 

@@ -38,7 +38,7 @@ def _connect(store=True):
 
 
 class LightweightRuntimeReadinessTests(unittest.TestCase):
-    def _identity(self, *, production=True, main=True):
+    def _identity(self, *, production=True, main=True, gemini=True, object_storage=True):
         return {
             "provider": "vercel",
             "production_environment": production,
@@ -47,8 +47,8 @@ class LightweightRuntimeReadinessTests(unittest.TestCase):
                 "database": True,
                 "admin_access": True,
                 "student_session": True,
-                "object_storage": True,
-                "gemini": True,
+                "object_storage": object_storage,
+                "gemini": gemini,
             },
         }
 
@@ -60,15 +60,40 @@ class LightweightRuntimeReadinessTests(unittest.TestCase):
         self.assertTrue(data["ready"])
         self.assertTrue(data["database"])
         self.assertTrue(all(data["critical_config"].values()))
+        self.assertTrue(data["optional_capabilities"]["gemini"])
+        self.assertTrue(data["optional_capabilities"]["file_search_store"])
         self.assertTrue(data["deployment_ok"])
 
-    def test_missing_persisted_file_search_store_is_not_ready(self):
+    def test_missing_persisted_file_search_store_does_not_block_technical_readiness(self):
         with patch.object(runtime_probe, "runtime_identity", return_value=self._identity()), \
              patch.object(runtime_probe, "connect", side_effect=lambda: _connect(False)), \
              patch.dict(os.environ, {"GEMINI_FILE_SEARCH_STORE": ""}, clear=False):
             data = runtime_probe.lightweight_runtime_readiness()
+        self.assertTrue(data["ready"])
+        self.assertFalse(data["optional_capabilities"]["file_search_store"])
+        self.assertNotIn("file_search_store", data["critical_config"])
+
+    def test_missing_gemini_does_not_block_technical_readiness(self):
+        with patch.object(
+            runtime_probe,
+            "runtime_identity",
+            return_value=self._identity(gemini=False),
+        ), patch.object(runtime_probe, "connect", side_effect=lambda: _connect(False)), \
+             patch.dict(os.environ, {"GEMINI_FILE_SEARCH_STORE": ""}, clear=False):
+            data = runtime_probe.lightweight_runtime_readiness()
+        self.assertTrue(data["ready"])
+        self.assertFalse(data["optional_capabilities"]["gemini"])
+
+    def test_missing_object_storage_remains_a_technical_blocker(self):
+        with patch.object(
+            runtime_probe,
+            "runtime_identity",
+            return_value=self._identity(object_storage=False),
+        ), patch.object(runtime_probe, "connect", side_effect=lambda: _connect(True)), \
+             patch.dict(os.environ, {"GEMINI_FILE_SEARCH_STORE": ""}, clear=False):
+            data = runtime_probe.lightweight_runtime_readiness()
         self.assertFalse(data["ready"])
-        self.assertFalse(data["critical_config"]["file_search_store"])
+        self.assertFalse(data["critical_config"]["object_storage"])
 
     def test_invalid_production_provenance_is_not_ready(self):
         with patch.object(

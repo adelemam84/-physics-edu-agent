@@ -20,6 +20,7 @@ from app import analytics  # noqa: F401,E402
 from app import adaptive_practice  # noqa: F401,E402
 from app import student_portal  # noqa: F401,E402
 from app import progress_dashboard  # noqa: F401,E402
+from app import teacher_intervention_queue  # noqa: F401,E402
 from app import system_readiness  # noqa: F401,E402
 from app import admin_auth  # noqa: F401,E402
 from app import system_diagnostics  # noqa: F401,E402

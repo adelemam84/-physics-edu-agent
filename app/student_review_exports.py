@@ -14,6 +14,7 @@ from .db import connect
 from .main import app
 from .services.source_asset_runtime import render_asset_bytes
 from .student_security import resolve_student_code
+from .services.rate_limit import enforce_subject_policy
 
 
 class StudentReviewExportRequest(BaseModel):
@@ -328,6 +329,12 @@ def render_student_review_pdf(
 def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequest, request: Request):
     """Download one completed student-owned attempt with answers and source-backed correction."""
     code = resolve_student_code(request, payload.student_code)
+    enforce_subject_policy(
+        code,
+        name='student_review_pdf',
+        default_limit=20,
+        default_window_seconds=3600,
+    )
     attempt, rows = _attempt_bundle(attempt_id, code)
     max_score = float(attempt.get("max_score") or 0)
     score = float(attempt.get("score") or 0)
@@ -350,6 +357,12 @@ def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequ
 def student_mistakes_review_pdf(payload: StudentReviewExportRequest, request: Request):
     """Download a deduplicated personal mistake notebook from completed attempts."""
     code = resolve_student_code(request, payload.student_code)
+    enforce_subject_policy(
+        code,
+        name='student_review_pdf',
+        default_limit=20,
+        default_window_seconds=3600,
+    )
     student, rows = _mistake_bundle(code, payload.max_questions)
     data = render_student_review_pdf(
         title="مذكرة أخطائي",

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from .db import connect
 from .main import app
@@ -12,6 +13,8 @@ from .security import require_admin
 from .science_lesson_studio import _job, _schema
 from .services.lesson_integrity import review_source_hash
 from .services.ai_governance import model_settings
+from .services.ai_telemetry import record_ai_usage
+from .services.rate_limit import enforce_request_policy
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
 _AI_MODELS = model_settings()
@@ -48,7 +51,7 @@ def _extract_output_text(payload: dict) -> str:
     return '\n'.join(texts).strip()
 
 
-def _openai_review(transcript: str, structured: dict, subject: str, grade_label: str) -> dict:
+def _openai_review(transcript: str, structured: dict, subject: str, grade_label: str, *, job_id: str | None = None) -> dict:
     if not OPENAI_API_KEY:
         raise HTTPException(503, 'Independent OpenAI reviewer is not configured')
     expected = {
@@ -84,6 +87,7 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
             {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
         ],
     }
+    started = time.perf_counter()
     try:
         response = httpx.post(
             'https://api.openai.com/v1/responses',
@@ -92,16 +96,54 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
             timeout=120,
         )
     except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='openai',
+            task='independent_scientific_review',
+            model=REVIEW_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code='network',
+            metadata={'job_id': job_id} if job_id else {},
+        )
         raise HTTPException(502, 'Independent scientific reviewer is temporarily unavailable') from exc
     if response.status_code >= 400:
+        record_ai_usage(
+            provider='openai',
+            task='independent_scientific_review',
+            model=REVIEW_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code=str(response.status_code),
+            metadata={'job_id': job_id} if job_id else {},
+        )
         try:
             detail = response.json()
         except ValueError:
             detail = response.text[:500]
         raise HTTPException(502, {'message': 'OpenAI reviewer request failed', 'provider_status': response.status_code, 'provider_detail': detail})
-    text = _extract_output_text(response.json())
+    payload = response.json()
+    text = _extract_output_text(payload)
     if not text:
+        record_ai_usage(
+            provider='openai',
+            task='independent_scientific_review',
+            model=REVIEW_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            usage=payload.get('usage') or {},
+            error_code='empty_content',
+            metadata={'job_id': job_id} if job_id else {},
+        )
         raise HTTPException(502, 'OpenAI reviewer returned no text')
+    record_ai_usage(
+        provider='openai',
+        task='independent_scientific_review',
+        model=REVIEW_MODEL,
+        status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        usage=payload.get('usage') or {},
+        metadata={'job_id': job_id} if job_id else {},
+    )
     try:
         review = json.loads(text)
     except json.JSONDecodeError:
@@ -138,7 +180,13 @@ def second_reviewer_status():
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/second-review', dependencies=[Depends(require_admin)])
-def run_second_review(job_id: str):
+def run_second_review(job_id: str, request: Request):
+    enforce_request_policy(
+        request,
+        name='admin_second_review',
+        default_limit=10,
+        default_window_seconds=3600,
+    )
     _schema_review()
     row, sources = _job(job_id)
     if any(s.get('requires_review') for s in sources):
@@ -148,7 +196,7 @@ def run_second_review(job_id: str):
     if not structured or not transcript:
         raise HTTPException(409, 'Structured lesson and transcript are required')
     source_hash = review_source_hash(transcript, structured)
-    review = _openai_review(transcript, structured, row['subject'], row['grade_label'] or '')
+    review = _openai_review(transcript, structured, row['subject'], row['grade_label'] or '', job_id=job_id)
     with connect() as con:
         con.execute('''UPDATE science_lesson_jobs SET second_review=%s::jsonb,
           second_review_provider=%s,second_review_at=now(),second_review_source_hash=%s,

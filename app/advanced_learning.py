@@ -15,7 +15,7 @@ def _student(con, student_code: str):
     if not code:
         raise HTTPException(400, "student_code is required")
     row = con.execute(
-        "SELECT id,name,external_code FROM students WHERE external_code=%s",
+        "SELECT id,name FROM students WHERE external_code=%s",
         (code,),
     ).fetchone()
     if not row:

@@ -6,11 +6,10 @@ import unittest
 
 
 class VercelDeploymentPolicyTests(unittest.TestCase):
-    def test_git_deployments_are_main_only(self):
+    def test_git_auto_deployments_are_disabled_for_controlled_releases(self):
         config=json.loads(Path("vercel.json").read_text(encoding="utf-8"))
-        enabled=config["git"]["deploymentEnabled"]
-        self.assertIs(enabled["*"], False)
-        self.assertIs(enabled["main"], True)
+        self.assertIs(config["git"]["deploymentEnabled"], False)
+        self.assertNotIn("ignoreCommand", config)
 
     def test_python_entrypoint_and_routes_remain_unchanged(self):
         config=json.loads(Path("vercel.json").read_text(encoding="utf-8"))

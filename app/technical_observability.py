@@ -245,9 +245,13 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
     ai_failure_error_pct = _float_env("TECH_OBSERVABILITY_AI_FAILURE_ERROR_PCT", 25.0)
     ai_latency_warn_ms = _int_env("TECH_OBSERVABILITY_AI_LATENCY_WARN_MS", 15000)
     sync_stale_minutes = _int_env("TECH_OBSERVABILITY_SYNC_STALE_MINUTES", 30)
-    rate_limit_near_pct = _float_env("TECH_OBSERVABILITY_RATE_LIMIT_NEAR_PCT", 80.0)
-    rate_limit_blocked_error_subjects = _int_env(
-        "TECH_OBSERVABILITY_RATE_LIMIT_BLOCKED_ERROR_SUBJECTS", 5
+    rate_limit_near_pct = min(
+        100.0,
+        max(1.0, _float_env("TECH_OBSERVABILITY_RATE_LIMIT_NEAR_PCT", 80.0)),
+    )
+    rate_limit_blocked_error_subjects = max(
+        1,
+        _int_env("TECH_OBSERVABILITY_RATE_LIMIT_BLOCKED_ERROR_SUBJECTS", 5),
     )
 
     readiness = readiness_snapshot if readiness_snapshot is not None else build_operations_readiness()

@@ -20,6 +20,7 @@ class OpenApiContractTests(unittest.TestCase):
             "/api/admin/content-completion",
             "/api/admin/project-closure",
             "/api/admin/ai-operations/summary",
+            "/api/admin/ai-operations/usage",
             "/api/admin/question-catalog",
             "/api/admin/question-stats",
             "/api/admin/review/documents",

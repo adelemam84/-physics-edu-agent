@@ -47,7 +47,13 @@ def admin_login(p: LoginIn, response: Response, request: Request):
 @app.post("/api/admin/logout", dependencies=[Depends(require_admin)])
 def admin_logout(response: Response):
     response.headers["Cache-Control"] = "no-store"
-    response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(
+        COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=True,
+        samesite="strict",
+    )
     return {"ok": True}
 
 

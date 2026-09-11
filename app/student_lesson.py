@@ -13,12 +13,11 @@ class DiagnosticAnswer(BaseModel):
     answer:str
 
 class DiagnosticSubmit(BaseModel):
-    student_code: str | None = None
     answers:list[DiagnosticAnswer]
 
 @app.get("/api/student/lessons/{lesson_id}")
-def student_lesson(lesson_id:int, request: Request, student_code: str | None = None):
-    code=resolve_student_code(request, student_code)
+def student_lesson(lesson_id:int, request: Request):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -53,7 +52,7 @@ def student_lesson(lesson_id:int, request: Request, student_code: str | None = N
 
 @app.post("/api/student/lessons/{lesson_id}/diagnostic")
 def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit, request: Request):
-    code=resolve_student_code(request, p.student_code)
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")

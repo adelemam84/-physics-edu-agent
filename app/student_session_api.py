@@ -20,6 +20,7 @@ class StudentSessionLogin(BaseModel):
 
 @app.post("/api/student/session")
 def create_student_session(payload: StudentSessionLogin, response: Response, request: Request):
+    response.headers["Cache-Control"] = "no-store"
     enforce_request_policy(
         request,
         name="student_login",
@@ -52,7 +53,8 @@ def create_student_session(payload: StudentSessionLogin, response: Response, req
 
 
 @app.get("/api/student/session")
-def read_student_session(request: Request):
+def read_student_session(request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store"
     session = student_session(request)
     if not session:
         return {"authenticated": False}
@@ -72,5 +74,6 @@ def read_student_session(request: Request):
 
 @app.delete("/api/student/session")
 def delete_student_session(response: Response):
+    response.headers["Cache-Control"] = "no-store"
     clear_student_session_cookie(response)
     return {"authenticated": False}

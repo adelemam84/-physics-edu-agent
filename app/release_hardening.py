@@ -39,6 +39,8 @@ def _classify_release_state(runtime_blockers: list[str], content_gates: list[str
 def next_release_status() -> dict:
     research=research_engine_status()
     blueprint=blueprint_readiness()
+    from .source_review import _source_page_coverage_snapshot
+    source_coverage=_source_page_coverage_snapshot()["summary"]
     sync=_sync_summary()
     checks={
         'database_configured': True,
@@ -48,6 +50,7 @@ def next_release_status() -> dict:
         'orchestrator_active': research.get('orchestrator',{}).get('status') == 'active',
         'question_bank_auto_write_disabled': research.get('guardrails',{}).get('question_bank_auto_write') is False,
         'exam_blueprint_23_23_active': blueprint.get('blueprint',{}).get('objective_questions') == 23 and blueprint.get('blueprint',{}).get('essay_questions') == 23,
+        'source_page_coverage_ready': bool(source_coverage.get('coverage_ready')),
     }
     runtime_blockers=[]
     content_gates=[]
@@ -55,6 +58,11 @@ def next_release_status() -> dict:
         runtime_blockers.append('GEMINI_API_KEY is not visible to the deployed runtime yet')
     if not checks['file_search_store_configured']:
         runtime_blockers.append('Gemini File Search Store has not been provisioned yet')
+    if not checks['source_page_coverage_ready']:
+        content_gates.append(
+            f"source page coverage gap: open_zero={source_coverage.get('open_zero_question_pages',0)}, "
+            f"count_mismatch={source_coverage.get('count_mismatch_pages',0)}"
+        )
     if not blueprint.get('active_shape_feasible',False):
         gaps=blueprint.get('gaps',{})
         content_gates.append(f"23+23 exam bank gap: objective={gaps.get('objective',0)}, essay={gaps.get('essay',0)}")
@@ -66,6 +74,7 @@ def next_release_status() -> dict:
         'content_gates':content_gates,
         'blockers':runtime_blockers+content_gates,
         'gemini_source_sync':sync,
+        'source_page_coverage':source_coverage,
         'exam_blueprint':{
             'total_questions':46,
             'objective_questions':23,
@@ -85,6 +94,7 @@ def public_next_release_status():
         'release_state':data['release_state'],
         'orchestrator_active':data['checks']['orchestrator_active'],
         'pdf_only_policy':True,
+        'source_page_coverage':data['source_page_coverage'],
         'exam_blueprint':data['exam_blueprint'],
     }
 

@@ -118,32 +118,11 @@ def clear_student_session_cookie(response: Response) -> None:
     )
 
 
-def legacy_student_code_allowed() -> bool:
-    raw = os.getenv("ALLOW_LEGACY_STUDENT_CODE_AUTH", "").strip().lower()
-    if raw:
-        return raw in {"1", "true", "yes", "on"}
-    return not _production()
-
-
-def resolve_student_code(
-    request: Request,
-    supplied_code: str | None = None,
-) -> str:
-    """Resolve the authenticated student, rejecting cross-student code mixing."""
+def resolve_student_code(request: Request) -> str:
+    """Resolve the authenticated student exclusively from the signed HttpOnly session."""
     session = student_session(request)
-    supplied = (supplied_code or "").strip()
-
     if session:
-        if supplied and not hmac.compare_digest(supplied, session.external_code):
-            raise HTTPException(
-                403,
-                "كود الطالب لا يطابق الجلسة الحالية",
-            )
         return session.external_code
-
-    if supplied and legacy_student_code_allowed():
-        return supplied
-
     raise HTTPException(
         401,
         "سجّل الدخول بكود الطالب أولًا لإنشاء جلسة آمنة",

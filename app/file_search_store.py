@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 from fastapi import Depends, HTTPException
@@ -8,6 +9,8 @@ from fastapi import Depends, HTTPException
 from .db import connect
 from .main import app
 from .security import require_admin
+from .services.ai_budget import enforce_ai_budget
+from .services.ai_telemetry import record_ai_usage
 from . import research_engine
 
 STORE_SETTING_KEY = 'gemini_file_search_store'
@@ -49,17 +52,39 @@ def _create_store() -> dict:
     api_key = research_engine.GEMINI_API_KEY
     if not api_key:
         raise HTTPException(503, 'GEMINI_API_KEY is not configured in the runtime environment')
+    enforce_ai_budget(
+        provider='gemini',
+        task='file_search_store_admin',
+        model=EMBEDDING_MODEL,
+    )
     url = 'https://generativelanguage.googleapis.com/v1beta/fileSearchStores'
     body = {
         'displayName': STORE_DISPLAY_NAME,
         'embeddingModel': EMBEDDING_MODEL,
     }
+    started = time.perf_counter()
     try:
         with httpx.Client(timeout=45) as client:
             response = client.post(url, headers={'x-goog-api-key': api_key}, json=body)
     except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='gemini',
+            task='file_search_store_admin',
+            model=EMBEDDING_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code='network',
+        )
         raise HTTPException(502, 'Gemini File Search store service is temporarily unavailable') from exc
     if response.status_code >= 400:
+        record_ai_usage(
+            provider='gemini',
+            task='file_search_store_admin',
+            model=EMBEDDING_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code=str(response.status_code),
+        )
         try:
             detail = response.json()
         except ValueError:
@@ -72,7 +97,23 @@ def _create_store() -> dict:
     payload = response.json()
     name = str(payload.get('name') or '').strip()
     if not name.startswith('fileSearchStores/'):
+        record_ai_usage(
+            provider='gemini',
+            task='file_search_store_admin',
+            model=EMBEDDING_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code='invalid_resource_name',
+        )
         raise HTTPException(502, 'Gemini returned an invalid File Search store resource name')
+    record_ai_usage(
+        provider='gemini',
+        task='file_search_store_admin',
+        model=EMBEDDING_MODEL,
+        status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        metadata={'operation':'create_file_search_store'},
+    )
     _persist_store(name)
     return payload
 

@@ -82,19 +82,27 @@ def _source_page_coverage_snapshot(document_id:int|None=None) -> dict:
           WHERE subject_id=1 AND grade_level_id=6 AND active=TRUE
           ORDER BY id DESC LIMIT 1
         )""")
-    sql="""SELECT d.id document_id,d.filename,cv.academic_year,g.page_number,
+    sql="""WITH source_docs AS (
+      SELECT d.*,
+        greatest(
+          coalesce((SELECT max(f.page_count) FROM document_files f WHERE f.document_id=d.id),0),
+          coalesce((SELECT max(p.page_number) FROM document_pages p WHERE p.document_id=d.id),0),
+          coalesce((SELECT max(coalesce(q.source_page,q.page)) FROM questions q WHERE q.document_id=d.id),0)
+        ) physical_page_count
+      FROM documents d
+      WHERE """+" AND ".join(where)+"""
+    )
+    SELECT d.id document_id,d.filename,cv.academic_year,g.page_number,
       coalesce(r.page_role,'unknown') page_role,
       coalesce(r.review_status,'pending') review_status,
       r.question_count reviewed_question_count,
       (SELECT count(*) FROM questions q
        WHERE q.document_id=d.id AND coalesce(q.source_page,q.page)=g.page_number) extracted_questions
-      FROM documents d
-      JOIN document_files f ON f.document_id=d.id
-      JOIN LATERAL generate_series(1,coalesce(f.page_count,0)) g(page_number) ON TRUE
+      FROM source_docs d
+      JOIN LATERAL generate_series(1,d.physical_page_count) g(page_number) ON TRUE
       LEFT JOIN document_page_reviews r
         ON r.document_id=d.id AND r.page_number=g.page_number
       LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
-      WHERE """+" AND ".join(where)+"""
       ORDER BY d.id,g.page_number"""
     with connect() as con:
         rows=[dict(r) for r in con.execute(sql,params).fetchall()]

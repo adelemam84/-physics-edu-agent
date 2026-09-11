@@ -253,20 +253,7 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
                           ) has_concept,
                           EXISTS(
                             SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id
-                          ) has_skill,
-                          EXISTS(
-                            SELECT 1 FROM lessons l WHERE l.id=q.lesson_id
-                              AND l.subject_id=q.subject_id
-                              AND l.grade_level_id=q.grade_level_id
-                              AND l.curriculum_version_id=q.curriculum_version_id
-                              AND l.term_id=q.term_id AND l.unit_id=q.unit_id
-                          ) academic_consistent,
-                          NOT EXISTS(
-                            SELECT 1 FROM question_concepts qc
-                            JOIN concepts c ON c.id=qc.concept_id
-                            WHERE qc.question_id=q.id
-                              AND c.lesson_id IS DISTINCT FROM q.lesson_id
-                          ) concept_consistent
+                          ) has_skill
                    FROM questions q WHERE q.id=%s""",
                 (question_id,),
             ).fetchone()

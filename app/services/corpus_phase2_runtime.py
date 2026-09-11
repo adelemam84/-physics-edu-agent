@@ -136,8 +136,8 @@ def _publish_if_ready(con, item):
     return {**item,'published':quality['ready'],'status':target,'quality_score':quality['score'],'quality':quality}
 
 
-def run_phase2_bootstrap(*, release_schema_ready: bool = False):
-    """Initialize acceptance schemas, then run idempotent source-backed production hardening."""
+def ensure_phase2_schemas(*, release_schema_ready: bool = False) -> None:
+    """Ensure Phase 2 persistence schema without creating/publishing business data."""
     from .lesson_release_state import ensure_release_state_schema
     from ..lesson_studio_version_history import _history_schema
     from ..science_reference_curriculum_map import _map_schema
@@ -148,6 +148,11 @@ def run_phase2_bootstrap(*, release_schema_ready: bool = False):
     reference_schema()
     _map_schema()
     _history_schema()
+
+
+def run_phase2_bootstrap(*, release_schema_ready: bool = False):
+    """Explicitly run deterministic Phase 2 quiz bootstrap after schema readiness."""
+    ensure_phase2_schemas(release_schema_ready=release_schema_ready)
 
     with connect() as con:
         ctx=_active_context(con)

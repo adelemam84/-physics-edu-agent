@@ -20,13 +20,20 @@ class AdminDashboardNavigationTests(unittest.TestCase):
 
     def test_dashboard_exposes_ai_and_acceptance_shortcuts(self):
         for path in (
+            "/admin/operations-readiness",
             "/admin/ai-operations",
+            "/admin/ai-budget",
+            "/admin/interventions",
             "/admin/research-engine",
             "/admin/lesson-studio/workspace",
             "/admin/e2e-content-acceptance",
             "/admin/acceptance-work-queue",
         ):
             self.assertIn(path, PAGE)
+
+    def test_dashboard_never_puts_student_codes_in_urls(self):
+        self.assertNotIn("student_code=", PAGE)
+        self.assertNotIn("encodeURIComponent(a.external_code)", PAGE)
 
     def test_mobile_navigation_remains_scrollable_not_hidden(self):
         self.assertIn(".side nav{display:flex;overflow:auto", PAGE)

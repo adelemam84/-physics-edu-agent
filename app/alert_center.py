@@ -7,7 +7,44 @@ from fastapi.responses import HTMLResponse
 
 from .db import connect
 from .main import app
+from .operations_readiness import build_operations_readiness
 from .security import require_admin
+
+
+def _technical_readiness_alerts(snapshot: dict) -> list[dict]:
+    blockers=snapshot.get("technical_blockers")
+    if not isinstance(blockers,list):
+        return [{
+          "severity":"error","source":"technical_readiness",
+          "title":"تعذر قراءة الجاهزية التقنية",
+          "detail":"technical_blockers مفقود أو بصيغة غير صالحة",
+          "path":"/admin/operations-readiness",
+        }]
+    alerts=[]
+    for item in blockers:
+        if not isinstance(item,dict):
+            alerts.append({
+              "severity":"error","source":"technical_readiness",
+              "title":"بيانات Technical Readiness غير صالحة",
+              "detail":"يوجد blocker بصيغة غير متوقعة",
+              "path":"/admin/operations-readiness",
+            })
+            continue
+        alerts.append({
+          "severity":"error",
+          "source":"technical_readiness",
+          "title":f"Technical blocker: {item.get('name') or item.get('id') or 'unknown'}",
+          "detail":str(item.get("detail") or "بوابة تقنية غير جاهزة"),
+          "path":str(item.get("path") or "/admin/operations-readiness"),
+        })
+    if snapshot.get("ready_for_technical_handoff") is False and not blockers:
+        alerts.append({
+          "severity":"error","source":"technical_readiness",
+          "title":"تعارض في حالة الجاهزية التقنية",
+          "detail":"الحالة تعلن عدم الجاهزية بدون Technical blocker محدد",
+          "path":"/admin/operations-readiness",
+        })
+    return alerts
 
 
 def collect_alerts():
@@ -70,8 +107,6 @@ def collect_alerts():
 
     missing=[]
     envs={
-      "DATABASE_URL":os.getenv("DATABASE_URL","").strip(),
-      "ADMIN_API_KEY":os.getenv("ADMIN_API_KEY","").strip(),
       "WHATSAPP_ACCESS_TOKEN":os.getenv("WHATSAPP_ACCESS_TOKEN","").strip(),
       "WHATSAPP_PHONE_NUMBER_ID":os.getenv("WHATSAPP_PHONE_NUMBER_ID","").strip(),
       "WHATSAPP_WEBHOOK_VERIFY_TOKEN":os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN","").strip(),
@@ -81,6 +116,17 @@ def collect_alerts():
         if not v: missing.append(k)
     if missing:
         alerts.append({"severity":"warning","source":"configuration","title":"إعدادات تشغيل ناقصة","detail":"، ".join(missing),"path":"/admin/readiness"})
+
+    try:
+        readiness=build_operations_readiness()
+        alerts.extend(_technical_readiness_alerts(readiness))
+    except Exception:
+        alerts.append({
+          "severity":"error","source":"technical_readiness",
+          "title":"تعذر تشغيل فحص الجاهزية التقنية",
+          "detail":"Operations Readiness لم تُرجع snapshot صالحًا",
+          "path":"/admin/operations-readiness",
+        })
 
     rank={"error":0,"warning":1,"info":2}
     alerts.sort(key=lambda a:(rank.get(a["severity"],9),a["source"],a["title"]))

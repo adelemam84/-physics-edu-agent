@@ -356,7 +356,7 @@ def student_attempt_review_pdf(attempt_id: int, payload: StudentReviewExportRequ
 @app.post("/api/student/review/mistakes-pdf")
 def student_mistakes_review_pdf(payload: StudentReviewExportRequest, request: Request):
     """Download a deduplicated personal mistake notebook from completed attempts."""
-    code = resolve_student_code(request, payload.student_code)
+    code = resolve_student_code(request)
     enforce_subject_policy(
         code,
         name='student_review_pdf',

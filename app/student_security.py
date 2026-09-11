@@ -87,7 +87,7 @@ def set_student_session_cookie(
         max_age=SESSION_MAX_AGE,
         httponly=True,
         secure=_production(),
-        samesite="lax",
+        samesite="strict",
         path="/",
     )
 

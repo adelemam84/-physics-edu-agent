@@ -146,7 +146,11 @@ class TechnicalObservabilityTests(unittest.TestCase):
         self.assertEqual(data["state"], "degraded")
         signal = next(x for x in data["signals"] if x["id"] == "rate_limit_near")
         self.assertEqual(signal["severity"], "warning")
-        self.assertNotIn("subject_hash", repr(signal["evidence"]))
+        self.assertFalse(signal["evidence"]["privacy"]["subject_hashes_returned"])
+        self.assertFalse(signal["evidence"]["privacy"]["raw_subjects_returned"])
+        for scope in signal["evidence"]["scopes"]:
+            self.assertNotIn("subject_hash", scope)
+            self.assertNotIn("subject", scope)
 
     def test_repeated_rate_limit_blocks_are_unhealthy(self):
         rate_limits = {

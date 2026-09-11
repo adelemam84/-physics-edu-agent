@@ -4,7 +4,8 @@ import unittest
 
 from fastapi import HTTPException
 
-from app.teacher_intervention_cases import PAGE, validate_transition
+from app.teacher_intervention_cases import InterventionPatch, normalized_patch_values, validate_transition
+from app.teacher_intervention_ui import PAGE
 
 
 class TeacherInterventionCaseTests(unittest.TestCase):
@@ -18,6 +19,11 @@ class TeacherInterventionCaseTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 validate_transition(current, "open")
             self.assertEqual(ctx.exception.status_code, 409)
+
+    def test_explicit_null_status_does_not_clear_database_status(self):
+        values = normalized_patch_values(InterventionPatch(status=None, note="follow up"))
+        self.assertNotIn("status", values)
+        self.assertEqual(values["note"], "follow up")
 
     def test_ui_keeps_teacher_in_control(self):
         self.assertIn("المنصة تقيس إشارات الخطر فقط", PAGE)

@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse
 from .main import app
 from .db import connect
 from .security import require_admin
+from .services.active_content_integrity import active_content_integrity_snapshot
 
 @app.get("/api/admin/system-readiness",dependencies=[Depends(require_admin)])
 def system_readiness():
@@ -35,6 +36,7 @@ def system_readiness():
           "students":con.execute("SELECT count(*) n FROM students").fetchone()["n"],
           "guardians_opted_in":con.execute("SELECT count(*) n FROM guardians WHERE active=TRUE AND whatsapp_opt_in=TRUE").fetchone()["n"],
         }
+    integrity=active_content_integrity_snapshot()
     wa={
       "token":bool(os.getenv("WHATSAPP_ACCESS_TOKEN","").strip()),
       "phone_id":bool(os.getenv("WHATSAPP_PHONE_NUMBER_ID","").strip()),
@@ -55,6 +57,12 @@ def system_readiness():
        "detail":f'{db["concepts"]} مفاهيم · {db["skills"]} مهارات'},
       {"name":"بنك الأسئلة المعتمد","ok":db["approved_questions"]>0 and db["qa_critical"]==0,
        "detail":f'{db["approved_questions"]} سؤال معتمد · {db["qa_open"]} مراجعة مفتوحة · {db["qa_critical"]} حرجة'},
+      {"name":"سلامة بيانات المنهج الحالي","ok":bool(integrity.get("ready")),
+       "detail":(
+         f'{integrity.get("invalid_approved_questions",0)} سؤال معتمد غير مكتمل · '
+         f'{integrity.get("question_lesson_mismatches",0)} تعارض سؤال/درس · '
+         f'{integrity.get("quiz_question_mismatches",0)} تعارض اختبار/سؤال'
+       )},
       {"name":"الاختبارات المنشورة","ok":db["published_quizzes"]>0,
        "detail":f'{db["published_quizzes"]} اختبار منشور'},
       {"name":"مصدر المنهج الحالي","ok":db["active_source_documents"]>0,
@@ -74,7 +82,8 @@ def system_readiness():
     if db["students"]==0: actions.append({"title":"إضافة الطلاب وأكواد الدخول","path":"/admin/students","owner":"user"})
     if db["guardians_opted_in"]==0: actions.append({"title":"إضافة أولياء الأمور وتسجيل موافقة واتساب","path":"/admin/parents","owner":"user"})
     if not wa_ready: actions.append({"title":"إكمال إعداد WhatsApp Cloud API وMeta Webhook","path":"/admin/parents","owner":"user"})
-    return {"ready":all(x["ok"] for x in checks),"checks":checks,"optional_checks":optional_checks,"counts":db,"whatsapp":wa,"next_actions":actions,
+    return {"ready":all(x["ok"] for x in checks),"checks":checks,"optional_checks":optional_checks,
+            "counts":db,"active_content_integrity":integrity,"whatsapp":wa,"next_actions":actions,
             "external_requirements":["ملفات PDF الأصلية للمناهج/الشرح وبنوك الأسئلة ومفاتيح الإجابة","بيانات الطلاب وأولياء الأمور الحقيقية","بيانات WhatsApp Cloud API وأسماء قوالب Meta المعتمدة"]}
 
 PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width=device-width,initial-scale=1"><title>جاهزية النظام</title><style>

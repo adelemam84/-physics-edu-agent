@@ -14,6 +14,7 @@ from .science_lesson_studio import _job, _schema
 from .services.lesson_integrity import review_source_hash
 from .services.ai_governance import model_settings
 from .services.ai_telemetry import record_ai_usage
+from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
@@ -54,6 +55,11 @@ def _extract_output_text(payload: dict) -> str:
 def _openai_review(transcript: str, structured: dict, subject: str, grade_label: str, *, job_id: str | None = None) -> dict:
     if not OPENAI_API_KEY:
         raise HTTPException(503, 'Independent OpenAI reviewer is not configured')
+    enforce_ai_budget(
+        provider='openai',
+        task='independent_scientific_review',
+        model=REVIEW_MODEL,
+    )
     expected = {
         'verdict': 'clear|review_required',
         'findings': [{

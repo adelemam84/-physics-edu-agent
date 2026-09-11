@@ -50,6 +50,13 @@ class QuestionApprovalContractTests(unittest.TestCase):
         self.assertNotIn('gate["academic_consistent"]', source)
         self.assertNotIn('gate["concept_consistent"]', source)
 
+    def test_question_invalidation_demotes_ready_or_published_quizzes(self):
+        source = inspect.getsource(question_admin_runtime.patch_question_record)
+        self.assertIn("q.published=TRUE OR q.lifecycle_status='ready'", source)
+        self.assertIn("SET published=FALSE,lifecycle_status='quality_review'", source)
+        self.assertIn("'question_invalidated'", source)
+        self.assertIn("'question_requires_reapproval'", source)
+
     def test_verbatim_text_is_not_a_patchable_admin_field(self):
         self.assertNotIn("text_verbatim", question_admin_runtime.ALLOWED_FIELDS)
 

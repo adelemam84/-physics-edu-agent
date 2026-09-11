@@ -10,7 +10,11 @@ from .services.runtime_identity import runtime_identity
 
 
 def lightweight_runtime_readiness() -> dict:
-    """Check only low-cost runtime dependencies required for technical service."""
+    """Check low-cost dependencies required for technical service readiness.
+
+    Content indexing and optional AI capabilities are reported separately so
+    deferred source ingestion does not incorrectly mark the runtime unavailable.
+    """
     identity = runtime_identity(application_version=app.version)
     config = dict(identity.get("config_state") or {})
 
@@ -37,6 +41,8 @@ def lightweight_runtime_readiness() -> dict:
         "admin_access": bool(config.get("admin_access")),
         "student_session": bool(config.get("student_session")),
         "object_storage": bool(config.get("object_storage")),
+    }
+    optional_capabilities = {
         "gemini": bool(config.get("gemini")),
         "file_search_store": file_search_store,
     }
@@ -54,6 +60,7 @@ def lightweight_runtime_readiness() -> dict:
         "ready": ready,
         "database": db_ok,
         "critical_config": critical_config,
+        "optional_capabilities": optional_capabilities,
         "deployment_ok": deployment_ok,
         "version": app.version,
     }

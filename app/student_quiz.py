@@ -25,9 +25,6 @@ class SubmitAttempt(BaseModel):
     answers: list[AnswerIn]
     attempt_id: int | None = None
 
-class StartAttempt(BaseModel):
-    pass
-
 class SaveAnswer(BaseModel):
     question_id: int
     answer: str
@@ -72,7 +69,7 @@ def student_quiz(quiz_id: int):
         return {**q,"questions":items}
 
 @app.post("/api/student/quizzes/{quiz_id}/start")
-def start_quiz_attempt(quiz_id:int,p:StartAttempt, request: Request):
+def start_quiz_attempt(quiz_id:int, request: Request):
     code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()

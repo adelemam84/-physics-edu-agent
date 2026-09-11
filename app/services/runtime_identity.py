@@ -32,6 +32,7 @@ def runtime_identity(
     config_state = {
         "database": _truthy(source.get("DATABASE_URL")),
         "admin_access": _truthy(source.get("ADMIN_API_KEY")),
+        "admin_session": _truthy(source.get("ADMIN_SESSION_SECRET")),
         "student_session": _truthy(source.get("STUDENT_SESSION_SECRET")),
         "object_storage": all(
             _truthy(source.get(name))

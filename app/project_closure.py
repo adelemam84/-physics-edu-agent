@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Mapping
 
@@ -15,43 +14,12 @@ from .research_engine import research_engine_status
 from .corpus_public_status import current_curriculum_phase2_status
 from .lesson_studio_release_readiness import release_readiness_snapshot
 from .operations_readiness import build_operations_readiness
+from .services.runtime_identity import runtime_identity
 
 
 def _deployment_provenance(env: Mapping[str, str] | None = None) -> dict:
-    """Describe the deployment that is executing this code without calling an external service."""
-    source = env if env is not None else os.environ
-    vercel_env = str(source.get('VERCEL_ENV') or '').strip()
-    target_env = str(source.get('VERCEL_TARGET_ENV') or '').strip()
-    commit_ref = str(source.get('VERCEL_GIT_COMMIT_REF') or '').strip()
-    commit_sha = str(source.get('VERCEL_GIT_COMMIT_SHA') or '').strip()
-    deployment_id = str(source.get('VERCEL_DEPLOYMENT_ID') or '').strip()
-    production_url = str(source.get('VERCEL_PROJECT_PRODUCTION_URL') or '').strip()
-    on_vercel = str(source.get('VERCEL') or '') == '1'
-    production_environment = vercel_env == 'production'
-    deployed_from_main = commit_ref == 'main' if commit_ref else None
-    provenance_available = bool(vercel_env or target_env or commit_ref or commit_sha or deployment_id)
-    current_runtime_is_production_main = bool(
-        on_vercel
-        and production_environment
-        and commit_ref == 'main'
-        and commit_sha
-    )
-    return {
-        'provider': 'vercel' if on_vercel else 'unknown',
-        'environment': vercel_env or None,
-        'target_environment': target_env or None,
-        'git_ref': commit_ref or None,
-        'git_commit_sha': commit_sha or None,
-        'git_commit_short': commit_sha[:12] if commit_sha else None,
-        'deployment_id': deployment_id or None,
-        'production_url': production_url or None,
-        'provenance_available': provenance_available,
-        'production_environment': production_environment,
-        'deployed_from_main': deployed_from_main,
-        'current_runtime_is_production_main': current_runtime_is_production_main,
-        'latest_main_match': None,
-        'latest_main_verification': 'external_required',
-    }
+    """Compatibility wrapper around the canonical secret-free runtime identity."""
+    return runtime_identity(env, application_version=app.version)
 
 
 def project_closure_snapshot() -> dict:

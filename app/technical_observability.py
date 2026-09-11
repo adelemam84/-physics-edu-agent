@@ -14,6 +14,7 @@ from .operations_readiness import build_operations_readiness
 from .security import require_admin
 from .services.ai_telemetry import usage_snapshot
 from .services.rate_limit import policy
+from .services.runtime_identity import runtime_identity
 
 
 def _float_env(name: str, default: float) -> float:
@@ -259,6 +260,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
     ai = _ai_probe(24)
     sync = _sync_probe(sync_stale_minutes)
     rate_limits = _rate_limit_probe(rate_limit_near_pct)
+    identity = runtime_identity(application_version=app.version)
 
     signals: list[dict] = []
 
@@ -386,6 +388,29 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             "/admin/technical-observability", rate_limits,
         ))
 
+    if (
+        identity.get("provider") == "vercel"
+        and identity.get("production_environment")
+        and not identity.get("current_runtime_is_production_main")
+    ):
+        signals.append(_signal(
+            "deployment_drift", "Deployment provenance", "error", False,
+            "Production runtime لا يثبت أنه منشور من main مع commit SHA صالح",
+            "/admin/project-closure", identity,
+        ))
+    elif identity.get("provider") == "vercel" and identity.get("production_environment"):
+        signals.append(_signal(
+            "deployment_identity", "Deployment provenance", "info", True,
+            f'Production main · {identity.get("git_commit_short") or "sha unavailable"} · v{app.version}',
+            "/admin/project-closure", identity,
+        ))
+    else:
+        signals.append(_signal(
+            "deployment_identity", "Deployment provenance", "info", True,
+            f'{identity.get("drift_state")} · v{app.version}',
+            "/admin/project-closure", identity,
+        ))
+
     if not readiness.get("ready_for_technical_handoff"):
         signals.append(_signal(
             "technical_readiness", "Technical readiness", "error", False,
@@ -421,6 +446,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             "rate_limit_near_pct": rate_limit_near_pct,
             "rate_limit_blocked_error_subjects": rate_limit_blocked_error_subjects,
         },
+        "runtime_identity": identity,
         "content_gates_are_not_technical_errors": True,
     }
 

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import inspect
 import os
 import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
 
+from app import (
+    file_search_store,
+    lesson_studio_reference_review,
+    lesson_studio_second_reviewer,
+    research_engine,
+    science_lesson_studio,
+    source_indexing,
+)
 from app.ai_budget_guard import ai_route_policy
 from app.services.ai_budget import budget_snapshot, enforce_ai_budget
 
@@ -63,13 +72,54 @@ class AIBudgetGuardTests(unittest.TestCase):
         self.assertIn("daily_calls", ctx.exception.detail["exceeded"])
 
     def test_only_external_ai_routes_are_guarded(self):
-        self.assertIsNotNone(ai_route_policy("/api/admin/research-engine/query", "POST"))
-        self.assertIsNotNone(ai_route_policy("/api/admin/current-corpus/visual-review/7/suggest", "POST"))
-        self.assertIsNotNone(ai_route_policy("/api/admin/lesson-studio/jobs/abc/process", "POST"))
-        self.assertIsNotNone(ai_route_policy("/api/admin/lesson-studio/jobs/abc/second-review", "POST"))
-        self.assertIsNone(ai_route_policy("/api/admin/lesson-studio/jobs/abc/export-pdf", "POST"))
-        self.assertIsNone(ai_route_policy("/api/student/quizzes/9/submit", "POST"))
-        self.assertIsNone(ai_route_policy("/api/admin/research-engine/query", "GET"))
+        guarded = (
+            "/api/admin/research-engine/query",
+            "/api/admin/current-corpus/visual-review/7/suggest",
+            "/api/admin/lesson-studio/jobs/abc/process",
+            "/api/admin/lesson-studio/jobs/abc/second-review",
+            "/api/admin/lesson-studio/jobs/abc/reference-review",
+            "/api/admin/research-engine/file-search-store/ensure",
+            "/api/admin/research-engine/index/document/7",
+            "/api/admin/research-engine/index/refresh/7",
+        )
+        for path in guarded:
+            self.assertIsNotNone(ai_route_policy(path, "POST"), path)
+
+        unguarded = (
+            ("/api/admin/lesson-studio/jobs/abc/export-pdf", "POST"),
+            ("/api/student/quizzes/9/submit", "POST"),
+            ("/api/admin/research-engine/query", "GET"),
+            ("/api/admin/lesson-studio/jobs/abc/handwriting-pipeline", "GET"),
+            ("/api/admin/research-engine/index/status", "GET"),
+            ("/api/admin/research-engine/file-search-store/status", "GET"),
+        )
+        for path, method in unguarded:
+            self.assertIsNone(ai_route_policy(path, method), (path, method))
+
+    def test_provider_boundaries_enforce_budget_not_only_route_middleware(self):
+        sources = (
+            inspect.getsource(science_lesson_studio._gemini_text),
+            inspect.getsource(science_lesson_studio._mathpix_ocr),
+            inspect.getsource(lesson_studio_second_reviewer._openai_review),
+            inspect.getsource(research_engine._gemini_exact_pdf_query),
+            inspect.getsource(research_engine._gemini_file_search_query),
+            inspect.getsource(file_search_store._create_store),
+            inspect.getsource(source_indexing._start_resumable_upload),
+            inspect.getsource(source_indexing._finish_upload),
+            inspect.getsource(source_indexing._operation),
+        )
+        for source in sources:
+            self.assertIn("enforce_ai_budget", source)
+
+    def test_new_gemini_admin_operations_are_metered(self):
+        self.assertIn("record_ai_usage", inspect.getsource(file_search_store._create_store))
+        self.assertIn("record_ai_usage", inspect.getsource(source_indexing._start_resumable_upload))
+        self.assertIn("record_ai_usage", inspect.getsource(source_indexing._finish_upload))
+        self.assertIn("record_ai_usage", inspect.getsource(source_indexing._operation))
+
+    def test_reference_review_has_its_own_telemetry_task(self):
+        source = inspect.getsource(lesson_studio_reference_review.run_reference_review)
+        self.assertIn("task='scientific_reference_review'", source)
 
 
 if __name__ == "__main__":

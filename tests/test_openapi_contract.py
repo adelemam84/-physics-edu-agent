@@ -26,6 +26,7 @@ class OpenApiContractTests(unittest.TestCase):
             "/api/admin/review/documents",
             "/api/admin/questions/{question_id}/readiness",
             "/api/admin/documents/{document_id}/questions/manual",
+            "/api/admin/intervention-queue",
             "/api/student/session",
             "/api/student/portal",
             "/api/student/mastery",

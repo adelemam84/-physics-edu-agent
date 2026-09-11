@@ -34,6 +34,18 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
     def test_node_matches_current_vercel_runtime_generation(self):
         self.assertIn('node-version: "24"', self.text)
 
+    def test_missing_student_session_secret_is_bootstrapped_as_sensitive(self):
+        self.assertIn("Bootstrap missing student session secret", self.text)
+        self.assertIn("openssl rand -hex 32", self.text)
+        self.assertIn(
+            "vercel env add STUDENT_SESSION_SECRET production --sensitive",
+            self.text,
+        )
+        self.assertIn(
+            "grep -q '^STUDENT_SESSION_SECRET=' .vercel/.env.production.local",
+            self.text,
+        )
+
     def test_required_production_env_names_are_preflighted_without_values(self):
         self.assertIn("Validate production runtime configuration", self.text)
         for name in (

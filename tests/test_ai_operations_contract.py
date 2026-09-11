@@ -12,6 +12,9 @@ class AIOperationsContractTests(unittest.TestCase):
         self.assertIn("توزيع المهام", PAGE)
         self.assertIn("لا اعتماد آلي", PAGE)
         self.assertIn("/api/admin/ai-operations/summary", PAGE)
+        self.assertIn("/api/admin/ai-operations/usage?hours=24", PAGE)
+        self.assertIn("استخدام الذكاء الاصطناعي", PAGE)
+        self.assertIn("لا يتم تخزين prompts", PAGE)
 
     def test_snapshot_contains_expected_high_value_tasks(self):
         tasks = {x["task"] for x in governance_snapshot()["tasks"]}

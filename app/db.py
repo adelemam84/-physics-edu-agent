@@ -73,6 +73,7 @@ def init_db():
         )""")
         con.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created ON ai_usage_events(created_at DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_task_provider ON ai_usage_events(task,provider,created_at DESC)")
+        con.execute("DELETE FROM request_rate_limits WHERE updated_at < now() - interval '7 days'")
         con.execute("""CREATE TABLE IF NOT EXISTS question_review_notes(
           question_id bigint PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
           reason_code text NOT NULL,

@@ -9,8 +9,7 @@ from .main import app
 from .research_engine import research_engine_status
 from .security import require_admin
 
-NEXT_RELEASE = '1.8.0'
-app.version = NEXT_RELEASE
+NEXT_RELEASE = app.version
 
 
 def _sync_summary() -> dict:
@@ -71,7 +70,7 @@ def next_release_status() -> dict:
             'feasible':bool(blueprint.get('active_shape_feasible')),
             'gaps':blueprint.get('gaps',{}),
         },
-        'deployment_policy':'single consolidated production deployment after Vercel build-rate-limit clears',
+        'deployment_policy':'promote only a green main commit after CI and production smoke checks pass',
     }
 
 

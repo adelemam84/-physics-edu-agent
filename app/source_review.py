@@ -18,6 +18,43 @@ class PageReviewPatch(BaseModel):
     notes:str|None=None
     question_count:int|None=None
 
+
+def _coverage_state(extracted:int,role:str,status:str,reviewed_count:int|None) -> str:
+    extracted=max(int(extracted or 0),0)
+    if extracted>0:
+        if role=="question_candidate" and status=="done":
+            if reviewed_count is None or int(reviewed_count)!=extracted:
+                return "question_count_mismatch"
+        return "question_page"
+    if role in CLOSED_NONQUESTION_ROLES and status=="done":
+        return "reviewed_nonquestion"
+    if role=="question_candidate":
+        return "unresolved_question_candidate"
+    return "unreviewed_zero_question"
+
+
+def _validate_page_closure(*,role:str,status:str,reviewed_count:int|None,extracted:int) -> None:
+    if status!="done":
+        return
+    extracted=max(int(extracted or 0),0)
+    if role=="unknown":
+        raise HTTPException(409,"لا يمكن إغلاق صفحة قبل تصنيف دورها")
+    if role=="question_candidate":
+        if reviewed_count is None or int(reviewed_count)<1:
+            raise HTTPException(409,"صفحة مرشح الأسئلة تحتاج عدد أسئلة مراجَع أكبر من صفر")
+        if int(reviewed_count)!=extracted:
+            raise HTTPException(409,{
+              "message":"لا يمكن إغلاق الصفحة قبل تطابق عدد الأسئلة مع المصدر",
+              "reviewed_question_count":int(reviewed_count),
+              "extracted_questions":extracted,
+            })
+    elif role in CLOSED_NONQUESTION_ROLES and extracted!=0:
+        raise HTTPException(409,{
+          "message":"لا يمكن إغلاق الصفحة كصفحة غير أسئلة بينما توجد أسئلة مرتبطة بها",
+          "extracted_questions":extracted,
+        })
+
+
 @app.get("/api/admin/source-review",dependencies=[Depends(require_admin)])
 def source_review(document_id:int|None=None,review_status:str|None=None):
     sql="""SELECT r.*,d.filename,d.storage_url,d.status document_status,cv.academic_year,
@@ -68,18 +105,7 @@ def _source_page_coverage_snapshot(document_id:int|None=None) -> dict:
         reviewed=row.get("reviewed_question_count")
         role=str(row.get("page_role") or "unknown")
         status=str(row.get("review_status") or "pending")
-        if extracted>0:
-            state="question_page"
-            if role=="question_candidate" and status=="done":
-                if reviewed is None or int(reviewed)!=extracted:
-                    state="question_count_mismatch"
-        elif role in CLOSED_NONQUESTION_ROLES and status=="done":
-            state="reviewed_nonquestion"
-        elif role=="question_candidate":
-            state="unresolved_question_candidate"
-        else:
-            state="unreviewed_zero_question"
-        row["coverage_state"]=state
+        row["coverage_state"]=_coverage_state(extracted,role,status,reviewed)
         items.append(row)
 
     summary={
@@ -105,6 +131,7 @@ def source_page_coverage(document_id:int|None=None):
 
 @app.get("/api/admin/source-review/summary",dependencies=[Depends(require_admin)])
 def source_review_summary(document_id:int|None=None):
+    coverage=_source_page_coverage_snapshot(document_id)["summary"]
     where=" WHERE 1=1";params=[]
     if document_id is not None:
         where+=" AND r.document_id=%s";params.append(document_id)
@@ -130,7 +157,8 @@ def source_review_summary(document_id:int|None=None):
           LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
           WHERE cv.active=TRUE""").fetchone()
         return {**totals,"documents":docs,"current_corpus_gate":gate,
-          "current_corpus_ready":bool(gate and gate["candidate_pages"]>0 and gate["open_candidate_pages"]==0)}
+          "current_corpus_ready":bool(gate and gate["candidate_pages"]>0 and gate["open_candidate_pages"]==0),
+          "page_coverage":coverage}
 
 @app.patch("/api/admin/source-review/{document_id}/{page_number}",dependencies=[Depends(require_admin)])
 def patch_source_review(document_id:int,page_number:int,p:PageReviewPatch):
@@ -155,23 +183,10 @@ def patch_source_review(document_id:int,page_number:int,p:PageReviewPatch):
         effective_count=p.question_count if p.question_count is not None else current["question_count"]
         extracted=int(current["extracted_questions"] or 0)
 
-        if effective_status=="done":
-            if effective_role=="unknown":
-                raise HTTPException(409,"لا يمكن إغلاق صفحة قبل تصنيف دورها")
-            if effective_role=="question_candidate":
-                if effective_count is None or int(effective_count)<1:
-                    raise HTTPException(409,"صفحة مرشح الأسئلة تحتاج عدد أسئلة مراجَع أكبر من صفر")
-                if int(effective_count)!=extracted:
-                    raise HTTPException(409,{
-                      "message":"لا يمكن إغلاق الصفحة قبل تطابق عدد الأسئلة مع المصدر",
-                      "reviewed_question_count":int(effective_count),
-                      "extracted_questions":extracted,
-                    })
-            elif effective_role in CLOSED_NONQUESTION_ROLES and extracted!=0:
-                raise HTTPException(409,{
-                  "message":"لا يمكن إغلاق الصفحة كصفحة غير أسئلة بينما توجد أسئلة مرتبطة بها",
-                  "extracted_questions":extracted,
-                })
+        _validate_page_closure(
+          role=effective_role,status=effective_status,
+          reviewed_count=effective_count,extracted=extracted,
+        )
 
         row=con.execute("""UPDATE document_page_reviews SET
           page_role=coalesce(%s,page_role),review_status=coalesce(%s,review_status),
@@ -189,7 +204,7 @@ body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-wi
 <script>
 let docs=[],rows=[];const H=()=>({});function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function jf(u,o={}){let r=await fetch(u,o),x=await r.json();if(!r.ok)throw new Error(typeof x.detail==='string'?x.detail:JSON.stringify(x.detail));return x}
-async function init(){let s=await jf('/api/admin/source-review/summary');docs=s.documents||[];doc.innerHTML=docs.map(d=>'<option value="'+d.id+'">#'+d.id+' · '+e(d.filename)+' · '+e(d.academic_year||'')+'</option>').join('');summary.textContent='إجمالي '+s.total+' صفحة · مرشح أسئلة '+s.question_candidate+' · معلق '+s.pending+' · مكتمل '+s.done+(s.current_corpus_gate?' · بوابة المنهج الحالي: '+s.current_corpus_gate.reviewed_candidate_pages+'/'+s.current_corpus_gate.candidate_pages+' صفحة مكتملة':'');loadPages()}
+async function init(){let s=await jf('/api/admin/source-review/summary');docs=s.documents||[];doc.innerHTML=docs.map(d=>'<option value="'+d.id+'">#'+d.id+' · '+e(d.filename)+' · '+e(d.academic_year||'')+'</option>').join('');let pc=s.page_coverage||{};summary.textContent='إجمالي '+s.total+' صفحة · مرشح أسئلة '+s.question_candidate+' · معلق '+s.pending+' · مكتمل '+s.done+(s.current_corpus_gate?' · بوابة المنهج الحالي: '+s.current_corpus_gate.reviewed_candidate_pages+'/'+s.current_corpus_gate.candidate_pages+' صفحة مكتملة':'')+' · تغطية الصفحات الفعلية: '+(pc.coverage_ready?'مكتملة':'تحتاج مراجعة')+' · صفر سؤال مفتوح: '+(pc.open_zero_question_pages??0)+' · عدم تطابق العد: '+(pc.count_mismatch_pages??0);loadPages()}
 async function loadPages(){if(!doc.value)return;let u='/api/admin/source-review?document_id='+doc.value+(status.value?'&review_status='+status.value:'');rows=await jf(u);pages.innerHTML=rows.map(r=>'<div class=card><b>صفحة '+r.page_number+'</b><div class=muted>'+e(r.academic_year||'')+' · أسئلة مدخلة: '+r.extracted_questions+'</div><select id="role'+r.page_number+'"><option value=question_candidate>مرشح أسئلة</option><option value=answer_solution>حل/إجابة</option><option value=front_matter>غلاف/مقدمة</option><option value=index_or_divider>فهرس/فاصل</option><option value=unknown>غير محدد</option></select><select id="st'+r.page_number+'"><option value=pending>معلق</option><option value=reviewing>تحت المراجعة</option><option value=classified>مصنف</option><option value=done>مكتمل</option><option value=skipped>متخطى</option></select><input id="cnt'+r.page_number+'" type=number min=0 placeholder="عدد الأسئلة" value="'+(r.question_count??'')+'"><button onclick="save('+r.page_number+')">حفظ</button><div class=muted>'+e(r.notes||'')+'</div></div>').join('');rows.forEach(r=>{document.getElementById('role'+r.page_number).value=r.page_role;document.getElementById('st'+r.page_number).value=r.review_status})}
 async function save(p){let body={page_role:document.getElementById('role'+p).value,review_status:document.getElementById('st'+p).value};let v=document.getElementById('cnt'+p).value;if(v!=='')body.question_count=Number(v);await jf('/api/admin/source-review/'+doc.value+'/'+p,{method:'PATCH',headers:{...H(),'Content-Type':'application/json'},body:JSON.stringify(body)});loadPages()}
 async function openPdf(){let x=await jf('/api/documents/'+doc.value+'/pdf-url');window.open(x.url,'_blank','noopener')}

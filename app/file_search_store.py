@@ -141,6 +141,63 @@ def ensure_store() -> dict:
     }
 
 
+BOOTSTRAP_LOCK_KEY = 1808102026
+
+
+def bootstrap_store_if_enabled() -> dict:
+    """Provision Gemini File Search once on production, without blocking app startup on failure."""
+    enabled = os.getenv('GEMINI_FILE_SEARCH_AUTO_PROVISION', 'true').strip().lower() not in {
+        '0', 'false', 'no', 'off'
+    }
+    if not enabled:
+        return {'attempted': False, 'configured': bool(configured_store_name()), 'reason': 'disabled'}
+    if os.getenv('VERCEL_ENV', '').strip().lower() != 'production':
+        return {'attempted': False, 'configured': bool(configured_store_name()), 'reason': 'non_production'}
+    existing = configured_store_name()
+    if existing:
+        _activate_store(existing)
+        return {'attempted': False, 'configured': True, 'reused': True, 'name': existing}
+    if not research_engine.GEMINI_API_KEY:
+        return {'attempted': False, 'configured': False, 'reason': 'gemini_api_key_missing'}
+
+    with connect() as con:
+        lock = con.execute(
+            'SELECT pg_try_advisory_lock(%s) acquired',
+            (BOOTSTRAP_LOCK_KEY,),
+        ).fetchone()
+        if not lock or not bool(lock['acquired']):
+            return {'attempted': False, 'configured': False, 'reason': 'bootstrap_lock_busy'}
+        try:
+            existing = configured_store_name()
+            if existing:
+                _activate_store(existing)
+                return {'attempted': False, 'configured': True, 'reused': True, 'name': existing}
+            try:
+                result = ensure_store()
+                return {
+                    'attempted': True,
+                    'configured': True,
+                    'created': bool(result.get('created')),
+                    'reused': bool(result.get('reused')),
+                    'name': result.get('name'),
+                }
+            except HTTPException as exc:
+                return {
+                    'attempted': True,
+                    'configured': False,
+                    'reason': 'provider_error',
+                    'status_code': exc.status_code,
+                }
+            except Exception:
+                return {
+                    'attempted': True,
+                    'configured': False,
+                    'reason': 'unexpected_bootstrap_error',
+                }
+        finally:
+            con.execute('SELECT pg_advisory_unlock(%s)', (BOOTSTRAP_LOCK_KEY,))
+
+
 @app.get('/api/admin/research-engine/file-search-store/status', dependencies=[Depends(require_admin)])
 def file_search_store_status():
     name = configured_store_name()

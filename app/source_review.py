@@ -10,6 +10,7 @@ from .security import require_admin
 
 ROLES={"front_matter","question_candidate","index_or_divider","answer_solution","unknown"}
 STATUSES={"pending","classified","reviewing","done","skipped"}
+CLOSED_NONQUESTION_ROLES={"front_matter","index_or_divider","answer_solution"}
 
 class PageReviewPatch(BaseModel):
     page_role:str|None=None
@@ -31,6 +32,76 @@ def source_review(document_id:int|None=None,review_status:str|None=None):
     sql+=" ORDER BY r.document_id,r.page_number"
     with connect() as con:
         return list(con.execute(sql,params).fetchall())
+
+def _source_page_coverage_snapshot(document_id:int|None=None) -> dict:
+    """Read physical-page coverage without creating, approving, or modifying questions."""
+    where=["d.kind='questions'"]
+    params=[]
+    if document_id is not None:
+        where.append("d.id=%s");params.append(document_id)
+    else:
+        where.append("""d.curriculum_version_id=(
+          SELECT id FROM curriculum_versions
+          WHERE subject_id=1 AND grade_level_id=6 AND active=TRUE
+          ORDER BY id DESC LIMIT 1
+        )""")
+    sql="""SELECT d.id document_id,d.filename,cv.academic_year,g.page_number,
+      coalesce(r.page_role,'unknown') page_role,
+      coalesce(r.review_status,'pending') review_status,
+      r.question_count reviewed_question_count,
+      (SELECT count(*) FROM questions q
+       WHERE q.document_id=d.id AND coalesce(q.source_page,q.page)=g.page_number) extracted_questions
+      FROM documents d
+      JOIN document_files f ON f.document_id=d.id
+      JOIN LATERAL generate_series(1,coalesce(f.page_count,0)) g(page_number) ON TRUE
+      LEFT JOIN document_page_reviews r
+        ON r.document_id=d.id AND r.page_number=g.page_number
+      LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
+      WHERE """+" AND ".join(where)+"""
+      ORDER BY d.id,g.page_number"""
+    with connect() as con:
+        rows=[dict(r) for r in con.execute(sql,params).fetchall()]
+
+    items=[]
+    for row in rows:
+        extracted=int(row.get("extracted_questions") or 0)
+        reviewed=row.get("reviewed_question_count")
+        role=str(row.get("page_role") or "unknown")
+        status=str(row.get("review_status") or "pending")
+        if extracted>0:
+            state="question_page"
+            if role=="question_candidate" and status=="done":
+                if reviewed is None or int(reviewed)!=extracted:
+                    state="question_count_mismatch"
+        elif role in CLOSED_NONQUESTION_ROLES and status=="done":
+            state="reviewed_nonquestion"
+        elif role=="question_candidate":
+            state="unresolved_question_candidate"
+        else:
+            state="unreviewed_zero_question"
+        row["coverage_state"]=state
+        items.append(row)
+
+    summary={
+        "physical_pages":len(items),
+        "question_pages":sum(1 for r in items if int(r["extracted_questions"] or 0)>0),
+        "zero_question_pages":sum(1 for r in items if int(r["extracted_questions"] or 0)==0),
+        "reviewed_nonquestion_pages":sum(1 for r in items if r["coverage_state"]=="reviewed_nonquestion"),
+        "open_zero_question_pages":sum(1 for r in items if r["coverage_state"] in {"unreviewed_zero_question","unresolved_question_candidate"}),
+        "count_mismatch_pages":sum(1 for r in items if r["coverage_state"]=="question_count_mismatch"),
+    }
+    summary["coverage_ready"]=bool(
+        summary["physical_pages"]>0
+        and summary["open_zero_question_pages"]==0
+        and summary["count_mismatch_pages"]==0
+    )
+    return {"summary":summary,"items":items}
+
+
+@app.get("/api/admin/source-review/page-coverage",dependencies=[Depends(require_admin)])
+def source_page_coverage(document_id:int|None=None):
+    return _source_page_coverage_snapshot(document_id)
+
 
 @app.get("/api/admin/source-review/summary",dependencies=[Depends(require_admin)])
 def source_review_summary(document_id:int|None=None):
@@ -70,12 +141,43 @@ def patch_source_review(document_id:int,page_number:int,p:PageReviewPatch):
     if p.question_count is not None and p.question_count<0:
         raise HTTPException(400,"question_count must be >= 0")
     with connect() as con:
+        current=con.execute("""SELECT r.*,
+          (SELECT count(*) FROM questions q
+           WHERE q.document_id=r.document_id
+             AND coalesce(q.source_page,q.page)=r.page_number) extracted_questions
+          FROM document_page_reviews r
+          WHERE r.document_id=%s AND r.page_number=%s""",
+          (document_id,page_number)).fetchone()
+        if not current: raise HTTPException(404,"Page review not found")
+
+        effective_role=p.page_role if p.page_role is not None else current["page_role"]
+        effective_status=p.review_status if p.review_status is not None else current["review_status"]
+        effective_count=p.question_count if p.question_count is not None else current["question_count"]
+        extracted=int(current["extracted_questions"] or 0)
+
+        if effective_status=="done":
+            if effective_role=="unknown":
+                raise HTTPException(409,"لا يمكن إغلاق صفحة قبل تصنيف دورها")
+            if effective_role=="question_candidate":
+                if effective_count is None or int(effective_count)<1:
+                    raise HTTPException(409,"صفحة مرشح الأسئلة تحتاج عدد أسئلة مراجَع أكبر من صفر")
+                if int(effective_count)!=extracted:
+                    raise HTTPException(409,{
+                      "message":"لا يمكن إغلاق الصفحة قبل تطابق عدد الأسئلة مع المصدر",
+                      "reviewed_question_count":int(effective_count),
+                      "extracted_questions":extracted,
+                    })
+            elif effective_role in CLOSED_NONQUESTION_ROLES and extracted!=0:
+                raise HTTPException(409,{
+                  "message":"لا يمكن إغلاق الصفحة كصفحة غير أسئلة بينما توجد أسئلة مرتبطة بها",
+                  "extracted_questions":extracted,
+                })
+
         row=con.execute("""UPDATE document_page_reviews SET
           page_role=coalesce(%s,page_role),review_status=coalesce(%s,review_status),
           notes=coalesce(%s,notes),question_count=coalesce(%s,question_count),updated_at=now()
           WHERE document_id=%s AND page_number=%s RETURNING *""",
           (p.page_role,p.review_status,p.notes,p.question_count,document_id,page_number)).fetchone()
-        if not row: raise HTTPException(404,"Page review not found")
         return row
 
 PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width=device-width,initial-scale=1"><title>مراجعة المصدر المرئي</title><style>

@@ -226,6 +226,13 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
                             },
                         )
 
+        approval_sensitive = set(values).difference({"approved"})
+        if approval_sensitive and values.get("approved") is not True:
+            # Any substantive edit invalidates the previous human approval.
+            # The reviewer must explicitly approve the new state after all
+            # source/academic/QA gates pass again.
+            values["approved"] = False
+
         if values.get("approved") is True:
             gate = con.execute(
                 """SELECT q.id,q.document_id,coalesce(q.source_page,q.page) page_number,
@@ -246,20 +253,7 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
                           ) has_concept,
                           EXISTS(
                             SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id
-                          ) has_skill,
-                          EXISTS(
-                            SELECT 1 FROM lessons l WHERE l.id=q.lesson_id
-                              AND l.subject_id=q.subject_id
-                              AND l.grade_level_id=q.grade_level_id
-                              AND l.curriculum_version_id=q.curriculum_version_id
-                              AND l.term_id=q.term_id AND l.unit_id=q.unit_id
-                          ) academic_consistent,
-                          NOT EXISTS(
-                            SELECT 1 FROM question_concepts qc
-                            JOIN concepts c ON c.id=qc.concept_id
-                            WHERE qc.question_id=q.id
-                              AND c.lesson_id IS DISTINCT FROM q.lesson_id
-                          ) concept_consistent
+                          ) has_skill
                    FROM questions q WHERE q.id=%s""",
                 (question_id,),
             ).fetchone()
@@ -277,6 +271,33 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
             effective_type = values.get("question_type", gate["question_type"])
             effective_difficulty = values.get("difficulty", gate["difficulty"])
             effective_answer = values.get("accepted_answer", gate["accepted_answer"])
+
+            effective_academic_consistent = bool(
+                effective_lesson
+                and con.execute(
+                    """SELECT 1 FROM lessons
+                       WHERE id=%s AND subject_id=%s AND grade_level_id=%s
+                         AND curriculum_version_id=%s AND term_id=%s AND unit_id=%s""",
+                    (
+                        effective_lesson,
+                        effective_subject,
+                        effective_grade,
+                        effective_curriculum,
+                        effective_term,
+                        effective_unit,
+                    ),
+                ).fetchone()
+            )
+            effective_concept_consistent = not bool(
+                con.execute(
+                    """SELECT 1 FROM question_concepts qc
+                       JOIN concepts c ON c.id=qc.concept_id
+                       WHERE qc.question_id=%s
+                         AND c.lesson_id IS DISTINCT FROM %s
+                       LIMIT 1""",
+                    (question_id, effective_lesson),
+                ).fetchone()
+            )
 
             source_answer = con.execute(
                 "SELECT answer_document_id,answer_page FROM questions WHERE id=%s",
@@ -312,9 +333,9 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
                 missing.append("concept")
             if not gate["has_skill"]:
                 missing.append("skill")
-            if not gate["academic_consistent"]:
+            if not effective_academic_consistent:
                 missing.append("academic_consistency")
-            if not gate["concept_consistent"]:
+            if not effective_concept_consistent:
                 missing.append("concept_consistency")
             if not effective_type or effective_type == "unknown":
                 missing.append("question_type")
@@ -351,4 +372,38 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
         ).fetchone()
         if not row:
             raise HTTPException(404, "Question not found")
+
+        if not bool(row["approved"]) and ("approved" in values or approval_sensitive):
+            affected = list(
+                con.execute(
+                    """SELECT DISTINCT q.id,q.lifecycle_status,q.quality_score
+                       FROM quizzes q
+                       JOIN quiz_questions qq ON qq.quiz_id=q.id
+                       WHERE qq.question_id=%s
+                         AND (q.published=TRUE OR q.lifecycle_status='ready')""",
+                    (question_id,),
+                ).fetchall()
+            )
+            for quiz in affected:
+                con.execute(
+                    """UPDATE quizzes
+                       SET published=FALSE,lifecycle_status='quality_review',
+                           quality_score=NULL,ready_at=NULL
+                       WHERE id=%s""",
+                    (quiz["id"],),
+                )
+                con.execute(
+                    """INSERT INTO quiz_audit_log(
+                         quiz_id,action,from_status,to_status,quality_score,details
+                       ) VALUES(
+                         %s,'question_invalidated',%s,'quality_review',%s,
+                         jsonb_build_object('question_id',%s,'reason','question_requires_reapproval')
+                       )""",
+                    (
+                        quiz["id"],
+                        quiz["lifecycle_status"],
+                        quiz["quality_score"],
+                        question_id,
+                    ),
+                )
         return dict(row)

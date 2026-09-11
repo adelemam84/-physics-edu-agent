@@ -37,6 +37,26 @@ class QuestionApprovalContractTests(unittest.TestCase):
         source = inspect.getsource(question_assets._resolve_visual_review)
         self.assertIn("coalesce(details,'')", source)
 
+    def test_substantive_question_edits_force_reapproval(self):
+        source = inspect.getsource(question_admin_runtime.patch_question_record)
+        self.assertIn('approval_sensitive = set(values).difference({"approved"})', source)
+        self.assertIn('values["approved"] = False', source)
+
+    def test_same_request_reapproval_checks_effective_lesson_and_concepts(self):
+        source = inspect.getsource(question_admin_runtime.patch_question_record)
+        self.assertIn("effective_academic_consistent", source)
+        self.assertIn("effective_concept_consistent", source)
+        self.assertIn("c.lesson_id IS DISTINCT FROM %s", source)
+        self.assertNotIn('gate["academic_consistent"]', source)
+        self.assertNotIn('gate["concept_consistent"]', source)
+
+    def test_question_invalidation_demotes_ready_or_published_quizzes(self):
+        source = inspect.getsource(question_admin_runtime.patch_question_record)
+        self.assertIn("q.published=TRUE OR q.lifecycle_status='ready'", source)
+        self.assertIn("SET published=FALSE,lifecycle_status='quality_review'", source)
+        self.assertIn("'question_invalidated'", source)
+        self.assertIn("'question_requires_reapproval'", source)
+
     def test_verbatim_text_is_not_a_patchable_admin_field(self):
         self.assertNotIn("text_verbatim", question_admin_runtime.ALLOWED_FIELDS)
 

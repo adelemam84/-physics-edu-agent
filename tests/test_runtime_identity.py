@@ -51,6 +51,7 @@ class RuntimeIdentityTests(unittest.TestCase):
         })
         self.assertTrue(healthy["current_runtime_is_production_main"])
         self.assertEqual(healthy["drift_state"], "production_main")
+        self.assertEqual(healthy["provenance_source"], "vercel_git")
 
         invalid = runtime_identity({
             "VERCEL": "1",
@@ -60,6 +61,31 @@ class RuntimeIdentityTests(unittest.TestCase):
         })
         self.assertFalse(invalid["current_runtime_is_production_main"])
         self.assertEqual(invalid["drift_state"], "production_metadata_invalid")
+
+    def test_controlled_release_provenance_is_used_when_vercel_git_metadata_is_absent(self):
+        identity = runtime_identity({
+            "VERCEL": "1",
+            "VERCEL_ENV": "production",
+            "RELEASE_GIT_REF": "main",
+            "RELEASE_GIT_SHA": "d" * 40,
+        })
+        self.assertTrue(identity["current_runtime_is_production_main"])
+        self.assertEqual(identity["git_ref"], "main")
+        self.assertEqual(identity["git_commit_sha"], "d" * 40)
+        self.assertEqual(identity["provenance_source"], "controlled_release")
+
+    def test_native_vercel_git_metadata_wins_over_controlled_release_fallback(self):
+        identity = runtime_identity({
+            "VERCEL": "1",
+            "VERCEL_ENV": "production",
+            "VERCEL_GIT_COMMIT_REF": "feature/wrong",
+            "VERCEL_GIT_COMMIT_SHA": "e" * 40,
+            "RELEASE_GIT_REF": "main",
+            "RELEASE_GIT_SHA": "f" * 40,
+        })
+        self.assertFalse(identity["current_runtime_is_production_main"])
+        self.assertEqual(identity["git_ref"], "feature/wrong")
+        self.assertEqual(identity["provenance_source"], "vercel_git")
 
     def test_preview_is_not_reported_as_production_drift(self):
         preview = runtime_identity({

@@ -47,6 +47,12 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("vercel curl /health/ready", self.text)
         self.assertIn("ready.get('status') != 'ready'", self.text)
 
+    def test_vercel_curl_uses_environment_auth_not_curl_passthrough_token(self):
+        self.assertIn('vercel curl /health --deployment "$DEPLOYMENT_URL"', self.text)
+        self.assertIn('vercel curl /health/ready --deployment "$DEPLOYMENT_URL"', self.text)
+        self.assertNotIn('vercel curl /health --deployment "$DEPLOYMENT_URL" --token=', self.text)
+        self.assertNotIn('vercel curl /health/ready --deployment "$DEPLOYMENT_URL" --token=', self.text)
+
     def test_concurrent_production_releases_are_serialized(self):
         self.assertIn("group: physics-edu-agent-production", self.text)
         self.assertIn("cancel-in-progress: false", self.text)

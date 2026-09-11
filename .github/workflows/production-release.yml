@@ -108,8 +108,8 @@ jobs:
           DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
         run: |
           set -euo pipefail
-          vercel curl /health --deployment "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" > /tmp/health.json
-          vercel curl /health/ready --deployment "$DEPLOYMENT_URL" --token="$VERCEL_TOKEN" > /tmp/ready.json
+          vercel curl /health --deployment "$DEPLOYMENT_URL" > /tmp/health.json
+          vercel curl /health/ready --deployment "$DEPLOYMENT_URL" > /tmp/ready.json
           python - <<'PY'
           import json
           from pathlib import Path

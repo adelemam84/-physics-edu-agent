@@ -42,6 +42,7 @@ from app import exam_blueprint  # noqa: F401,E402
 from app import corpus_public_status  # noqa: F401,E402
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
+from app import ai_budget_guard  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402
 from app import research_admin_ops  # noqa: F401,E402

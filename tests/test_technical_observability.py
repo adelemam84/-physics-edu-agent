@@ -22,6 +22,7 @@ class TechnicalObservabilityTests(unittest.TestCase):
         ai=None,
         sync=None,
         rate_limits=None,
+        database_profile=None,
         readiness=None,
     ):
         db = db or {"ok": True, "latency_ms": 25, "error": None}
@@ -55,11 +56,24 @@ class TechnicalObservabilityTests(unittest.TestCase):
                 "only_aggregates_returned": True,
             },
         }
+        database_profile = database_profile or {
+            "configured": True,
+            "is_neon": True,
+            "on_vercel": True,
+            "pooling_policy": "auto",
+            "runtime_mode": "pooled",
+            "migration_mode": "direct",
+            "migration_safe": True,
+            "direct_override": False,
+            "automatic_pooler_derivation": True,
+            "secret_values_returned": False,
+        }
         readiness = readiness or self._readiness()
         with patch.object(obs, "_database_probe", return_value=db), \
              patch.object(obs, "_ai_probe", return_value=ai), \
              patch.object(obs, "_sync_probe", return_value=sync), \
              patch.object(obs, "_rate_limit_probe", return_value=rate_limits), \
+             patch.object(obs, "database_connection_profile", return_value=database_profile), \
              patch.object(obs, "_int_env", side_effect=lambda name, default: default), \
              patch.object(obs, "_float_env", side_effect=lambda name, default: default):
             return obs.technical_observability_snapshot(readiness_snapshot=readiness)
@@ -84,6 +98,46 @@ class TechnicalObservabilityTests(unittest.TestCase):
         self.assertEqual(data["state"], "healthy")
         tech = next(x for x in data["signals"] if x["id"] == "technical_readiness")
         self.assertTrue(tech["ok"])
+
+    def test_unsafe_pooled_migration_path_is_unhealthy(self):
+        data = self._snapshot(database_profile={
+            "configured": True,
+            "is_neon": True,
+            "on_vercel": True,
+            "pooling_policy": "pooled",
+            "runtime_mode": "pooled",
+            "migration_mode": "pooled",
+            "migration_safe": False,
+            "direct_override": False,
+            "automatic_pooler_derivation": False,
+            "secret_values_returned": False,
+        })
+        self.assertEqual(data["state"], "unhealthy")
+        signal = next(
+            x for x in data["signals"]
+            if x["id"] == "database_migration_path"
+        )
+        self.assertEqual(signal["severity"], "error")
+
+    def test_direct_neon_runtime_on_vercel_is_degraded_not_broken(self):
+        data = self._snapshot(database_profile={
+            "configured": True,
+            "is_neon": True,
+            "on_vercel": True,
+            "pooling_policy": "direct",
+            "runtime_mode": "direct",
+            "migration_mode": "direct",
+            "migration_safe": True,
+            "direct_override": False,
+            "automatic_pooler_derivation": False,
+            "secret_values_returned": False,
+        })
+        self.assertEqual(data["state"], "degraded")
+        signal = next(
+            x for x in data["signals"]
+            if x["id"] == "database_runtime_pooling"
+        )
+        self.assertEqual(signal["severity"], "warning")
 
     def test_database_latency_can_degrade_without_false_outage(self):
         data = self._snapshot(db={"ok": True, "latency_ms": 750, "error": None})

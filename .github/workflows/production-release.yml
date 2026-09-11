@@ -65,6 +65,9 @@ jobs:
       - name: Install runtime dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
 
+      - name: Install uv for local Vercel build
+        run: python -m pip install --disable-pip-version-check --upgrade uv
+
       - name: Compile Python
         run: python -m compileall -q app index.py
 
@@ -74,7 +77,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install pinned Vercel CLI
         run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
@@ -148,7 +151,7 @@ jobs:
         run: |
           {
             echo "### Controlled production release"
-            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Commit: $GITHUB_SHA"
             echo "- Staged deployment: $DEPLOYMENT_URL"
             echo "- Production: $PRODUCTION_URL"
             echo "- Gates: compile + unit tests + staged health + readiness + production smoke"

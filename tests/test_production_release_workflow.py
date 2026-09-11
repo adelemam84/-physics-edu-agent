@@ -27,6 +27,13 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("VERCEL_CLI_VERSION: 59.15.1", self.text)
         self.assertIn('vercel@${VERCEL_CLI_VERSION}', self.text)
 
+    def test_local_python_build_prerequisites_are_explicit(self):
+        self.assertIn("Install uv for local Vercel build", self.text)
+        self.assertIn("python -m pip install --disable-pip-version-check --upgrade uv", self.text)
+
+    def test_node_matches_current_vercel_runtime_generation(self):
+        self.assertIn('node-version: "24"', self.text)
+
     def test_production_is_staged_before_domain_assignment(self):
         stage = self.text.index("--prod --skip-domain")
         staged_health = self.text.index("Verify staged health contract")

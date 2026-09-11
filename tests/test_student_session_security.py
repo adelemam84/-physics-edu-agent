@@ -39,7 +39,6 @@ class StudentSessionSecurityTests(unittest.TestCase):
             os.environ,
             {
                 "STUDENT_SESSION_SECRET": "unit-test-student-session-secret",
-                "ALLOW_LEGACY_STUDENT_CODE_AUTH": "false",
             },
             clear=False,
         )
@@ -60,18 +59,15 @@ class StudentSessionSecurityTests(unittest.TestCase):
         tampered = token[:-1] + ("0" if token[-1] != "0" else "1")
         self.assertIsNone(parse_student_session_token(tampered))
 
-    def test_cookie_session_wins_and_cross_student_code_is_blocked(self):
+    def test_cookie_session_is_the_only_student_identity_source(self):
         token = make_student_session_token(17, "STU-017")
         request = request_with_cookie(token)
         self.assertEqual(resolve_student_code(request), "STU-017")
-        with self.assertRaises(HTTPException) as ctx:
-            resolve_student_code(request, "STU-999")
-        self.assertEqual(ctx.exception.status_code, 403)
 
-    def test_missing_session_rejects_legacy_code_when_disabled(self):
+    def test_missing_session_is_rejected(self):
         request = request_with_cookie()
         with self.assertRaises(HTTPException) as ctx:
-            resolve_student_code(request, "STU-017")
+            resolve_student_code(request)
         self.assertEqual(ctx.exception.status_code, 401)
 
     def test_token_expiry_is_enforced(self):

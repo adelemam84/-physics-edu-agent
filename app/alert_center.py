@@ -9,6 +9,7 @@ from .db import connect
 from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
+from .services.active_content_integrity import active_content_integrity_snapshot
 
 
 def _technical_readiness_alerts(snapshot: dict) -> list[dict]:
@@ -55,20 +56,14 @@ def collect_alerts():
     with connect() as con:
         vals=con.execute("""SELECT
           (SELECT count(*) FROM documents WHERE subject_id IS NULL OR grade_level_id IS NULL OR curriculum_version_id IS NULL OR term_id IS NULL) unassigned_documents,
-          (SELECT count(*) FROM questions q WHERE q.approved=TRUE AND (
-             q.accepted_answer IS NULL OR btrim(q.accepted_answer)='' OR q.lesson_id IS NULL
-             OR NOT EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=q.id)
-             OR NOT EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id)
-             OR NOT EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id))) invalid_approved_questions,
-          (SELECT count(DISTINCT qq.quiz_id) FROM quiz_questions qq JOIN questions q ON q.id=qq.question_id WHERE q.approved=FALSE) invalid_quizzes,
+          (SELECT count(DISTINCT qq.quiz_id)
+             FROM quiz_questions qq
+             JOIN quizzes z ON z.id=qq.quiz_id
+             JOIN questions q ON q.id=qq.question_id
+             JOIN curriculum_versions cv ON cv.id=z.curriculum_version_id
+             WHERE cv.active=TRUE AND q.approved=FALSE) invalid_quizzes,
           (SELECT count(*) FROM students WHERE external_code IS NULL OR btrim(external_code)='') students_without_code,
-          (SELECT count(*) FROM guardians WHERE active=TRUE AND whatsapp_opt_in=FALSE) guardians_without_optin,
-          ((SELECT count(*) FROM questions q JOIN lessons l ON l.id=q.lesson_id WHERE
-             q.subject_id IS DISTINCT FROM l.subject_id OR q.grade_level_id IS DISTINCT FROM l.grade_level_id OR
-             q.curriculum_version_id IS DISTINCT FROM l.curriculum_version_id OR q.term_id IS DISTINCT FROM l.term_id OR q.unit_id IS DISTINCT FROM l.unit_id)
-           +(SELECT count(*) FROM quizzes z JOIN quiz_questions qq ON qq.quiz_id=z.id JOIN questions q ON q.id=qq.question_id WHERE
-             z.subject_id IS DISTINCT FROM q.subject_id OR z.grade_level_id IS DISTINCT FROM q.grade_level_id OR
-             z.curriculum_version_id IS DISTINCT FROM q.curriculum_version_id OR z.term_id IS DISTINCT FROM q.term_id)) academic_mismatches
+          (SELECT count(*) FROM guardians WHERE active=TRUE AND whatsapp_opt_in=FALSE) guardians_without_optin
         """).fetchone()
         wa=con.execute("""SELECT
           count(*) total,
@@ -81,14 +76,30 @@ def collect_alerts():
 
     if int(vals["unassigned_documents"] or 0):
         alerts.append({"severity":"warning","source":"content","title":"ملفات PDF غير مصنفة","detail":f'{vals["unassigned_documents"]} ملف يحتاج مادة/صف/منهج/ترم',"path":"/admin/document-recovery"})
-    if int(vals["invalid_approved_questions"] or 0):
-        alerts.append({"severity":"error","source":"questions","title":"أسئلة معتمدة غير مكتملة","detail":f'{vals["invalid_approved_questions"]} سؤال يحتاج مراجعة فورية',"path":"/admin/workflow"})
     if int(vals["invalid_quizzes"] or 0):
         alerts.append({"severity":"error","source":"quizzes","title":"اختبارات غير سليمة","detail":f'{vals["invalid_quizzes"]} اختبار يحتوي سؤالًا غير معتمد',"path":"/admin/quiz-builder"})
     if int(vals["students_without_code"] or 0):
         alerts.append({"severity":"error","source":"students","title":"طلاب بدون كود دخول","detail":f'{vals["students_without_code"]} طالب',"path":"/admin/students"})
-    if int(vals["academic_mismatches"] or 0):
-        alerts.append({"severity":"error","source":"academic","title":"تعارض في السياق الأكاديمي","detail":f'{vals["academic_mismatches"]} علاقة تحتاج تصحيح',"path":"/admin/diagnostics"})
+    integrity=active_content_integrity_snapshot()
+    if int(integrity.get("invalid_approved_questions") or 0):
+        alerts.append({
+          "severity":"error","source":"active_content_integrity",
+          "title":"أسئلة المنهج الحالي المعتمدة غير مكتملة",
+          "detail":f'{integrity.get("invalid_approved_questions",0)} سؤال في {integrity.get("academic_year") or "المنهج النشط"}',
+          "path":"/admin/diagnostics",
+        })
+    academic_mismatches=(
+        int(integrity.get("question_lesson_mismatches") or 0)
+        + int(integrity.get("quiz_question_mismatches") or 0)
+    )
+    if academic_mismatches:
+        alerts.append({
+          "severity":"error","source":"active_content_integrity",
+          "title":"تعارضات أكاديمية في المنهج الحالي",
+          "detail":f'{academic_mismatches} علاقة في {integrity.get("academic_year") or "المنهج النشط"}',
+          "path":"/admin/diagnostics",
+        })
+
     if int(vals["guardians_without_optin"] or 0):
         alerts.append({"severity":"info","source":"guardians","title":"أولياء أمور بدون موافقة واتساب","detail":f'{vals["guardians_without_optin"]} ولي أمر',"path":"/admin/parents"})
 

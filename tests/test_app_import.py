@@ -145,6 +145,14 @@ class VercelEntrypointTests(unittest.TestCase):
             "orchestrator": {"status": "active"},
             "guardrails": {"question_bank_auto_write": False},
         }), patch.object(release_hardening, "configured_store_name", return_value="fileSearchStores/test"), \
+             patch.object(release_hardening, "active_content_integrity_snapshot", return_value={
+                 "active": True,
+                 "ready": True,
+                 "invalid_approved_questions": 0,
+                 "question_lesson_mismatches": 0,
+                 "quiz_question_mismatches": 0,
+                 "critical_open_qa": 0,
+             }), \
              patch.object(release_hardening, "_sync_summary", return_value={"total": 0, "active": 0, "processing": 0, "failed": 0}), \
              patch.object(source_review, "_source_page_coverage_snapshot", return_value={
                  "summary": {
@@ -169,6 +177,7 @@ class VercelEntrypointTests(unittest.TestCase):
         self.assertTrue(data["content_gates"])
         self.assertTrue(data["source_page_coverage"]["coverage_ready"])
         self.assertNotIn("source page coverage gap", " ".join(data["content_gates"]))
+        self.assertNotIn("active curriculum integrity gap", " ".join(data["content_gates"]))
 
 
 

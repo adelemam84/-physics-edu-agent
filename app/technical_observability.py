@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import Depends
 from fastapi.responses import HTMLResponse
 
-from .db import connect
+from .db import connect, database_connection_profile
 from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
@@ -262,6 +262,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
     sync = _sync_probe(sync_stale_minutes)
     rate_limits = _rate_limit_probe(rate_limit_near_pct)
     identity = runtime_identity(application_version=app.version)
+    database_profile = database_connection_profile()
 
     signals: list[dict] = []
 
@@ -288,6 +289,33 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             "database_probe", "Database probe", "info", True,
             f'قاعدة البيانات تستجيب في {db["latency_ms"]}ms',
             "/admin/diagnostics", db,
+        ))
+
+    if not database_profile.get("migration_safe"):
+        signals.append(_signal(
+            "database_migration_path", "Database connection strategy", "error", False,
+            "مسار migrations ليس Direct وآمنًا؛ لا يجب تشغيل DDL عبر PgBouncer",
+            "/admin/technical-observability", database_profile,
+        ))
+    elif (
+        database_profile.get("on_vercel")
+        and database_profile.get("is_neon")
+        and database_profile.get("runtime_mode") != "pooled"
+    ):
+        signals.append(_signal(
+            "database_runtime_pooling", "Database connection strategy", "warning", False,
+            "Runtime على Vercel يستخدم اتصال Neon مباشر؛ PgBouncer موصى به لتقليل ضغط الاتصالات",
+            "/admin/technical-observability", database_profile,
+        ))
+    else:
+        signals.append(_signal(
+            "database_connection_strategy", "Database connection strategy", "info", True,
+            (
+                f'Runtime={database_profile.get("runtime_mode")} · '
+                f'Migrations={database_profile.get("migration_mode")} · '
+                f'Policy={database_profile.get("pooling_policy")}'
+            ),
+            "/admin/technical-observability", database_profile,
         ))
 
     if not ai["ok"]:
@@ -448,6 +476,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             "rate_limit_blocked_error_subjects": rate_limit_blocked_error_subjects,
         },
         "runtime_identity": identity,
+        "database_connection": database_profile,
         "content_gates_are_not_technical_errors": True,
     }
 

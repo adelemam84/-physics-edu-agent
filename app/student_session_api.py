@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .db import connect
 from .main import app
+from .security import same_origin_request
 from .services.rate_limit import enforce_request_policy
 from .student_security import (
     SESSION_MAX_AGE,
@@ -72,7 +73,9 @@ def read_student_session(request: Request, response: Response):
 
 
 @app.delete("/api/student/session")
-def delete_student_session(response: Response):
+def delete_student_session(response: Response, request: Request):
     response.headers["Cache-Control"] = "no-store"
+    if student_session(request) and not same_origin_request(request):
+        raise HTTPException(403, "Cross-origin student logout blocked")
     clear_student_session_cookie(response)
     return {"authenticated": False}

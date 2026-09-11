@@ -1,5 +1,6 @@
 import importlib
 import unittest
+from unittest.mock import patch
 
 
 class VercelEntrypointTests(unittest.TestCase):
@@ -136,6 +137,25 @@ class VercelEntrypointTests(unittest.TestCase):
         self.assertEqual(_classify_release_state([], []), 'runtime_ready')
         self.assertEqual(_classify_release_state([], ['essay gap']), 'runtime_ready_content_gate_open')
         self.assertEqual(_classify_release_state(['missing key'], ['essay gap']), 'code_ready_pending_runtime_activation')
+
+    def test_content_gap_does_not_masquerade_as_runtime_blocker(self):
+        from app import release_hardening
+        with patch.object(release_hardening, "research_engine_status", return_value={
+            "configured": True,
+            "orchestrator": {"status": "active"},
+            "guardrails": {"question_bank_auto_write": False},
+        }), patch.object(release_hardening, "configured_store_name", return_value="fileSearchStores/test"), \
+             patch.object(release_hardening, "_sync_summary", return_value={"total": 0, "active": 0, "processing": 0, "failed": 0}), \
+             patch.object(release_hardening, "blueprint_readiness", return_value={
+                 "active_shape_feasible": False,
+                 "blueprint": {"objective_questions": 23, "essay_questions": 23},
+                 "gaps": {"objective": 0, "essay": 5},
+             }):
+            data = release_hardening.next_release_status()
+        self.assertEqual(data["release_state"], "runtime_ready_content_gate_open")
+        self.assertEqual(data["runtime_blockers"], [])
+        self.assertTrue(data["content_gates"])
+
 
 
 if __name__ == "__main__":

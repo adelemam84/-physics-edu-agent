@@ -1,0 +1,7 @@
+{
+  "requested_code_sha": "1014822423786b1c7898876730c0a25970bff0ea",
+  "requested_at": "2026-09-12",
+  "reason": "Promote green technical handoff build after readiness-policy alignment and controlled-release hardening",
+  "content_ingestion": "deferred",
+  "scope": "technical_runtime_only"
+}

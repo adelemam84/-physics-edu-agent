@@ -1,23 +1,24 @@
 from __future__ import annotations
 from decimal import Decimal
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from .main import app
 from .db import connect
 from .student_quiz import is_correct
+from .student_security import resolve_student_code
 
 class DiagnosticAnswer(BaseModel):
     question_id:int
     answer:str
 
 class DiagnosticSubmit(BaseModel):
-    student_code:str
+    student_code: str | None = None
     answers:list[DiagnosticAnswer]
 
 @app.get("/api/student/lessons/{lesson_id}")
-def student_lesson(lesson_id:int,student_code:str):
-    code=student_code.strip()
+def student_lesson(lesson_id:int, request: Request, student_code: str | None = None):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -51,8 +52,8 @@ def student_lesson(lesson_id:int,student_code:str):
       "content_note":"محتوى القراءة أدناه من نص صفحات PDF المصدرية المرتبطة بأسئلة هذا الدرس والمعتمدة في النظام؛ لا تتم إضافة معلومات علمية من خارج المصدر."}
 
 @app.post("/api/student/lessons/{lesson_id}/diagnostic")
-def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit):
-    code=p.student_code.strip()
+def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit, request: Request):
+    code=resolve_student_code(request, p.student_code)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -80,10 +81,10 @@ PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width
 body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:900px;margin:auto;padding:18px}.box,.q{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.muted{color:#667085}.good{color:#067647}.bad{color:#b42318}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.card{border:1px solid #e5e7eb;border-radius:12px;padding:12px}input,button{padding:11px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}input.answer{width:100%;box-sizing:border-box}.asset{max-width:100%;border-radius:10px}</style><main>
 <div class=box><a href="/student">العودة لبوابة الطالب</a><h1 id=title>الدرس</h1><div id=meta class=muted></div></div><div id=body></div>
 <script>
-const lessonId=Number(location.pathname.split('/').pop());let data=null;let code=sessionStorage.getItem('student_code')||'';
+const lessonId=Number(location.pathname.split('/').pop());let data=null;
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-async function load(){if(!code){code=prompt('أدخل كود الطالب')||'';if(!code)return}let r=await fetch('/api/student/lessons/'+lessonId+'?student_code='+encodeURIComponent(code)),x=await r.json();if(!r.ok){body.innerHTML='<div class=box>'+esc(x.detail||'تعذر تحميل الدرس')+'</div>';return}data=x;sessionStorage.setItem('student_code',code);title.textContent=x.lesson.title;meta.textContent=(x.lesson.subject_name||'')+' · '+(x.lesson.grade_name||'')+' · '+(x.lesson.unit_title||'');body.innerHTML='<div class=box><h2>مفاهيم الدرس من الهيكل المعتمد</h2><div class=grid>'+x.concepts.map(c=>'<div class=card>'+esc(c.title)+'</div>').join('')+'</div><p class=muted>'+esc(x.content_note)+'</p></div><div class=box><h2>محتوى الدرس من المصدر</h2>'+(x.source_pages.length?x.source_pages.map(p=>'<div class=card><div class=muted>'+esc(p.filename)+' · صفحة '+p.page_number+'</div><div style="white-space:pre-wrap;line-height:1.9">'+esc(p.extracted_text)+'</div></div>').join(''):'<p class=muted>لم يتم ربط صفحات شرح مصدرية بهذا الدرس حتى الآن. لن يعرض النظام شرحًا مولدًا بدلًا منها.</p>')+'</div><div class=box><h2>اختبار تمهيدي من الأسئلة المعتمدة</h2>'+(x.prior_mastery==null?'':'<p class=muted>إتقانك السابق في هذا الدرس: '+x.prior_mastery+'%</p>')+x.diagnostic_questions.map((q,i)=>'<div class=q><b>سؤال '+(i+1)+'</b>'+(q.has_asset?'<div><img class=asset src="/api/practice/questions/'+q.id+'/asset"></div>':'')+'<div>'+esc(q.text_verbatim)+'</div><input class=answer id="a_'+q.id+'" placeholder="اكتب الإجابة"></div>').join('')+(x.diagnostic_questions.length?'<button onclick="submitDiag()">تصحيح الاختبار التمهيدي</button>':'<p class=muted>لا توجد أسئلة معتمدة كافية لهذا الدرس بعد.</p>')+'<div id=res></div></div>'}
-async function submitDiag(){let answers=data.diagnostic_questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/lessons/'+lessonId+'/diagnostic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_code:code,answers})}),x=await r.json();if(!r.ok){res.textContent=x.detail||'تعذر التصحيح';return}res.innerHTML='<div class="card '+(x.percentage>=80?'good':'bad')+'"><b>النتيجة '+x.percentage+'%</b><div>'+(x.percentage>=80?'أداء قوي في الاختبار التمهيدي.':'تحتاج مراجعة وتدريب على مفاهيم الدرس قبل الانتقال الكامل.')+'</div></div>'}
+async function load(){let s=await fetch('/api/student/session',{cache:'no-store'}).then(r=>r.json()).catch(()=>({authenticated:false}));if(!s.authenticated){body.innerHTML='<div class=box>انتهت جلسة الطالب. <a href="/student">ارجع لبوابة الطالب لتسجيل الدخول.</a></div>';return}let r=await fetch('/api/student/lessons/'+lessonId,{cache:'no-store'}),x=await r.json();if(!r.ok){body.innerHTML='<div class=box>'+esc(x.detail||'تعذر تحميل الدرس')+'</div>';return}data=x;title.textContent=x.lesson.title;meta.textContent=(x.lesson.subject_name||'')+' · '+(x.lesson.grade_name||'')+' · '+(x.lesson.unit_title||'');body.innerHTML='<div class=box><h2>مفاهيم الدرس من الهيكل المعتمد</h2><div class=grid>'+x.concepts.map(c=>'<div class=card>'+esc(c.title)+'</div>').join('')+'</div><p class=muted>'+esc(x.content_note)+'</p></div><div class=box><h2>محتوى الدرس من المصدر</h2>'+(x.source_pages.length?x.source_pages.map(p=>'<div class=card><div class=muted>'+esc(p.filename)+' · صفحة '+p.page_number+'</div><div style="white-space:pre-wrap;line-height:1.9">'+esc(p.extracted_text)+'</div></div>').join(''):'<p class=muted>لم يتم ربط صفحات شرح مصدرية بهذا الدرس حتى الآن. لن يعرض النظام شرحًا مولدًا بدلًا منها.</p>')+'</div><div class=box><h2>اختبار تمهيدي من الأسئلة المعتمدة</h2>'+(x.prior_mastery==null?'':'<p class=muted>إتقانك السابق في هذا الدرس: '+x.prior_mastery+'%</p>')+x.diagnostic_questions.map((q,i)=>'<div class=q><b>سؤال '+(i+1)+'</b>'+(q.has_asset?'<div><img class=asset src="/api/practice/questions/'+q.id+'/asset"></div>':'')+'<div>'+esc(q.text_verbatim)+'</div><input class=answer id="a_'+q.id+'" placeholder="اكتب الإجابة"></div>').join('')+(x.diagnostic_questions.length?'<button onclick="submitDiag()">تصحيح الاختبار التمهيدي</button>':'<p class=muted>لا توجد أسئلة معتمدة كافية لهذا الدرس بعد.</p>')+'<div id=res></div></div>'}
+async function submitDiag(){let answers=data.diagnostic_questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));let r=await fetch('/api/student/lessons/'+lessonId+'/diagnostic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers})}),x=await r.json();if(!r.ok){res.textContent=x.detail||'تعذر التصحيح';return}res.innerHTML='<div class="card '+(x.percentage>=80?'good':'bad')+'"><b>النتيجة '+x.percentage+'%</b><div>'+(x.percentage>=80?'أداء قوي في الاختبار التمهيدي.':'تحتاج مراجعة وتدريب على مفاهيم الدرس قبل الانتقال الكامل.')+'</div></div>'}
 load()
 </script></main></html>'''
 

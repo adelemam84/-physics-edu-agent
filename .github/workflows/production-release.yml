@@ -87,20 +87,6 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
-      - name: Bootstrap missing student session secret
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: |
-          set -euo pipefail
-          if grep -q '^STUDENT_SESSION_SECRET=' .vercel/.env.production.local; then
-            echo "STUDENT_SESSION_SECRET is already configured"
-          else
-            echo "Generating a new sensitive STUDENT_SESSION_SECRET for production"
-            openssl rand -hex 32 | vercel env add STUDENT_SESSION_SECRET production --sensitive --token="$VERCEL_TOKEN"
-            rm -f .vercel/.env.production.local
-            vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          fi
-
       - name: Validate production runtime configuration
         run: |
           python - <<'PY'

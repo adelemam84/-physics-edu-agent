@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
 
 from .main import app
 from .db import connect
 from .services.source_asset_runtime import render_asset_bytes
+from .student_security import resolve_student_code
 
 
 @app.get('/api/practice/questions')
-def practice_questions(limit: int = 100):
+def practice_questions(request: Request, limit: int = 100):
+    resolve_student_code(request)
     with connect() as con:
         rows = con.execute(
             '''
@@ -30,7 +32,8 @@ def practice_questions(limit: int = 100):
 
 
 @app.get('/api/practice/questions/{question_id}/asset')
-def practice_asset(question_id: int):
+def practice_asset(question_id: int, request: Request):
+    resolve_student_code(request)
     with connect() as con:
         row = con.execute(
             '''
@@ -52,7 +55,7 @@ def practice_asset(question_id: int):
     return Response(image, media_type='image/jpeg', headers={'Cache-Control':'public, max-age=300'})
 
 
-PRACTICE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>التدريب العلمي</title><style>body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:900px;margin:auto;padding:18px}.card{background:white;border-radius:16px;padding:18px;margin:14px 0;box-shadow:0 3px 14px #0000000a}.asset{width:100%;max-height:70vh;object-fit:contain;border-radius:10px;background:#fafafa}.meta{color:#667085;font-size:13px}.text{white-space:pre-wrap;line-height:1.8}.empty{text-align:center;padding:50px 10px;color:#667085}</style><main><h1>التدريب العلمي</h1><p>يظهر هنا فقط ما تم اعتماده من بنك الأسئلة.</p><div id=items></div></main><script>fetch('/api/practice/questions').then(r=>r.json()).then(qs=>{items.innerHTML=qs.length?qs.map(q=>`<article class=card><div class=meta>#${q.id} · ${q.source_filename} · صفحة ${q.source_page}</div>${q.has_asset?`<img class=asset src="/api/practice/questions/${q.id}/asset">`:''}<div class=text>${esc(q.text_verbatim)}</div></article>`).join(''):'<div class=empty>لا توجد أسئلة معتمدة للطلاب حتى الآن.</div>'});function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}</script></html>'''
+PRACTICE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>التدريب العلمي</title><style>body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:900px;margin:auto;padding:18px}.card{background:white;border-radius:16px;padding:18px;margin:14px 0;box-shadow:0 3px 14px #0000000a}.asset{width:100%;max-height:70vh;object-fit:contain;border-radius:10px;background:#fafafa}.meta{color:#667085;font-size:13px}.text{white-space:pre-wrap;line-height:1.8}.empty{text-align:center;padding:50px 10px;color:#667085}</style><main><a href="/student">← بوابة الطالب</a><h1>التدريب العلمي</h1><p>يظهر هنا فقط ما تم اعتماده من بنك الأسئلة وبعد تسجيل الطالب.</p><div id=items class=empty>جارٍ التحقق من الجلسة...</div></main><script>function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}async function load(){let s=await fetch('/api/student/session',{cache:'no-store'}).then(r=>r.json()).catch(()=>({authenticated:false}));if(!s.authenticated){location.href='/student';return}let r=await fetch('/api/practice/questions',{cache:'no-store'});if(!r.ok){items.textContent='تعذر تحميل التدريب.';return}let qs=await r.json();items.className='';items.innerHTML=qs.length?qs.map(q=>`<article class=card><div class=meta>#${q.id} · ${q.source_filename} · صفحة ${q.source_page}</div>${q.has_asset?`<img class=asset src="/api/practice/questions/${q.id}/asset">`:''}<div class=text>${esc(q.text_verbatim)}</div></article>`).join(''):'<div class=empty>لا توجد أسئلة معتمدة للطلاب حتى الآن.</div>'}load()</script></html>'''
 
 
 @app.get('/practice', response_class=HTMLResponse)

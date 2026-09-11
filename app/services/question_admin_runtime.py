@@ -372,4 +372,38 @@ def patch_question_record(question_id: int, raw_values: dict) -> dict:
         ).fetchone()
         if not row:
             raise HTTPException(404, "Question not found")
+
+        if not bool(row["approved"]) and ("approved" in values or approval_sensitive):
+            affected = list(
+                con.execute(
+                    """SELECT DISTINCT q.id,q.lifecycle_status,q.quality_score
+                       FROM quizzes q
+                       JOIN quiz_questions qq ON qq.quiz_id=q.id
+                       WHERE qq.question_id=%s
+                         AND (q.published=TRUE OR q.lifecycle_status='ready')""",
+                    (question_id,),
+                ).fetchall()
+            )
+            for quiz in affected:
+                con.execute(
+                    """UPDATE quizzes
+                       SET published=FALSE,lifecycle_status='quality_review',
+                           quality_score=NULL,ready_at=NULL
+                       WHERE id=%s""",
+                    (quiz["id"],),
+                )
+                con.execute(
+                    """INSERT INTO quiz_audit_log(
+                         quiz_id,action,from_status,to_status,quality_score,details
+                       ) VALUES(
+                         %s,'question_invalidated',%s,'quality_review',%s,
+                         jsonb_build_object('question_id',%s,'reason','question_requires_reapproval')
+                       )""",
+                    (
+                        quiz["id"],
+                        quiz["lifecycle_status"],
+                        quiz["quality_score"],
+                        question_id,
+                    ),
+                )
         return dict(row)

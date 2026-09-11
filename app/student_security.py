@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import os
@@ -10,6 +9,8 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, Response
 
+from .db import connect
+
 
 COOKIE_NAME = "science_student_session"
 SESSION_MAX_AGE = 12 * 60 * 60
@@ -18,7 +19,6 @@ SESSION_MAX_AGE = 12 * 60 * 60
 @dataclass(frozen=True)
 class StudentSession:
     student_id: int
-    external_code: str
     issued_at: int
 
 
@@ -42,27 +42,20 @@ def _secret() -> bytes:
     return hashlib.sha256(("science-student:" + seed).encode("utf-8")).digest()
 
 
-def _encode_code(code: str) -> str:
-    return base64.urlsafe_b64encode(code.encode("utf-8")).decode("ascii").rstrip("=")
-
-
-def _decode_code(value: str) -> str:
-    padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode((value + padding).encode("ascii")).decode("utf-8")
-
-
-def make_student_session_token(student_id: int, external_code: str) -> str:
+def make_student_session_token(student_id: int) -> str:
+    """Create an opaque signed session token that never embeds the login code."""
     issued = int(time.time())
-    nonce = secrets.token_urlsafe(16)
-    encoded = _encode_code(external_code)
-    body = f"{int(student_id)}.{issued}.{nonce}.{encoded}"
+    nonce = secrets.token_urlsafe(24)
+    body = f"v2.{int(student_id)}.{issued}.{nonce}"
     sig = hmac.new(_secret(), body.encode("utf-8"), hashlib.sha256).hexdigest()
     return f"{body}.{sig}"
 
 
 def parse_student_session_token(token: str) -> StudentSession | None:
     try:
-        student_id_s, issued_s, nonce, encoded, sig = token.split(".", 4)
+        version, student_id_s, issued_s, nonce, sig = token.split(".", 4)
+        if version != "v2":
+            return None
         student_id = int(student_id_s)
         issued = int(issued_s)
         if not nonce or student_id < 1:
@@ -70,21 +63,13 @@ def parse_student_session_token(token: str) -> StudentSession | None:
         now = int(time.time())
         if issued > now + 60 or now - issued > SESSION_MAX_AGE:
             return None
-        body = f"{student_id}.{issued}.{nonce}.{encoded}"
+        body = f"v2.{student_id}.{issued}.{nonce}"
         expected = hmac.new(_secret(), body.encode("utf-8"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
             return None
-        code = _decode_code(encoded)
-        if not code:
-            return None
-        return StudentSession(
-            student_id=student_id,
-            external_code=code,
-            issued_at=issued,
-        )
-    except (TypeError, ValueError, UnicodeError, base64.binascii.Error, HTTPException):
+        return StudentSession(student_id=student_id, issued_at=issued)
+    except (TypeError, ValueError, HTTPException):
         return None
-
 
 def student_session(request: Request) -> StudentSession | None:
     token = request.cookies.get(COOKIE_NAME, "")
@@ -95,11 +80,10 @@ def set_student_session_cookie(
     response: Response,
     *,
     student_id: int,
-    external_code: str,
 ) -> None:
     response.set_cookie(
         COOKIE_NAME,
-        make_student_session_token(student_id, external_code),
+        make_student_session_token(student_id),
         max_age=SESSION_MAX_AGE,
         httponly=True,
         secure=_production(),
@@ -118,12 +102,25 @@ def clear_student_session_cookie(response: Response) -> None:
     )
 
 
-def resolve_student_code(request: Request) -> str:
-    """Resolve the authenticated student exclusively from the signed HttpOnly session."""
+def resolve_student_id(request: Request) -> int:
+    """Resolve the authenticated student id exclusively from the signed session."""
     session = student_session(request)
     if session:
-        return session.external_code
+        return session.student_id
     raise HTTPException(
         401,
         "سجّل الدخول بكود الطالب أولًا لإنشاء جلسة آمنة",
     )
+
+
+def resolve_student_code(request: Request) -> str:
+    """Backward-compatible resolver without storing the login code in the cookie."""
+    student_id = resolve_student_id(request)
+    with connect() as con:
+        row = con.execute(
+            "SELECT external_code FROM students WHERE id=%s",
+            (student_id,),
+        ).fetchone()
+    if not row or not row.get("external_code"):
+        raise HTTPException(401, "جلسة الطالب لم تعد صالحة")
+    return str(row["external_code"])

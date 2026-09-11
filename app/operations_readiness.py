@@ -6,7 +6,7 @@ from fastapi import Depends
 from fastapi.responses import HTMLResponse
 
 from .main import app
-from .security import admin_configured, require_admin
+from .security import admin_configured, admin_session_secret_configured, require_admin
 from .system_readiness import system_readiness
 from .services.ai_governance import governance_snapshot
 from .services.ai_budget import budget_snapshot
@@ -153,6 +153,17 @@ def build_operations_readiness() -> dict:
     ]
 
     optional = [
+        {
+            "id": "admin_session_secret",
+            "name": "فصل سر جلسة الإدارة",
+            "ok": admin_session_secret_configured(),
+            "detail": (
+                "ADMIN_SESSION_SECRET مستقل ومفعّل"
+                if admin_session_secret_configured()
+                else "الجلسة تعمل بالتوافق الحالي؛ يُفضّل ضبط ADMIN_SESSION_SECRET مستقل قبل الإصدار النهائي"
+            ),
+            "path": "/admin/technical-observability",
+        },
         {
             "id": "gemini",
             "name": "Gemini Source Engine",

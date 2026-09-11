@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -30,6 +31,29 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Science Education Platform", version="1.8.1", lifespan=lifespan)
 
+SENSITIVE_CACHE_PREFIXES = (
+    "/admin",
+    "/api/admin",
+    "/student",
+    "/api/student",
+    "/api/practice",
+    "/api/attempts",
+    "/api/integrations/canva/oauth",
+)
+
+
+def _production_runtime() -> bool:
+    return os.getenv("VERCEL_ENV", "").strip().lower() == "production"
+
+
+def _sensitive_cache_path(path: str) -> bool:
+    value = str(path or "")
+    return any(
+        value == prefix or value.startswith(prefix + "/")
+        for prefix in SENSITIVE_CACHE_PREFIXES
+    )
+
+
 @app.middleware("http")
 async def protect_admin_pages(request: Request, call_next):
     path=request.url.path
@@ -39,13 +63,22 @@ async def protect_admin_pages(request: Request, call_next):
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    request_id = uuid.uuid4().hex
+    request.state.request_id = request_id
     response=await call_next(request)
+    response.headers.setdefault("X-Request-ID",request_id)
     response.headers.setdefault("X-Content-Type-Options","nosniff")
     response.headers.setdefault("X-Frame-Options","DENY")
     response.headers.setdefault("Referrer-Policy","same-origin")
     response.headers.setdefault("Permissions-Policy","camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault("X-Permitted-Cross-Domain-Policies","none")
     response.headers.setdefault("Content-Security-Policy",
       "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+    if _sensitive_cache_path(request.url.path):
+        response.headers["Cache-Control"]="no-store, max-age=0"
+        response.headers["Pragma"]="no-cache"
+    if _production_runtime():
+        response.headers.setdefault("Strict-Transport-Security","max-age=31536000; includeSubDomains")
     return response
 
 class QuestionPatch(BaseModel):

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .main import app
-from .security import COOKIE_NAME, SESSION_MAX_AGE, admin_configured, admin_session_valid, make_admin_session_token, validate_admin_key
+from .security import COOKIE_NAME, SESSION_MAX_AGE, admin_configured, admin_session_valid, make_admin_session_token, require_admin, validate_admin_key
 from .services.rate_limit import enforce_request_policy
 
 
@@ -44,7 +44,7 @@ def admin_login(p: LoginIn, response: Response, request: Request):
     return {"ok": True, "expires_in_seconds": SESSION_MAX_AGE}
 
 
-@app.post("/api/admin/logout")
+@app.post("/api/admin/logout", dependencies=[Depends(require_admin)])
 def admin_logout(response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.delete_cookie(COOKIE_NAME, path="/")

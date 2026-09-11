@@ -136,14 +136,15 @@ def _publish_if_ready(con, item):
     return {**item,'published':quality['ready'],'status':target,'quality_score':quality['score'],'quality':quality}
 
 
-def run_phase2_bootstrap():
+def run_phase2_bootstrap(*, release_schema_ready: bool = False):
     """Initialize acceptance schemas, then run idempotent source-backed production hardening."""
     from .lesson_release_state import ensure_release_state_schema
     from ..lesson_studio_version_history import _history_schema
     from ..science_reference_curriculum_map import _map_schema
     from ..science_reference_library import _schema as reference_schema
 
-    ensure_release_state_schema()
+    if not release_schema_ready:
+        ensure_release_state_schema()
     reference_schema()
     _map_schema()
     _history_schema()

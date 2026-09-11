@@ -106,12 +106,15 @@ class StartupMigrationLockTests(unittest.TestCase):
         ), patch(
             "app.lesson_studio_version_history._history_schema"
         ), patch.object(
+            phase2, "startup_migration_lock"
+        ) as migration_lock, patch.object(
             phase2, "connect", return_value=context
         ), patch.object(
             phase2, "_active_context", return_value=None
         ):
             phase2.run_phase2_bootstrap()
 
+        migration_lock.assert_called_once_with()
         release_schema.assert_called_once_with()
 
 

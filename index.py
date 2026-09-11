@@ -27,6 +27,7 @@ from app import teacher_intervention_ui  # noqa: F401,E402
 from app import system_readiness  # noqa: F401,E402
 from app import operations_readiness  # noqa: F401,E402
 from app import technical_observability  # noqa: F401,E402
+from app import database_performance  # noqa: F401,E402
 from app import runtime_health  # noqa: F401,E402
 from app import runtime_probe  # noqa: F401,E402
 from app import phase2_admin  # noqa: F401,E402

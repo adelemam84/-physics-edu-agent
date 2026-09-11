@@ -2,11 +2,154 @@ from __future__ import annotations
 import os
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Mapping
+from urllib.parse import urlsplit, urlunsplit
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 STORAGE_BACKEND = "neon_postgresql" if DATABASE_URL else "not_configured"
 
 STARTUP_MIGRATION_LOCK_KEY = 2026091101
+_DIRECT_DATABASE_CONTEXT: ContextVar[bool] = ContextVar(
+    "physics_edu_direct_database",
+    default=False,
+)
+
+
+def _replace_hostname(url: str, hostname: str) -> str:
+    """Replace only the URL hostname while preserving credentials, port, path and query."""
+    parts = urlsplit(str(url or "").strip())
+    if not parts.hostname:
+        return str(url or "").strip()
+    if "@" in parts.netloc:
+        userinfo, hostport = parts.netloc.rsplit("@", 1)
+        prefix = userinfo + "@"
+    else:
+        hostport = parts.netloc
+        prefix = ""
+    port = f":{parts.port}" if parts.port else ""
+    return urlunsplit(
+        (parts.scheme, f"{prefix}{hostname}{port}", parts.path, parts.query, parts.fragment)
+    )
+
+
+def _neon_hostname(url: str) -> str:
+    try:
+        return str(urlsplit(str(url or "").strip()).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _is_neon_url(url: str) -> bool:
+    return _neon_hostname(url).endswith(".neon.tech")
+
+
+def _is_pooled_url(url: str) -> bool:
+    return "-pooler." in _neon_hostname(url)
+
+
+def _to_neon_pooled_url(url: str) -> str:
+    """Return the equivalent Neon PgBouncer URL when the input is a Neon direct URL."""
+    hostname = _neon_hostname(url)
+    if not hostname or not hostname.endswith(".neon.tech") or "-pooler." in hostname:
+        return str(url or "").strip()
+    labels = hostname.split(".")
+    labels[0] = labels[0] + "-pooler"
+    return _replace_hostname(url, ".".join(labels))
+
+
+def _to_neon_direct_url(url: str) -> str:
+    """Return the equivalent direct Neon URL when the input is a pooled Neon URL."""
+    hostname = _neon_hostname(url)
+    if not hostname or "-pooler." not in hostname:
+        return str(url or "").strip()
+    return _replace_hostname(url, hostname.replace("-pooler.", ".", 1))
+
+
+def resolve_database_urls(env: Mapping[str, str] | None = None) -> dict:
+    """Resolve secret-bearing runtime/direct URLs without exposing them in diagnostics."""
+    source = env if env is not None else os.environ
+    configured = str(source.get("DATABASE_URL") or "").strip()
+    direct_override = str(source.get("DATABASE_DIRECT_URL") or "").strip()
+    policy = str(source.get("DATABASE_RUNTIME_POOLING") or "auto").strip().lower()
+    if policy not in {"auto", "pooled", "direct"}:
+        policy = "auto"
+
+    direct_source = direct_override or configured
+    direct_url = (
+        _to_neon_direct_url(direct_source)
+        if _is_neon_url(direct_source)
+        else direct_source
+    )
+
+    runtime_url = configured
+    on_vercel = (
+        str(source.get("VERCEL") or "") == "1"
+        or bool(str(source.get("VERCEL_ENV") or "").strip())
+    )
+    if policy == "pooled" and _is_neon_url(runtime_url):
+        runtime_url = _to_neon_pooled_url(runtime_url)
+    elif policy == "direct" and _is_neon_url(runtime_url):
+        runtime_url = _to_neon_direct_url(runtime_url)
+    elif policy == "auto" and on_vercel and _is_neon_url(runtime_url):
+        runtime_url = _to_neon_pooled_url(runtime_url)
+
+    return {
+        "configured_url": configured,
+        "runtime_url": runtime_url,
+        "direct_url": direct_url,
+        "pooling_policy": policy,
+        "direct_override": bool(direct_override),
+        "on_vercel": on_vercel,
+    }
+
+
+_DATABASE_URLS = resolve_database_urls()
+RUNTIME_DATABASE_URL = _DATABASE_URLS["runtime_url"]
+DIRECT_DATABASE_URL = _DATABASE_URLS["direct_url"]
+DATABASE_RUNTIME_POOLING = _DATABASE_URLS["pooling_policy"]
+
+
+def database_connection_profile(env: Mapping[str, str] | None = None) -> dict:
+    """Return a secret-free description of runtime pooling and migration safety."""
+    urls = resolve_database_urls(env) if env is not None else dict(_DATABASE_URLS)
+    runtime_url = str(urls.get("runtime_url") or "")
+    direct_url = str(urls.get("direct_url") or "")
+    is_neon = _is_neon_url(runtime_url or direct_url)
+    runtime_mode = "pooled" if _is_pooled_url(runtime_url) else "direct"
+    direct_mode = "pooled" if _is_pooled_url(direct_url) else "direct"
+    migration_safe = bool(direct_url) and direct_mode == "direct"
+    return {
+        "configured": bool(urls.get("configured_url")),
+        "is_neon": is_neon,
+        "on_vercel": bool(urls.get("on_vercel")),
+        "pooling_policy": urls.get("pooling_policy"),
+        "runtime_mode": runtime_mode if runtime_url else "not_configured",
+        "migration_mode": direct_mode if direct_url else "not_configured",
+        "migration_safe": migration_safe,
+        "direct_override": bool(urls.get("direct_override")),
+        "automatic_pooler_derivation": bool(
+            is_neon
+            and runtime_url
+            and runtime_url != str(urls.get("configured_url") or "")
+            and _is_pooled_url(runtime_url)
+        ),
+        "secret_values_returned": False,
+    }
+
+
+@contextmanager
+def direct_database_context():
+    """Force nested connect() calls to use the direct migration-safe URL."""
+    token = _DIRECT_DATABASE_CONTEXT.set(True)
+    try:
+        yield
+    finally:
+        _DIRECT_DATABASE_CONTEXT.reset(token)
+
+
+def _selected_database_url() -> str:
+    return DIRECT_DATABASE_URL if _DIRECT_DATABASE_CONTEXT.get() else RUNTIME_DATABASE_URL
 
 
 def _positive_float_env(name: str, default: float) -> float:
@@ -43,8 +186,8 @@ def _acquire_startup_advisory_lock(
 
 @contextmanager
 def startup_migration_lock():
-    """Serialize serverless startup DDL across concurrent cold starts."""
-    if not DATABASE_URL:
+    """Serialize startup DDL and force all nested DB work onto the direct connection."""
+    if not DIRECT_DATABASE_URL:
         raise RuntimeError("DATABASE_URL is required")
     import psycopg
     from psycopg.rows import dict_row
@@ -56,7 +199,7 @@ def startup_migration_lock():
         "STARTUP_MIGRATION_LOCK_POLL_SECONDS", 0.25
     )
     con = psycopg.connect(
-        DATABASE_URL,
+        DIRECT_DATABASE_URL,
         row_factory=dict_row,
         connect_timeout=10,
         autocommit=True,
@@ -70,7 +213,8 @@ def startup_migration_lock():
             poll_seconds=poll_seconds,
         )
         acquired = True
-        yield
+        with direct_database_context():
+            yield
     finally:
         if acquired:
             try:
@@ -85,12 +229,19 @@ def startup_migration_lock():
 
 @contextmanager
 def connect():
-    """Open one transactional PostgreSQL connection and commit or roll back atomically."""
-    if not DATABASE_URL:
+    """Open one transaction using pooled runtime DB or direct migration DB by context."""
+    database_url = _selected_database_url()
+    if not database_url:
         raise RuntimeError("DATABASE_URL is required")
     import psycopg
     from psycopg.rows import dict_row
-    con = psycopg.connect(DATABASE_URL, row_factory=dict_row, connect_timeout=10)
+    timeout = max(1, int(_positive_float_env("DATABASE_CONNECT_TIMEOUT_SECONDS", 10)))
+    con = psycopg.connect(
+        database_url,
+        row_factory=dict_row,
+        connect_timeout=timeout,
+        application_name="physics-edu-agent",
+    )
     try:
         yield con
         con.commit()

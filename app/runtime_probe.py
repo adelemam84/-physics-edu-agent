@@ -9,34 +9,28 @@ from .main import app
 from .services.runtime_identity import runtime_identity
 
 
-def _file_search_store_configured() -> bool:
-    env_name = os.getenv("GEMINI_FILE_SEARCH_STORE", "").strip()
-    if env_name:
-        return True
-    try:
-        with connect() as con:
-            row = con.execute(
-                """SELECT value FROM settings
-                   WHERE key='gemini_file_search_store'
-                     AND btrim(coalesce(value,''))<>''"""
-            ).fetchone()
-        return bool(row)
-    except Exception:
-        return False
-
-
 def lightweight_runtime_readiness() -> dict:
     """Check only low-cost runtime dependencies required for technical service."""
     identity = runtime_identity(application_version=app.version)
     config = dict(identity.get("config_state") or {})
 
     db_ok = False
+    file_search_store = bool(os.getenv("GEMINI_FILE_SEARCH_STORE", "").strip())
     try:
         with connect() as con:
             row = con.execute("SELECT 1 ok").fetchone()
-        db_ok = bool(row and int(row["ok"]) == 1)
+            db_ok = bool(row and int(row["ok"]) == 1)
+            if db_ok and not file_search_store:
+                store_row = con.execute(
+                    """SELECT 1 ok FROM settings
+                       WHERE key='gemini_file_search_store'
+                         AND btrim(coalesce(value,''))<>''
+                       LIMIT 1"""
+                ).fetchone()
+                file_search_store = bool(store_row)
     except Exception:
         db_ok = False
+        file_search_store = False
 
     critical_config = {
         "database": bool(config.get("database")),
@@ -44,7 +38,7 @@ def lightweight_runtime_readiness() -> dict:
         "student_session": bool(config.get("student_session")),
         "object_storage": bool(config.get("object_storage")),
         "gemini": bool(config.get("gemini")),
-        "file_search_store": bool(db_ok and _file_search_store_configured()),
+        "file_search_store": file_search_store,
     }
 
     deployment_ok = True

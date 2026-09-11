@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from .main import app
 from .security import COOKIE_NAME, SESSION_MAX_AGE, admin_configured, admin_session_valid, make_admin_session_token, validate_admin_key
+from .services.rate_limit import enforce_request_policy
 
 
 class LoginIn(BaseModel):
@@ -13,12 +14,20 @@ class LoginIn(BaseModel):
 
 
 @app.get("/api/admin/session")
-def admin_session_status(request: Request):
+def admin_session_status(request: Request, response: Response):
+    response.headers["Cache-Control"] = "no-store"
     return {"configured": admin_configured(), "authenticated": admin_session_valid(request)}
 
 
 @app.post("/api/admin/login")
-def admin_login(p: LoginIn, response: Response):
+def admin_login(p: LoginIn, response: Response, request: Request):
+    response.headers["Cache-Control"] = "no-store"
+    enforce_request_policy(
+        request,
+        name="admin_login",
+        default_limit=8,
+        default_window_seconds=900,
+    )
     if not admin_configured():
         raise HTTPException(503, "ADMIN_API_KEY is not configured")
     if not validate_admin_key(p.key.strip()):
@@ -37,6 +46,7 @@ def admin_login(p: LoginIn, response: Response):
 
 @app.post("/api/admin/logout")
 def admin_logout(response: Response):
+    response.headers["Cache-Control"] = "no-store"
     response.delete_cookie(COOKIE_NAME, path="/")
     return {"ok": True}
 

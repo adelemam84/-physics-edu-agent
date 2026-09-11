@@ -8,7 +8,7 @@ import fitz
 from PIL import Image, ImageOps
 from fastapi import HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .db import connect
 from .main import app
@@ -20,6 +20,7 @@ from .services.rate_limit import enforce_subject_policy
 class StudentReviewExportRequest(BaseModel):
     """Configure one student-owned review export; ownership comes from the signed session."""
 
+    model_config = ConfigDict(extra="forbid")
     max_questions: int = Field(default=100, ge=1, le=200)
 
 

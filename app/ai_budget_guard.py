@@ -31,8 +31,20 @@ _AI_ROUTE_POLICIES: tuple[tuple[re.Pattern[str], dict[str, str | None]], ...] = 
         {"provider": "openai", "task": "independent_scientific_review", "model": None},
     ),
     (
-        re.compile(r"^/api/admin/lesson-studio/jobs/[^/]+/handwriting-pipeline$"),
-        {"provider": "lesson_studio", "task": "handwriting_pipeline", "model": None},
+        re.compile(r"^/api/admin/lesson-studio/jobs/[^/]+/reference-review$"),
+        {"provider": "gemini", "task": "scientific_reference_review", "model": None},
+    ),
+    (
+        re.compile(r"^/api/admin/research-engine/file-search-store/ensure$"),
+        {"provider": "gemini", "task": "file_search_store_admin", "model": None},
+    ),
+    (
+        re.compile(r"^/api/admin/research-engine/index/document/\d+$"),
+        {"provider": "gemini", "task": "source_indexing", "model": None},
+    ),
+    (
+        re.compile(r"^/api/admin/research-engine/index/refresh/\d+$"),
+        {"provider": "gemini", "task": "source_indexing_status", "model": None},
     ),
 )
 

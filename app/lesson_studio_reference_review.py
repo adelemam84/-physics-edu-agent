@@ -115,7 +115,7 @@ def run_reference_review(job_id: str):
             'المراجع العلمية المختارة:\n' + '\n\n'.join(excerpts) + '\n\n'
             'قالب الإخراج:\n' + json.dumps(expected, ensure_ascii=False)
         )
-        raw = _gemini_text([{'text': prompt}], instruction, json_mode=True)
+        raw = _gemini_text([{'text': prompt}], instruction, json_mode=True, task='scientific_reference_review')
         try:
             review = json.loads(raw)
         except json.JSONDecodeError as exc:

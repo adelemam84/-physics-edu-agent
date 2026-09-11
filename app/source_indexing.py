@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -11,6 +12,8 @@ from .file_search_store import configured_store_name, ensure_store
 from .main import app
 from .research_engine import GEMINI_API_KEY
 from .security import require_admin
+from .services.ai_budget import enforce_ai_budget
+from .services.ai_telemetry import record_ai_usage
 
 MAX_INDEX_CHARS = 4_000_000
 
@@ -86,6 +89,7 @@ def _metadata(doc) -> list[dict]:
 
 
 def _start_resumable_upload(store_name: str, display_name: str, data: bytes, metadata: list[dict]) -> str:
+    enforce_ai_budget(provider='gemini', task='source_indexing_upload_start', model=None)
     url=f'https://generativelanguage.googleapis.com/upload/v1beta/{store_name}:uploadToFileSearchStore'
     headers={
         'x-goog-api-key': GEMINI_API_KEY,
@@ -101,31 +105,81 @@ def _start_resumable_upload(store_name: str, display_name: str, data: bytes, met
         'customMetadata':metadata,
         'chunkingConfig':{'whiteSpaceConfig':{'maxTokensPerChunk':800,'maxOverlapTokens':120}},
     }
-    with httpx.Client(timeout=45) as client:
-        response=client.post(url,headers=headers,json=body)
+    started=time.perf_counter()
+    try:
+        with httpx.Client(timeout=45) as client:
+            response=client.post(url,headers=headers,json=body)
+    except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_upload_start',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code='network',
+            metadata={'bytes':len(data)},
+        )
+        raise HTTPException(502,'Gemini resumable upload start is temporarily unavailable') from exc
     if response.status_code >= 400:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_upload_start',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code=str(response.status_code),
+            metadata={'bytes':len(data)},
+        )
         raise HTTPException(502, {'message':'Gemini resumable upload start failed','provider_status':response.status_code,'provider_detail':response.text[:500]})
     upload_url=response.headers.get('x-goog-upload-url','').strip()
     if not upload_url:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_upload_start',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code='missing_upload_url',
+            metadata={'bytes':len(data)},
+        )
         raise HTTPException(502, 'Gemini did not return a resumable upload URL')
+    record_ai_usage(
+        provider='gemini',task='source_indexing_upload_start',model=None,status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        metadata={'bytes':len(data)},
+    )
     return upload_url
 
 
 def _finish_upload(upload_url: str, data: bytes) -> dict:
+    enforce_ai_budget(provider='gemini', task='source_indexing_upload_finalize', model=None)
     headers={
         'Content-Length':str(len(data)),
         'X-Goog-Upload-Offset':'0',
         'X-Goog-Upload-Command':'upload, finalize',
         'Content-Type':'text/plain; charset=utf-8',
     }
-    with httpx.Client(timeout=120) as client:
-        response=client.post(upload_url,headers=headers,content=data)
+    started=time.perf_counter()
+    try:
+        with httpx.Client(timeout=120) as client:
+            response=client.post(upload_url,headers=headers,content=data)
+    except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_upload_finalize',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code='network',
+            metadata={'bytes':len(data)},
+        )
+        raise HTTPException(502,'Gemini source upload is temporarily unavailable') from exc
     if response.status_code >= 400:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_upload_finalize',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code=str(response.status_code),
+            metadata={'bytes':len(data)},
+        )
         raise HTTPException(502, {'message':'Gemini source upload failed','provider_status':response.status_code,'provider_detail':response.text[:500]})
     try:
-        return response.json()
+        payload=response.json()
     except ValueError as exc:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_upload_finalize',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code='invalid_json',
+            metadata={'bytes':len(data)},
+        )
         raise HTTPException(502, 'Gemini source upload returned invalid JSON') from exc
+    record_ai_usage(
+        provider='gemini',task='source_indexing_upload_finalize',model=None,status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        metadata={'bytes':len(data)},
+    )
+    return payload
 
 
 def _save_sync(document_id: int, store_name: str, *, operation_name: str='', provider_document_name: str='', state: str, indexed_chars: int, source_pages: int, source_sha256: str='', error_detail: str='') -> None:
@@ -166,12 +220,37 @@ def sync_document(document_id: int) -> dict:
 def _operation(name: str) -> dict:
     if not name:
         return {}
+    enforce_ai_budget(provider='gemini', task='source_indexing_status', model=None)
     url=f'https://generativelanguage.googleapis.com/v1beta/{name}'
-    with httpx.Client(timeout=30) as client:
-        r=client.get(url,headers={'x-goog-api-key':GEMINI_API_KEY})
+    started=time.perf_counter()
+    try:
+        with httpx.Client(timeout=30) as client:
+            r=client.get(url,headers={'x-goog-api-key':GEMINI_API_KEY})
+    except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_status',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code='network',
+        )
+        raise HTTPException(502,'Gemini operation status is temporarily unavailable') from exc
     if r.status_code >= 400:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_status',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code=str(r.status_code),
+        )
         raise HTTPException(502, {'message':'Gemini operation status failed','provider_status':r.status_code,'provider_detail':r.text[:500]})
-    return r.json()
+    try:
+        payload=r.json()
+    except ValueError as exc:
+        record_ai_usage(
+            provider='gemini',task='source_indexing_status',model=None,status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),error_code='invalid_json',
+        )
+        raise HTTPException(502,'Gemini operation status returned invalid JSON') from exc
+    record_ai_usage(
+        provider='gemini',task='source_indexing_status',model=None,status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+    )
+    return payload
 
 
 @app.get('/api/admin/research-engine/index/status',dependencies=[Depends(require_admin)])

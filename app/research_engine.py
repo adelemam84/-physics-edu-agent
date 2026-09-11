@@ -16,6 +16,7 @@ from .security import require_admin
 from .services.ai_orchestrator import build_orchestration_plan, integrity_envelope, plan_dict
 from .services.source_asset_runtime import _source_pdf
 from .services.ai_telemetry import record_ai_usage
+from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
@@ -119,6 +120,7 @@ def _system_instruction(page_start: int, page_end: int) -> str:
 
 
 def _gemini_exact_pdf_query(pdf_bytes: bytes, prompt: str, page_start: int, page_end: int, task: str):
+    enforce_ai_budget(provider='gemini', task=task, model=GEMINI_MODEL)
     body = {
         'systemInstruction': {'parts': [{'text': _system_instruction(page_start, page_end)}]},
         'contents': [{
@@ -137,6 +139,7 @@ def _gemini_exact_pdf_query(pdf_bytes: bytes, prompt: str, page_start: int, page
 def _gemini_file_search_query(prompt: str, task: str):
     if not GEMINI_FILE_SEARCH_STORE:
         raise HTTPException(503, 'Gemini File Search store is not configured')
+    enforce_ai_budget(provider='gemini', task=task, model=GEMINI_MODEL)
     body = {
         'model': GEMINI_MODEL,
         'input': f'{_system_instruction(1, 1)}\nنوع المهمة: {task}\nالمطلوب: {prompt}',

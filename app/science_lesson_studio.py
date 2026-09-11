@@ -20,6 +20,7 @@ from .services.storage import get_bytes, put_bytes, storage_configured
 from .services.ocr_consensus import compare_ocr, single_provider_result
 from .services.science_diagrams import DiagramSpec, render as render_science_diagram, supported_kinds
 from .services.ai_telemetry import record_ai_usage
+from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
@@ -88,6 +89,7 @@ def _gemini_text(
 ) -> str:
     if not GEMINI_API_KEY:
         raise HTTPException(503, 'GEMINI_API_KEY is not configured')
+    enforce_ai_budget(provider='gemini', task=task, model=GEMINI_MODEL)
     body = {
         'systemInstruction': {'parts': [{'text': system}]},
         'contents': [{'role': 'user', 'parts': parts}],
@@ -148,6 +150,7 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
         raise HTTPException(503, 'Mathpix is not configured')
     if content_type == 'application/pdf':
         raise HTTPException(409, 'Mathpix PDF OCR requires asynchronous worker mode; use Gemini for PDF pages')
+    enforce_ai_budget(provider='mathpix', task='handwriting_ocr_verifier', model='mathpix-v3-text')
     payload = {
         'src': 'data:' + content_type + ';base64,' + base64.b64encode(data).decode('ascii'),
         'formats': ['text'],

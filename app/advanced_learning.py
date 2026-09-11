@@ -154,7 +154,8 @@ def _mock_exam(con, student_id: int):
           (SELECT max(100.0*a.score/nullif(a.max_score,0)) FROM attempts a WHERE a.student_id=%s AND a.quiz_id=q.id AND a.completed_at IS NOT NULL) best_percentage
           FROM quizzes q
           LEFT JOIN curriculum_versions cv ON cv.id=q.curriculum_version_id
-          WHERE q.published=TRUE AND q.lifecycle_status='published' AND coalesce(cv.active,TRUE)=TRUE
+          WHERE q.published=TRUE AND q.lifecycle_status='published'
+            AND q.owner_student_id IS NULL AND coalesce(cv.active,TRUE)=TRUE
           ORDER BY
             CASE WHEN (SELECT count(*) FROM attempts a WHERE a.student_id=%s AND a.quiz_id=q.id AND a.completed_at IS NOT NULL)=0 THEN 0 ELSE 1 END,
             q.quality_score DESC NULLS LAST,q.published_at DESC NULLS LAST,q.id DESC

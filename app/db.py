@@ -53,8 +53,9 @@ def _to_neon_pooled_url(url: str) -> str:
     hostname = _neon_hostname(url)
     if not hostname or not hostname.endswith(".neon.tech") or "-pooler." in hostname:
         return str(url or "").strip()
-    base = hostname.removesuffix(".neon.tech")
-    return _replace_hostname(url, f"{base}-pooler.neon.tech")
+    labels = hostname.split(".")
+    labels[0] = labels[0] + "-pooler"
+    return _replace_hostname(url, ".".join(labels))
 
 
 def _to_neon_direct_url(url: str) -> str:

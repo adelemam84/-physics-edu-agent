@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "795e14d2db1f268f67d2e11e4962dad4d76d0810",
+  "requested_code_sha": "614fa36f17dab495ceb7d4d84da2d42b8846247b",
   "requested_at": "2026-09-12",
-  "reason": "Bootstrap the missing production student-session signing secret, then retry the gated technical runtime release",
+  "reason": "Retry gated technical production release after Vercel token setup and local-build uv hardening",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

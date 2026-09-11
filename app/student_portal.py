@@ -7,8 +7,8 @@ from .adaptive_practice import build_adaptive_practice
 from .student_security import resolve_student_code
 
 @app.get("/api/student/portal")
-def student_portal(request: Request, student_code: str | None = None):
-    code=resolve_student_code(request, student_code)
+def student_portal(request: Request):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name,external_code FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")

@@ -1,9 +1,10 @@
 from __future__ import annotations
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from .main import app
 from .db import connect
 from .security import require_admin
+from .student_security import resolve_student_code
 
 @app.get("/api/admin/students/{student_id}/error-notebook",dependencies=[Depends(require_admin)])
 def error_notebook(student_id:int,limit:int=100):
@@ -101,9 +102,10 @@ def admin_student_mastery(student_id:int):
     return {"student":st,**data}
 
 @app.get("/api/student/mastery")
-def student_mastery(student_code:str):
+def student_mastery(request: Request, student_code: str | None = None):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
-        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         data=_student_mastery(con,st["id"])
     return {"student":st,**data}
@@ -164,9 +166,10 @@ def admin_remedial_progress(student_id:int,limit:int=8):
         return {"student_id":student_id,"cycles":_remedial_progress(con,student_id,limit)}
 
 @app.get("/api/student/remedial-progress")
-def student_remedial_progress(student_code:str,limit:int=8):
+def student_remedial_progress(request: Request, student_code: str | None = None, limit:int=8):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
-        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         return {"student":st,"cycles":_remedial_progress(con,st["id"],limit)}
 
@@ -237,8 +240,9 @@ def admin_student_recommendations(student_id:int):
         return {"student_id":student_id,**_learning_recommendations(con,student_id)}
 
 @app.get("/api/student/recommendations")
-def student_recommendations(student_code:str):
+def student_recommendations(request: Request, student_code: str | None = None):
+    code=resolve_student_code(request, student_code)
     with connect() as con:
-        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(student_code.strip(),)).fetchone()
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         return {"student":st,**_learning_recommendations(con,st["id"])}

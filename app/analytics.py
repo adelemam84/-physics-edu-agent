@@ -102,8 +102,8 @@ def admin_student_mastery(student_id:int):
     return {"student":st,**data}
 
 @app.get("/api/student/mastery")
-def student_mastery(request: Request, student_code: str | None = None):
-    code=resolve_student_code(request, student_code)
+def student_mastery(request: Request):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -166,8 +166,8 @@ def admin_remedial_progress(student_id:int,limit:int=8):
         return {"student_id":student_id,"cycles":_remedial_progress(con,student_id,limit)}
 
 @app.get("/api/student/remedial-progress")
-def student_remedial_progress(request: Request, student_code: str | None = None, limit:int=8):
-    code=resolve_student_code(request, student_code)
+def student_remedial_progress(request: Request, limit:int=8):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
@@ -240,8 +240,8 @@ def admin_student_recommendations(student_id:int):
         return {"student_id":student_id,**_learning_recommendations(con,student_id)}
 
 @app.get("/api/student/recommendations")
-def student_recommendations(request: Request, student_code: str | None = None):
-    code=resolve_student_code(request, student_code)
+def student_recommendations(request: Request):
+    code=resolve_student_code(request)
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")

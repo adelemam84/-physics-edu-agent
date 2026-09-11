@@ -85,9 +85,10 @@ class DatabaseConnectionStrategyTests(unittest.TestCase):
         self.assertTrue(profile["automatic_pooler_derivation"])
         self.assertFalse(profile["secret_values_returned"])
         rendered = repr(profile)
-        self.assertNotIn("user", rendered)
-        self.assertNotIn("secret", rendered)
+        self.assertNotIn("postgresql://", rendered)
+        self.assertNotIn("user:secret", rendered)
         self.assertNotIn("ep-shiny-tree", rendered)
+        self.assertNotIn("neon.tech", rendered)
 
     def test_direct_context_switches_selected_connection_and_restores_it(self):
         with patch.object(db, "RUNTIME_DATABASE_URL", POOLED), \

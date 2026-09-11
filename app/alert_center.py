@@ -157,6 +157,7 @@ def collect_alerts():
     if missing:
         alerts.append({"severity":"warning","source":"configuration","title":"إعدادات تشغيل ناقصة","detail":"، ".join(missing),"path":"/admin/readiness"})
 
+    readiness=None
     try:
         readiness=build_operations_readiness()
         alerts.extend(_technical_readiness_alerts(readiness))
@@ -169,7 +170,11 @@ def collect_alerts():
         })
 
     try:
-        alerts.extend(_observability_alerts(technical_observability_snapshot()))
+        alerts.extend(_observability_alerts(
+          technical_observability_snapshot(
+            readiness_snapshot=readiness if isinstance(readiness,dict) else None
+          )
+        ))
     except Exception:
         alerts.append({
           "severity":"error","source":"observability",

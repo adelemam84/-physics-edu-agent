@@ -32,7 +32,7 @@ def create_student_session(payload: StudentSessionLogin, response: Response, req
         raise HTTPException(400, "أدخل كود الطالب")
     with connect() as con:
         student = con.execute(
-            "SELECT id,name,external_code FROM students WHERE external_code=%s",
+            "SELECT id,name FROM students WHERE external_code=%s",
             (code,),
         ).fetchone()
     if not student:
@@ -40,7 +40,6 @@ def create_student_session(payload: StudentSessionLogin, response: Response, req
     set_student_session_cookie(
         response,
         student_id=student["id"],
-        external_code=student["external_code"],
     )
     return {
         "authenticated": True,
@@ -60,8 +59,8 @@ def read_student_session(request: Request, response: Response):
         return {"authenticated": False}
     with connect() as con:
         student = con.execute(
-            "SELECT id,name FROM students WHERE id=%s AND external_code=%s",
-            (session.student_id, session.external_code),
+            "SELECT id,name FROM students WHERE id=%s",
+            (session.student_id,),
         ).fetchone()
     if not student:
         return {"authenticated": False}

@@ -34,6 +34,24 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
     def test_node_matches_current_vercel_runtime_generation(self):
         self.assertIn('node-version: "24"', self.text)
 
+    def test_required_production_env_names_are_preflighted_without_values(self):
+        self.assertIn("Validate production runtime configuration", self.text)
+        for name in (
+            "DATABASE_URL",
+            "ADMIN_API_KEY",
+            "STUDENT_SESSION_SECRET",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_ENDPOINT_URL_S3",
+            "AWS_REGION",
+        ):
+            self.assertIn(f'"{name}"', self.text)
+        self.assertIn("Missing required production environment keys", self.text)
+
+    def test_controlled_release_provenance_is_injected_at_runtime(self):
+        self.assertIn("--env RELEASE_GIT_REF=main", self.text)
+        self.assertIn('--env RELEASE_GIT_SHA="$GITHUB_SHA"', self.text)
+
     def test_production_is_staged_before_domain_assignment(self):
         stage = self.text.index("--prod --skip-domain")
         staged_health = self.text.index("Verify staged health contract")

@@ -87,6 +87,41 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      - name: Validate production runtime configuration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path(".vercel/.env.production.local")
+          if not path.is_file():
+              raise SystemExit("Vercel production environment file was not pulled")
+
+          present = set()
+          for raw in path.read_text(encoding="utf-8").splitlines():
+              line = raw.strip()
+              if not line or line.startswith("#") or "=" not in line:
+                  continue
+              key = line.split("=", 1)[0].strip()
+              if key:
+                  present.add(key)
+
+          required = {
+              "DATABASE_URL",
+              "ADMIN_API_KEY",
+              "STUDENT_SESSION_SECRET",
+              "AWS_ACCESS_KEY_ID",
+              "AWS_SECRET_ACCESS_KEY",
+              "AWS_ENDPOINT_URL_S3",
+              "AWS_REGION",
+          }
+          missing = sorted(required - present)
+          if missing:
+              raise SystemExit(
+                  "Missing required production environment keys: " + ", ".join(missing)
+              )
+          print("Required production environment keys are present")
+          PY
+
       - name: Build production artifact
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -98,7 +133,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --skip-domain --yes --token="$VERCEL_TOKEN")"
+          DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --skip-domain --yes             --env RELEASE_GIT_REF=main             --env RELEASE_GIT_SHA="$GITHUB_SHA"             --token="$VERCEL_TOKEN")"
           test -n "$DEPLOYMENT_URL"
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
@@ -154,5 +189,5 @@ jobs:
             echo "- Commit: $GITHUB_SHA"
             echo "- Staged deployment: $DEPLOYMENT_URL"
             echo "- Production: $PRODUCTION_URL"
-            echo "- Gates: compile + unit tests + staged health + readiness + production smoke"
+            echo "- Gates: env presence + compile + unit tests + staged health + readiness + production smoke"
           } >> "$GITHUB_STEP_SUMMARY"

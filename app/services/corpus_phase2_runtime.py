@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from ..db import connect
+from ..db import connect, startup_migration_lock
 
 
 def _active_context(con):
@@ -151,8 +151,11 @@ def ensure_phase2_schemas(*, release_schema_ready: bool = False) -> None:
 
 
 def run_phase2_bootstrap(*, release_schema_ready: bool = False):
-    """Explicitly run deterministic Phase 2 quiz bootstrap after schema readiness."""
-    ensure_phase2_schemas(release_schema_ready=release_schema_ready)
+    """Explicitly run deterministic Phase 2 quiz bootstrap after serialized schema readiness."""
+    # DDL must be serialized, but the potentially longer business-data phase must
+    # not hold the global startup/schema lock.
+    with startup_migration_lock():
+        ensure_phase2_schemas(release_schema_ready=release_schema_ready)
 
     with connect() as con:
         ctx=_active_context(con)

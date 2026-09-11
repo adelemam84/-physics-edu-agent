@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from .db import connect
 from .main import app
@@ -11,6 +11,7 @@ from .security import require_admin
 from .science_lesson_studio import _gemini_text
 from .services.source_asset_runtime import render_asset_bytes
 from .services.ai_governance import model_settings
+from .services.rate_limit import enforce_request_policy
 
 
 def _schema() -> None:
@@ -102,7 +103,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
     raw = _gemini_text([
         {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
         {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
-    ], _suggestion_prompt(), json_mode=True)
+    ], _suggestion_prompt(), json_mode=True, task='visual_review')
     try:
         suggestion = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -160,12 +161,24 @@ def visual_review_queue(limit: int = 100):
 
 
 @app.post('/api/admin/current-corpus/visual-review/{question_id}/suggest', dependencies=[Depends(require_admin)])
-def visual_review_suggest(question_id: int):
+def visual_review_suggest(question_id: int, request: Request):
+    enforce_request_policy(
+        request,
+        name='admin_visual_review',
+        default_limit=30,
+        default_window_seconds=3600,
+    )
     return generate_visual_suggestion(question_id)
 
 
 @app.post('/api/admin/current-corpus/visual-review/batch-suggest', dependencies=[Depends(require_admin)])
-def visual_review_batch_suggest(limit: int = 5):
+def visual_review_batch_suggest(request: Request, limit: int = 5):
+    enforce_request_policy(
+        request,
+        name='admin_visual_review_batch',
+        default_limit=8,
+        default_window_seconds=3600,
+    )
     rows=[x for x in _queue_rows(min(max(limit,1),5)) if not x.get('suggestion')]
     results=[]
     for row in rows:

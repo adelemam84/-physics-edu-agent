@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import base64
 import os
+import time
 
 import fitz
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,8 @@ from .main import app
 from .security import require_admin
 from .services.ai_orchestrator import build_orchestration_plan, integrity_envelope, plan_dict
 from .services.source_asset_runtime import _source_pdf
+from .services.ai_telemetry import record_ai_usage
+from .services.rate_limit import enforce_request_policy
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash').strip() or 'gemini-3.8-flash'
@@ -206,15 +209,45 @@ def _execute_orchestrated(req: ResearchRequest):
         file_search_configured=bool(GEMINI_FILE_SEARCH_STORE),
         page_count=page_count,
     )
-    if plan.source_mode == 'file_search':
-        answer, usage, citations = _gemini_file_search_query(
-            f'المستند المطلوب: {doc["filename"]}. {req.prompt}', req.task
+    started = time.perf_counter()
+    try:
+        if plan.source_mode == 'file_search':
+            answer, usage, citations = _gemini_file_search_query(
+                f'المستند المطلوب: {doc["filename"]}. {req.prompt}', req.task
+            )
+        else:
+            pdf_bytes = _subset_pdf(str(doc['storage_url']), req.page_start, req.page_end)
+            answer, usage, citations = _gemini_exact_pdf_query(
+                pdf_bytes, req.prompt, req.page_start, req.page_end, req.task
+            )
+    except HTTPException as exc:
+        record_ai_usage(
+            provider='gemini',
+            task=req.task,
+            model=GEMINI_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code=str(exc.status_code),
+            metadata={
+                'source_mode': plan.source_mode,
+                'document_id': int(doc['id']),
+                'page_count': page_count,
+            },
         )
-    else:
-        pdf_bytes = _subset_pdf(str(doc['storage_url']), req.page_start, req.page_end)
-        answer, usage, citations = _gemini_exact_pdf_query(
-            pdf_bytes, req.prompt, req.page_start, req.page_end, req.task
-        )
+        raise
+    record_ai_usage(
+        provider='gemini',
+        task=req.task,
+        model=GEMINI_MODEL,
+        status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        usage=usage,
+        metadata={
+            'source_mode': plan.source_mode,
+            'document_id': int(doc['id']),
+            'page_count': page_count,
+        },
+    )
     return {
         'provider': 'gemini_source_engine',
         'model': GEMINI_MODEL,
@@ -253,12 +286,24 @@ def api_research_engine_status():
 
 
 @app.post('/api/admin/research-engine/query', dependencies=[Depends(require_admin)])
-def api_research_engine_query(req: ResearchRequest):
+def api_research_engine_query(req: ResearchRequest, request: Request):
+    enforce_request_policy(
+        request,
+        name="admin_ai_research",
+        default_limit=30,
+        default_window_seconds=3600,
+    )
     return _execute_orchestrated(req)
 
 
 @app.post('/api/admin/research-engine/orchestrate', dependencies=[Depends(require_admin)])
-def api_research_engine_orchestrate(req: ResearchRequest):
+def api_research_engine_orchestrate(req: ResearchRequest, request: Request):
+    enforce_request_policy(
+        request,
+        name="admin_ai_research",
+        default_limit=30,
+        default_window_seconds=3600,
+    )
     return _execute_orchestrated(req)
 
 

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .db import connect
 from .main import app
+from .services.rate_limit import enforce_request_policy
 from .student_security import (
     SESSION_MAX_AGE,
     clear_student_session_cookie,
@@ -18,7 +19,13 @@ class StudentSessionLogin(BaseModel):
 
 
 @app.post("/api/student/session")
-def create_student_session(payload: StudentSessionLogin, response: Response):
+def create_student_session(payload: StudentSessionLogin, response: Response, request: Request):
+    enforce_request_policy(
+        request,
+        name="student_login",
+        default_limit=12,
+        default_window_seconds=600,
+    )
     code = payload.student_code.strip()
     if not code:
         raise HTTPException(400, "أدخل كود الطالب")

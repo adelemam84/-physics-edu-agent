@@ -1,17 +1,24 @@
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import Depends, Query
 from fastapi.responses import HTMLResponse
 
 from .main import app
 from .security import require_admin
 from .services.ai_governance import governance_snapshot
+from .services.ai_telemetry import usage_snapshot
 
 
 @app.get("/api/admin/ai-operations/summary", dependencies=[Depends(require_admin)])
 def ai_operations_summary():
     """Secret-free model routing, readiness, and safety contract."""
     return governance_snapshot()
+
+
+@app.get("/api/admin/ai-operations/usage", dependencies=[Depends(require_admin)])
+def ai_operations_usage(hours: int = Query(default=24, ge=1, le=24 * 31)):
+    """Privacy-preserving AI usage, latency, error and optional cost aggregates."""
+    return usage_snapshot(hours)
 
 
 PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -33,7 +40,7 @@ th,td{padding:10px;border-bottom:1px solid var(--line);text-align:right;vertical
 <div class="card top"><a href="/admin/dashboard">لوحة التحكم</a><a href="/admin/research-engine">محرك المصادر</a><a href="/admin/lesson-studio/workspace">Lesson Studio</a><a href="/admin/lesson-studio/integrations">التكاملات</a><a href="/admin/e2e-content-acceptance">قبول المحتوى</a></div>
 <div class="card hero"><h1>AI Operations</h1><p class=muted>خريطة تشغيل واحدة توضّح أي نموذج ينفذ كل مهمة، وما الذي يستطيع فعله، وأين تتوقف الصلاحية عند بوابة بشرية أو حتمية.</p><div id=hero class=row></div></div>
 <div id=metrics class=grid></div>
-<div class=card><h2>حالة المزودين والنماذج</h2><div id=providers class=grid></div></div>
+<div class=card><h2>استخدام الذكاء الاصطناعي</h2><div id=usageMetrics class=grid></div><div class=table-wrap><table><thead><tr><th>المهمة</th><th>المزود / النموذج</th><th>الاستدعاءات</th><th>الفشل</th><th>التوكنات</th><th>متوسط الزمن</th><th>تكلفة تقديرية</th></tr></thead><tbody id=usageRows></tbody></table></div><div id=usagePrivacy class=muted></div></div><div class=card><h2>حالة المزودين والنماذج</h2><div id=providers class=grid></div></div>
 <div class=card><h2>توزيع المهام</h2><div class=table-wrap><table><thead><tr><th>المهمة</th><th>المزود / النموذج</th><th>الوضع</th><th>جاهز</th><th>المصدر</th><th>السلطة</th><th>البوابة</th></tr></thead><tbody id=tasks></tbody></table></div></div>
 <div class=card><h2>قواعد لا يجوز للنموذج تجاوزها</h2><div id=principles></div></div>
 <div class=card><h2>اقتراحات التحسين الحالية</h2><div id=recommendations></div></div>
@@ -41,16 +48,23 @@ th,td{padding:10px;border-bottom:1px solid var(--line);text-align:right;vertical
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const yes=v=>v?'<span class=ok>✅ جاهز</span>':'<span class=warn>⚠️ غير جاهز</span>';
 async function load(){
-  let r=await fetch('/api/admin/ai-operations/summary');
-  if(r.status===401){location.href='/admin/login';return}
-  let x=await r.json().catch(()=>null);
+  let [r,u]=await Promise.all([fetch('/api/admin/ai-operations/summary'),fetch('/api/admin/ai-operations/usage?hours=24')]);
+  if(r.status===401||u.status===401){location.href='/admin/login';return}
+  let x=await r.json().catch(()=>null),usage=await u.json().catch(()=>null);
   if(!r.ok||!x){document.body.insertAdjacentHTML('beforeend','<div class="card bad">تعذر تحميل حالة الذكاء الاصطناعي.</div>');return}
-  let s=x.summary||{};
+  let s=x.summary||{},us=usage?.summary||{};
   hero.innerHTML='<span class=pill>PDF هو المرجع العلمي</span><span class=pill>لا اعتماد آلي</span><span class=pill>لا نشر آلي</span><span class=pill>التصحيح حتمي</span>';
   metrics.innerHTML=[
     ['المهام',s.task_count],['جاهزة',s.ready_tasks],['تحتاج إعداد',s.blocked_tasks],
     ['تكتب بنك الأسئلة',s.question_bank_write_tasks],['تعتمد تلقائيًا',s.auto_approval_tasks],['تنشر تلقائيًا',s.auto_publish_tasks]
   ].map(v=>'<div class=metric><span class=muted>'+esc(v[0])+'</span><b>'+esc(v[1])+'</b></div>').join('');
+  usageMetrics.innerHTML=[
+    ['الاستدعاءات / 24س',us.total_calls||0],['ناجحة',us.success_calls||0],['فاشلة',us.failed_calls||0],
+    ['إجمالي التوكنات',us.total_tokens||0],['متوسط الزمن ms',us.avg_latency_ms||0],
+    ['التكلفة التقديرية $',Number(us.estimated_cost_usd||0).toFixed(4)]
+  ].map(v=>'<div class=metric><span class=muted>'+esc(v[0])+'</span><b>'+esc(v[1])+'</b></div>').join('');
+  usageRows.innerHTML=(usage?.groups||[]).map(g=>'<tr><td>'+esc(g.task)+'</td><td>'+esc(g.provider)+'<br><span class=muted>'+esc(g.model||'—')+'</span></td><td>'+esc(g.calls)+'</td><td>'+esc(g.failed_calls)+'</td><td>'+esc(g.total_tokens)+'</td><td>'+esc(g.avg_latency_ms||'—')+' ms</td><td>$'+Number(g.estimated_cost_usd||0).toFixed(4)+'</td></tr>').join('')||'<tr><td colspan=7 class=muted>لا توجد استدعاءات مسجلة في آخر 24 ساعة.</td></tr>';
+  usagePrivacy.textContent='الخصوصية: لا يتم تخزين prompts أو المخرجات أو إجابات الطلاب أو نصوص المصادر في سجل القياس. '+(usage?.pricing_configured?'التسعير التقديري مفعّل من الإعدادات.':'التسعير غير مفعّل؛ أرقام التكلفة ستظل صفرًا حتى ضبط AI_MODEL_PRICING_JSON.');
   providers.innerHTML=Object.entries(x.providers||{}).map(([name,p])=>'<div class=metric><b style="font-size:18px">'+esc(name)+'</b><div>'+yes(!!p.configured)+'</div><div class=muted>'+esc(p.role||'')+'</div>'+(p.file_search_configured!==undefined?'<div class=muted>File Search: '+(p.file_search_configured?'جاهز':'غير مفعّل')+'</div>':'')+'</div>').join('');
   tasks.innerHTML=(x.tasks||[]).map(t=>'<tr><td><b>'+esc(t.label_ar)+'</b><div class=muted>'+esc(t.notes_ar)+'</div></td><td>'+esc(t.provider)+(t.model?'<br><span class=muted>'+esc(t.model)+'</span>':'')+(t.reasoning_effort?'<br><span class=pill>reasoning '+esc(t.reasoning_effort)+'</span>':'')+'</td><td>'+esc(t.mode)+'</td><td>'+yes(t.ready)+'</td><td>'+(t.source_grounded?'PDF/source':'—')+'</td><td>'+(t.advisory_only?'<span class=warn>استشاري فقط</span>':'حتمي')+'</td><td>'+esc(t.human_gate)+'</td></tr>').join('');
   principles.innerHTML=Object.entries(x.principles||{}).map(([k,v])=>'<span class="pill '+(v?'ok':'bad')+'">'+(v?'✅ ':'⚠️ ')+esc(k)+'</span>').join('');

@@ -5,11 +5,12 @@ import html
 import json
 import os
 import re
+import time
 import uuid
 
 import fitz
 import httpx
-from fastapi import Depends, File, Form, HTTPException, UploadFile
+from fastapi import Depends, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import HTMLResponse, Response
 
 from .db import connect
@@ -18,6 +19,8 @@ from .security import require_admin
 from .services.storage import get_bytes, put_bytes, storage_configured
 from .services.ocr_consensus import compare_ocr, single_provider_result
 from .services.science_diagrams import DiagramSpec, render as render_science_diagram, supported_kinds
+from .services.ai_telemetry import record_ai_usage
+from .services.rate_limit import enforce_request_policy
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('LESSON_STUDIO_GEMINI_MODEL', os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash')).strip()
@@ -76,7 +79,13 @@ def _provider() -> str:
     return 'unconfigured'
 
 
-def _gemini_text(parts: list[dict], system: str, *, json_mode: bool = False) -> str:
+def _gemini_text(
+    parts: list[dict],
+    system: str,
+    *,
+    json_mode: bool = False,
+    task: str = 'lesson_studio_assist',
+) -> str:
     if not GEMINI_API_KEY:
         raise HTTPException(503, 'GEMINI_API_KEY is not configured')
     body = {
@@ -87,16 +96,50 @@ def _gemini_text(parts: list[dict], system: str, *, json_mode: bool = False) -> 
     if json_mode:
         body['generationConfig']['responseMimeType'] = 'application/json'
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+    started = time.perf_counter()
     try:
         r = httpx.post(url, headers={'x-goog-api-key': GEMINI_API_KEY}, json=body, timeout=90)
     except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='gemini',
+            task=task,
+            model=GEMINI_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code='network',
+        )
         raise HTTPException(502, 'Gemini is temporarily unavailable') from exc
     if r.status_code >= 400:
+        record_ai_usage(
+            provider='gemini',
+            task=task,
+            model=GEMINI_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code=str(r.status_code),
+        )
         raise HTTPException(502, {'message': 'Gemini request failed', 'status': r.status_code, 'detail': r.text[:500]})
     payload = r.json()
-    texts = [p.get('text', '') for c in payload.get('candidates', []) for p in c.get('content', {}).get('parts', []) if p.get('text')]
+    texts = [p.get('text', '') for item in payload.get('candidates', []) for p in item.get('content', {}).get('parts', []) if p.get('text')]
     if not texts:
+        record_ai_usage(
+            provider='gemini',
+            task=task,
+            model=GEMINI_MODEL,
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            usage=payload.get('usageMetadata', {}),
+            error_code='empty_content',
+        )
         raise HTTPException(502, 'Gemini returned no content')
+    record_ai_usage(
+        provider='gemini',
+        task=task,
+        model=GEMINI_MODEL,
+        status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        usage=payload.get('usageMetadata', {}),
+    )
     return '\n'.join(texts).strip()
 
 
@@ -111,13 +154,38 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
         'enable_document_layout': True,
         'metadata': {'improve_mathpix': False},
     }
+    started = time.perf_counter()
     try:
         r = httpx.post('https://api.mathpix.com/v3/text', headers={'app_id': MATHPIX_APP_ID, 'app_key': MATHPIX_APP_KEY}, json=payload, timeout=60)
     except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider='mathpix',
+            task='handwriting_ocr_verifier',
+            model='mathpix-v3-text',
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code='network',
+        )
         raise HTTPException(502, 'Mathpix is temporarily unavailable') from exc
     if r.status_code >= 400:
+        record_ai_usage(
+            provider='mathpix',
+            task='handwriting_ocr_verifier',
+            model='mathpix-v3-text',
+            status='error',
+            latency_ms=round((time.perf_counter()-started)*1000),
+            error_code=str(r.status_code),
+        )
         raise HTTPException(502, {'message': 'Mathpix OCR failed', 'status': r.status_code, 'detail': r.text[:500]})
     x = r.json()
+    record_ai_usage(
+        provider='mathpix',
+        task='handwriting_ocr_verifier',
+        model='mathpix-v3-text',
+        status='success',
+        latency_ms=round((time.perf_counter()-started)*1000),
+        usage=x.get('usage') or {},
+    )
     return (x.get('text') or '').strip(), x.get('confidence')
 
 
@@ -129,7 +197,7 @@ def _gemini_ocr(data: bytes, content_type: str, position: int) -> tuple[str, Non
     text = _gemini_text([
         {'text': prompt},
         {'inlineData': {'mimeType': content_type, 'data': base64.b64encode(data).decode('ascii')}},
-    ], 'أنت محرك نسخ أمين للملاحظات العلمية المكتوبة يدويًا. لا تضف معلومات من عندك.')
+    ], 'أنت محرك نسخ أمين للملاحظات العلمية المكتوبة يدويًا. لا تضف معلومات من عندك.', task='handwriting_ocr_primary')
     return text, None
 
 
@@ -221,7 +289,7 @@ def _organize(transcript: str, subject: str, grade_label: str, title: str, outpu
         'حدد الرسومات التي ستوضح الشرح في diagram_specs، لكن لا تعتبر وصف الرسم حقيقة علمية إضافية. إذا كانت بيانات الرسم الدقيقة ظاهرة صراحة في المصدر، ضعها في parameters فقط؛ لا تستنتج عقدًا أو اتجاهات أو مسارات أشعة أو روابط كيميائية غير مكتوبة/مرسومة بوضوح. عند نقص البيانات اترك parameters فارغة. '
         'أخرج JSON صالحًا فقط يطابق القالب المرفق.'
     )
-    raw = _gemini_text([{'text': f'العنوان: {title}\nالمادة: {subject}\nالصف: {grade_label}\nنمط الإخراج: {output_mode}\nقالب JSON: {json.dumps(schema, ensure_ascii=False)}\n\nالنص الأصلي:\n{transcript}'}], instruction, json_mode=True)
+    raw = _gemini_text([{'text': f'العنوان: {title}\nالمادة: {subject}\nالصف: {grade_label}\nنمط الإخراج: {output_mode}\nقالب JSON: {json.dumps(schema, ensure_ascii=False)}\n\nالنص الأصلي:\n{transcript}'}], instruction, json_mode=True, task='lesson_support')
     try:
         structured = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -323,7 +391,13 @@ async def create_lesson_job(
 
 
 @app.post('/api/admin/lesson-studio/jobs/{job_id}/process', dependencies=[Depends(require_admin)])
-def process_lesson_job(job_id: str):
+def process_lesson_job(job_id: str, request: Request):
+    enforce_request_policy(
+        request,
+        name='admin_lesson_process',
+        default_limit=12,
+        default_window_seconds=3600,
+    )
     row, sources = _job(job_id)
     provider = _provider()
     if provider == 'unconfigured':

@@ -4,6 +4,7 @@ from .main import app
 from .db import connect
 from .security import require_admin
 from .student_security import resolve_student_code
+from .services.rate_limit import enforce_subject_policy
 
 def _latest_remedial_targets(con,student_id:int):
     last=con.execute("""SELECT a.id,a.quiz_id,a.completed_at FROM attempts a JOIN quizzes q ON q.id=a.quiz_id
@@ -118,6 +119,12 @@ def student_adaptive_practice(request: Request, student_code: str | None = None,
 @app.post("/api/student/adaptive-practice/create")
 def create_student_adaptive_quiz(request: Request, student_code: str | None = None, count:int=10):
     code=resolve_student_code(request, student_code)
+    enforce_subject_policy(
+        code,
+        name="adaptive_quiz_create",
+        default_limit=6,
+        default_window_seconds=3600,
+    )
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
     if not st:

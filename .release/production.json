@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "80c8b19582ddcd9f241d4634a55f98932e9c2c3b",
+  "requested_code_sha": "bb84e7a438116b3173027c3547a32e4ae5f223c1",
   "requested_at": "2026-09-15",
-  "reason": "Promote verified clean-workspace controlled-release fix for transient Vercel Python manifests",
+  "reason": "Retry controlled technical production release after preserving Vercel generated manifests for prebuilt deploy",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

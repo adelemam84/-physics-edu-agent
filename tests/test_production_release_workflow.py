@@ -102,9 +102,9 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
             2,
         )
 
-    def test_vercel_transient_python_manifests_are_removed_only_when_untracked(self):
+    def test_vercel_transient_python_manifests_are_locally_excluded_only_when_untracked(self):
         self.assertIn(
-            "Normalize Vercel-generated dependency metadata",
+            "Isolate Vercel-generated dependency metadata",
             self.text,
         )
         self.assertIn("for generated in pyproject.toml uv.lock", self.text)
@@ -112,7 +112,11 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
             'git ls-files --error-unmatch "$generated"',
             self.text,
         )
-        self.assertIn('rm -f -- "$generated"', self.text)
+        self.assertIn(
+            'printf \'/%s\\n\' "$generated" >> .git/info/exclude',
+            self.text,
+        )
+        self.assertNotIn('rm -f -- "$generated"', self.text)
         self.assertIn(
             "unexpected non-ignored repository files",
             self.text,

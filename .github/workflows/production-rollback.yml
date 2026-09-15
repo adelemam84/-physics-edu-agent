@@ -1,0 +1,131 @@
+name: Controlled Production Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_deployment:
+        description: Known-good Vercel deployment ID or generated deployment URL
+        required: true
+        type: string
+      confirm:
+        description: Type ROLLBACK to confirm production traffic change
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-production
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_GsqjHJAXTirB3YVlUto63rma
+  VERCEL_PROJECT_ID: prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL
+  VERCEL_CLI_VERSION: 59.15.1
+  PRODUCTION_URL: https://physics-edu-agent.vercel.app
+
+jobs:
+  rollback:
+    name: Verify target, rollback, smoke test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout recovery contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate explicit rollback request
+        env:
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "ROLLBACK" ]; then
+            echo "::error::Rollback confirmation must be exactly ROLLBACK"
+            exit 1
+          fi
+          case "$TARGET_DEPLOYMENT" in
+            dpl_*|physics-edu-agent-*.vercel.app|https://physics-edu-agent-*.vercel.app) ;;
+            *)
+              echo "::error::Target must be a physics-edu-agent deployment ID or generated Vercel deployment URL"
+              exit 1
+              ;;
+          esac
+
+      - name: Require Vercel rollback credential
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}" || {
+            echo "::error::VERCEL_TOKEN is required"
+            exit 1
+          }
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Verify target deployment is healthy before rollback
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+        run: |
+          set -euo pipefail
+          vercel curl /health --deployment "$TARGET_DEPLOYMENT" > /tmp/target-health.json
+          vercel curl /health/ready --deployment "$TARGET_DEPLOYMENT" > /tmp/target-ready.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health=json.loads(Path("/tmp/target-health.json").read_text())
+          ready=json.loads(Path("/tmp/target-ready.json").read_text())
+          if health.get("status") != "ok":
+              raise SystemExit(f"rollback target /health failed: {health}")
+          if ready.get("status") != "ready":
+              raise SystemExit(f"rollback target /health/ready failed: {ready}")
+          print("rollback target health contract passed")
+          PY
+
+      - name: Roll back production traffic
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+        run: vercel rollback "$TARGET_DEPLOYMENT" --yes --token="$VERCEL_TOKEN"
+
+      - name: Wait for rollback completion
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel rollback status --timeout 60s --token="$VERCEL_TOKEN"
+
+      - name: Verify canonical production after rollback
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/prod-health.json
+          curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/prod-ready.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health=json.loads(Path("/tmp/prod-health.json").read_text())
+          ready=json.loads(Path("/tmp/prod-ready.json").read_text())
+          if health.get("status") != "ok":
+              raise SystemExit(f"production /health failed after rollback: {health}")
+          if ready.get("status") != "ready":
+              raise SystemExit(f"production /health/ready failed after rollback: {ready}")
+          print("production rollback smoke checks passed")
+          PY
+
+      - name: Recovery summary
+        env:
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+        run: |
+          {
+            echo "### Controlled production rollback"
+            echo "- Target: $TARGET_DEPLOYMENT"
+            echo "- Production: $PRODUCTION_URL"
+            echo "- Gates: explicit confirmation + target health/readiness + rollback status + canonical smoke"
+            echo "- Database: unchanged; database recovery is a separate operator action"
+          } >> "$GITHUB_STEP_SUMMARY"

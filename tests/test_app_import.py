@@ -19,6 +19,7 @@ class VercelEntrypointTests(unittest.TestCase):
         paths={route.path for route in self._app().routes}
         required={
             "/health",
+            "/api/internal/release-bootstrap",
             "/api/next-release/status",
             "/api/research-engine/status",
             "/api/current-curriculum/phase2-status",

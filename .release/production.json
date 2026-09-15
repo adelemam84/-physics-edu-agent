@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "6ac659fcdf09a62fafa88ce3141073d800693905",
+  "requested_code_sha": "c2ac7f02f1dd70484effa9f18d54f2cb70aa22aa",
   "requested_at": "2026-09-15",
-  "reason": "Retry serverless cold-start hardening release after bootstrap import-path fix",
+  "reason": "Promote serverless cold-start hardening with secret-safe Vercel production bootstrap",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

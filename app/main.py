@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from psycopg.errors import UniqueViolation
 
+from .content_phase_guard import content_ingestion_enabled, require_content_ingestion_enabled
 from .db import STORAGE_BACKEND, connect
 from .startup_bootstrap import apply_startup_bootstrap, startup_bootstrap_enabled
 from .security import admin_configured, admin_session_valid, require_admin
@@ -156,7 +157,7 @@ def admin_root():
 
 @app.get('/api/admin/config',dependencies=[Depends(require_admin)])
 def admin_config():
-    return {'admin_configured':admin_configured(),'storage_configured':storage_configured(),'bucket':BUCKET,'storage_backend':STORAGE_BACKEND}
+    return {'admin_configured':admin_configured(),'storage_configured':storage_configured(),'bucket':BUCKET,'storage_backend':STORAGE_BACKEND,'content_ingestion_enabled':content_ingestion_enabled()}
 
 @app.get('/api/admin/release-readiness',dependencies=[Depends(require_admin)])
 def admin_release_readiness():
@@ -174,6 +175,7 @@ def list_documents():
 
 @app.post('/api/admin/documents',dependencies=[Depends(require_admin)])
 async def upload_document(file:UploadFile=File(...)):
+    require_content_ingestion_enabled()
     data=await file.read()
     if not data.startswith(b'%PDF'):
         raise HTTPException(415,'PDF only')

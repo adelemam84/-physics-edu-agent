@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass
 import os
 from typing import Literal
 
+from .provider_http import retry_snapshot
+
 
 Provider = Literal["gemini", "openai", "mathpix", "deterministic"]
 
@@ -304,8 +306,9 @@ def governance_snapshot() -> dict:
     ])
 
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "models": model_settings(),
+        "provider_resilience": retry_snapshot(),
         "providers": providers,
         "tasks": tasks,
         "summary": {
@@ -325,6 +328,8 @@ def governance_snapshot() -> dict:
             "grading_final_decision_is_deterministic": True,
             "adaptive_selection_uses_approved_questions_only": True,
             "independent_review_is_separate_from_source_extraction": True,
+            "provider_retries_never_change_model_role": True,
+            "provider_resource_mutations_are_not_auto_replayed": True,
         },
         "recommendations": recommendations,
     }

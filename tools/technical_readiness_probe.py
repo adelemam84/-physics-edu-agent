@@ -14,6 +14,10 @@ TIMEOUT_SECONDS = max(1.0, min(float(os.getenv("TECH_READY_TIMEOUT_SECONDS", "8"
 ATTEMPTS = max(1, min(int(os.getenv("TECH_READY_ATTEMPTS", "2")), 4))
 MAX_LATENCY_MS = max(500.0, float(os.getenv("TECH_READY_MAX_LATENCY_MS", "5000")))
 OUTPUT = Path(os.getenv("TECH_READY_OUTPUT", "technical-readiness-results.json"))
+EXPECT_CONTENT_INGESTION_LOCKED = (
+    os.getenv("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
 
 SECURITY_HEADERS = {
     "strict-transport-security": "max-age=",
@@ -153,6 +157,13 @@ def _expect_ready(row: dict) -> list[str]:
         out.append("readiness payload is not ready")
     if "no-store" not in row["headers"].get("cache-control", "").lower():
         out.append("readiness response must be no-store")
+    if isinstance(data, dict):
+        expected = "locked" if EXPECT_CONTENT_INGESTION_LOCKED else "enabled"
+        if data.get("content_ingestion") != expected:
+            out.append(
+                f"content ingestion drift: expected {expected}, got "
+                f"{data.get('content_ingestion') or 'missing'}"
+            )
     if isinstance(data, dict) and _contains_sensitive_key(data):
         out.append("readiness payload contains a sensitive key name")
     out.extend(_security_header_violations(row["headers"]))
@@ -247,6 +258,9 @@ def run() -> dict:
         "target": BASE_URL,
         "passed": passed,
         "content_ingestion": "deferred",
+        "content_intake_expected": (
+            "locked" if EXPECT_CONTENT_INGESTION_LOCKED else "enabled"
+        ),
         "checks": results,
         "thresholds": {
             "timeout_seconds": TIMEOUT_SECONDS,
@@ -265,6 +279,7 @@ def run() -> dict:
             f"- Target: `{BASE_URL}`",
             f"- Result: **{'PASS ✅' if passed else 'FAIL ❌'}**",
             "- Content ingestion: **deferred**",
+            f"- Production intake expected: **{'locked' if EXPECT_CONTENT_INGESTION_LOCKED else 'enabled'}**",
             "",
             "| Check | Result | Last status | Last latency |",
             "|---|---|---:|---:|",

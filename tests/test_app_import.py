@@ -8,7 +8,7 @@ class VercelEntrypointTests(unittest.TestCase):
         return importlib.import_module("index").app
 
     def test_vercel_entrypoint_imports_without_runtime_import_errors(self):
-        self.assertEqual(self._app().version, "1.8.1")
+        self.assertEqual(self._app().version, "1.8.2")
 
     def test_release_status_uses_canonical_application_version(self):
         from app import release_hardening

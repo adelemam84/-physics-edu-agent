@@ -8,6 +8,7 @@ from app import quiz_builder  # noqa: F401,E402
 from app import quality_gate_patch  # noqa: F401,E402
 from app import parent_notifications  # noqa: F401,E402
 from app import student_session_api  # noqa: F401,E402
+from app import security_hardening  # noqa: F401,E402
 from app import student_quiz  # noqa: F401,E402
 from app import student_admin  # noqa: F401,E402
 from app import admin_dashboard  # noqa: F401,E402

@@ -17,7 +17,7 @@ from .services.ai_governance import model_settings
 from .services.ai_telemetry import record_ai_usage
 from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
-from .services.provider_http import request_with_retries
+from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
 _AI_MODELS = model_settings()
@@ -118,7 +118,10 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code='network',
-            metadata={'job_id': job_id} if job_id else {},
+            metadata={
+                **({'job_id': job_id} if job_id else {}),
+                'provider_attempts': provider_error_attempts(exc),
+            },
         )
         raise HTTPException(502, 'Independent scientific reviewer is temporarily unavailable') from exc
     if response.status_code >= 400:
@@ -129,7 +132,10 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code=str(response.status_code),
-            metadata={'job_id': job_id} if job_id else {},
+            metadata={
+                **({'job_id': job_id} if job_id else {}),
+                'provider_attempts': provider_attempts(response),
+            },
         )
         raise HTTPException(502, {
             'message': 'OpenAI reviewer request failed',
@@ -147,7 +153,10 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
             latency_ms=round((time.perf_counter()-started)*1000),
             usage=payload.get('usage') or {},
             error_code='empty_content',
-            metadata={'job_id': job_id} if job_id else {},
+            metadata={
+                **({'job_id': job_id} if job_id else {}),
+                'provider_attempts': provider_attempts(response),
+            },
         )
         raise HTTPException(502, 'OpenAI reviewer returned no text')
     record_ai_usage(
@@ -157,7 +166,10 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
         status='success',
         latency_ms=round((time.perf_counter()-started)*1000),
         usage=payload.get('usage') or {},
-        metadata={'job_id': job_id} if job_id else {},
+        metadata={
+            **({'job_id': job_id} if job_id else {}),
+            'provider_attempts': provider_attempts(response),
+        },
     )
     try:
         review = json.loads(text)

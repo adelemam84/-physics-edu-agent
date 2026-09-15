@@ -62,11 +62,17 @@ class StartupMigrationLockTests(unittest.TestCase):
         self.assertIn("finally:", source)
         self.assertIn("con.close()", source)
 
-    def test_application_lifespan_serializes_schema_but_not_external_provider(self):
+    def test_application_lifespan_skips_serverless_bootstrap_by_policy(self):
         source = inspect.getsource(main.lifespan)
+        self.assertIn("startup_bootstrap_enabled()", source)
+        self.assertIn("apply_startup_bootstrap()", source)
+        self.assertNotIn("with startup_migration_lock():", source)
+        self.assertNotIn("bootstrap_store_if_enabled()", source)
+
+    def test_explicit_bootstrap_serializes_schema_but_not_external_provider(self):
+        source = inspect.getsource(startup_bootstrap.apply_startup_bootstrap)
         self.assertIn("with startup_migration_lock():", source)
         self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", source)
-        self.assertNotIn("run_phase2_bootstrap(", source)
         lock_start = source.index("with startup_migration_lock():")
         init_pos = source.index("init_db()")
         phase2_pos = source.index("ensure_phase2_schemas(release_schema_ready=True)")
@@ -74,6 +80,19 @@ class StartupMigrationLockTests(unittest.TestCase):
         self.assertLess(lock_start, init_pos)
         self.assertLess(init_pos, phase2_pos)
         self.assertLess(phase2_pos, provider_pos)
+
+    def test_vercel_runtime_disables_bootstrap_by_default(self):
+        self.assertFalse(startup_bootstrap.startup_bootstrap_enabled({"VERCEL": "1"}))
+        self.assertFalse(
+            startup_bootstrap.startup_bootstrap_enabled({"VERCEL_ENV": "production"})
+        )
+        self.assertTrue(startup_bootstrap.startup_bootstrap_enabled({}))
+        self.assertTrue(
+            startup_bootstrap.startup_bootstrap_enabled({
+                "VERCEL": "1",
+                "STARTUP_BOOTSTRAP_ON_RUNTIME": "true",
+            })
+        )
 
     def test_phase2_schema_bootstrap_can_skip_release_schema_when_init_db_applied_it(self):
         with patch(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .main import app
 from .security import COOKIE_NAME, SESSION_MAX_AGE, admin_configured, admin_session_valid, make_admin_session_token, validate_admin_key
@@ -10,7 +10,7 @@ from .services.rate_limit import enforce_request_policy
 
 
 class LoginIn(BaseModel):
-    key: str
+    key: str = Field(min_length=1, max_length=512)
 
 
 @app.get("/api/admin/session")

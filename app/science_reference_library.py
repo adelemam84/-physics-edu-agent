@@ -9,6 +9,7 @@ import uuid
 import fitz
 from fastapi import Depends, File, Form, HTTPException, UploadFile
 
+from .content_phase_guard import require_content_ingestion_enabled
 from .db import connect
 from .main import app
 from .science_lesson_studio import _gemini_text
@@ -130,6 +131,7 @@ async def upload_science_reference(
     grade_label: str = Form(''),
     academic_year: str = Form(''),
 ):
+    require_content_ingestion_enabled()
     _schema()
     if file.content_type != 'application/pdf' and not (file.filename or '').lower().endswith('.pdf'):
         raise HTTPException(415, 'Scientific reference must be a PDF')

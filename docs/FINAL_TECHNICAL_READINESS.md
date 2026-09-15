@@ -28,6 +28,6 @@ This gate complements, rather than replaces:
 
 ## Database recovery note
 
-Neon currently reports no automatic snapshot schedule and rejected creation of an additional snapshot with `snapshots limit exceeded`. A current no-compute recovery branch (`backup-technical-hardening-2026-09-16`) and an earlier manual provider snapshot exist. This is tracked as an operational limitation, not a content blocker. Do not delete the existing recovery assets merely to make room without an explicit recovery-plan decision.
+Neon currently reports no automatic snapshot schedule and rejected creation of an additional snapshot with `snapshots limit exceeded`. It also rejected protecting the production branch because the current plan's protected-branch limit is already reached. A fresh no-compute baseline (`pre-content-technical-complete-2026-09-16-v2`) now captures the current production HEAD, alongside the older recovery branch and manual provider snapshot. These plan limits are operational constraints, not content blockers; do not delete existing recovery assets merely to make room without an explicit recovery-plan decision.\n\nProduction content intake is additionally fail-closed by default. `CONTENT_INGESTION_ENABLED=true` is required to open source uploads deliberately; the technical readiness phase does not need or perform curriculum uploads.
 
 Content ingestion remains deferred until the technical platform is deliberately handed over for that phase.

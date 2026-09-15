@@ -9,6 +9,7 @@ import fitz
 from fastapi import Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse
 
+from .content_phase_guard import require_content_ingestion_enabled
 from .corpus_public_status import current_curriculum_phase2_status
 from .db import connect
 from .main import app
@@ -474,6 +475,7 @@ def import_drive_explanatory_source(
     term_id: int = Form(...),
 ):
     """Import a teacher-selected Drive PDF as a review-required explanatory source, never as approved content."""
+    require_content_ingestion_enabled()
     raw = _download_drive_pdf(drive_url)
     return _store_explanatory_pdf(raw, filename, drive_url, kind, term_id)
 

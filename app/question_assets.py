@@ -6,6 +6,7 @@ import zipfile
 from fastapi import Depends, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
+from .content_phase_guard import require_content_ingestion_enabled
 from .main import app
 from .db import connect
 from .security import require_admin
@@ -95,6 +96,7 @@ def save_asset(question_id:int,crop:AssetCrop):
 
 @app.post('/api/questions/{question_id}/asset/upload', dependencies=[Depends(require_admin)])
 async def upload_asset(question_id:int,file:UploadFile=File(...)):
+    require_content_ingestion_enabled()
     raw=await file.read()
     if not raw: raise HTTPException(400,'Empty image')
     if len(raw)>12*1024*1024: raise HTTPException(413,'Image too large (12 MB max)')
@@ -121,6 +123,7 @@ async def upload_asset(question_id:int,file:UploadFile=File(...)):
 
 @app.post('/api/admin/question-assets/bulk-upload', dependencies=[Depends(require_admin)])
 async def bulk_upload_assets(file:UploadFile=File(...)):
+    require_content_ingestion_enabled()
     raw=await file.read()
     if not raw: raise HTTPException(400,'Empty ZIP')
     if len(raw)>80*1024*1024: raise HTTPException(413,'ZIP too large (80 MB max)')

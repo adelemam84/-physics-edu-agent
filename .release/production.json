@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "1bb797065dc9397659e1a9d885f14e01e4dbc46c",
+  "requested_code_sha": "80c8b19582ddcd9f241d4634a55f98932e9c2c3b",
   "requested_at": "2026-09-15",
-  "reason": "Run fail-closed provenance diagnostics on the green controlled-release workflow",
+  "reason": "Promote verified clean-workspace controlled-release fix for transient Vercel Python manifests",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

@@ -27,6 +27,8 @@ class TechnicalReadinessProbeContractTests(unittest.TestCase):
 
     def test_gate_detects_content_intake_drift(self):
         self.assertIn("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED", TOOL)
+        self.assertIn("CONTENT_INGESTION_STATE_MIN_VERSION = (1, 8, 4)", TOOL)
+        self.assertIn("_version_tuple", TOOL)
         self.assertIn("content ingestion drift", TOOL)
         self.assertIn("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: \"true\"", WORKFLOW)
         self.assertIn('data.get("content_ingestion")', TOOL)

@@ -30,12 +30,21 @@ class AIRetryObservabilityContractTests(unittest.TestCase):
         ):
             self.assertIn("provider_attempts", inspect.getsource(fn), fn.__name__)
 
+    def test_research_engine_preserves_real_attempt_count_and_zero_pre_provider(self):
+        file_search = inspect.getsource(research_engine._gemini_file_search_query)
+        generate = inspect.getsource(research_engine._post_generate_content)
+        execute = inspect.getsource(research_engine._execute_orchestrated)
+        self.assertIn("error.provider_attempts = provider_attempts(response)", file_search)
+        self.assertIn("error.provider_attempts = provider_attempts(response)", generate)
+        self.assertIn("getattr(exc, 'provider_attempts', 0)", execute)
+
     def test_usage_snapshot_aggregates_retry_pressure_without_content(self):
         source = inspect.getsource(ai_telemetry.usage_snapshot).lower()
         self.assertIn("retried_calls", source)
         self.assertIn("retry_attempts", source)
         self.assertIn("retry_pct", source)
         self.assertIn("metadata_json->>'provider_attempts'", source)
+        self.assertIn("'^[0-9]+$'", source)
         # Privacy declarations such as stores_prompts=false are allowed; the
         # telemetry query must never extract content-bearing metadata fields.
         for field in ("prompt", "output", "student_answer", "source_text"):

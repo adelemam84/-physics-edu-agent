@@ -4,7 +4,7 @@ import inspect
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app import db, main
+from app import db, main, startup_bootstrap
 from app.services import corpus_phase2_runtime as phase2
 
 

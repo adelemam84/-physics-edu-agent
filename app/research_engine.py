@@ -18,6 +18,7 @@ from .services.source_asset_runtime import _source_pdf
 from .services.ai_telemetry import record_ai_usage
 from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
+from .services.provider_http import request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash').strip() or 'gemini-3.8-flash'
@@ -150,16 +151,20 @@ def _gemini_file_search_query(prompt: str, task: str):
     }
     url = 'https://generativelanguage.googleapis.com/v1beta/interactions'
     try:
-        with httpx.Client(timeout=90) as client:
-            response = client.post(url, headers={'x-goog-api-key': GEMINI_API_KEY}, json=body)
+        response = request_with_retries(
+            'POST',
+            url,
+            headers={'x-goog-api-key': GEMINI_API_KEY},
+            json=body,
+            timeout=90,
+        )
     except httpx.HTTPError as exc:
         raise HTTPException(502, 'Gemini File Search provider is temporarily unavailable') from exc
     if response.status_code >= 400:
-        try:
-            detail = response.json()
-        except ValueError:
-            detail = response.text[:500]
-        raise HTTPException(502, {'message': 'Gemini File Search request failed', 'provider_status': response.status_code, 'provider_detail': detail})
+        raise HTTPException(502, {
+            'message': 'Gemini File Search request failed',
+            'provider_status': response.status_code,
+        })
     payload = response.json()
     texts=[];citations=[]
     for step in payload.get('steps', []):
@@ -178,16 +183,20 @@ def _gemini_file_search_query(prompt: str, task: str):
 
 def _post_generate_content(url: str, body: dict):
     try:
-        with httpx.Client(timeout=90) as client:
-            response = client.post(url, headers={'x-goog-api-key': GEMINI_API_KEY}, json=body)
+        response = request_with_retries(
+            'POST',
+            url,
+            headers={'x-goog-api-key': GEMINI_API_KEY},
+            json=body,
+            timeout=90,
+        )
     except httpx.HTTPError as exc:
         raise HTTPException(502, 'Gemini research provider is temporarily unavailable') from exc
     if response.status_code >= 400:
-        try:
-            detail = response.json()
-        except ValueError:
-            detail = response.text[:500]
-        raise HTTPException(502, {'message': 'Gemini provider request failed', 'provider_status': response.status_code, 'provider_detail': detail})
+        raise HTTPException(502, {
+            'message': 'Gemini provider request failed',
+            'provider_status': response.status_code,
+        })
     payload = response.json()
     texts=[]
     for candidate in payload.get('candidates', []):

@@ -104,7 +104,12 @@ jobs:
       - name: Verify clean release workspace after Vercel pull
         run: |
           set -euo pipefail
-          test -z "$(git status --porcelain --untracked-files=all)"
+          DIRTY="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$DIRTY" ]; then
+            printf '%s\n' "$DIRTY"
+            echo "::error::Vercel pull changed or created non-ignored repository files"
+            exit 1
+          fi
 
       - name: Validate production runtime configuration
         run: |
@@ -149,7 +154,12 @@ jobs:
       - name: Verify clean release workspace after build
         run: |
           set -euo pipefail
-          test -z "$(git status --porcelain --untracked-files=all)"
+          DIRTY="$(git status --porcelain --untracked-files=all)"
+          if [ -n "$DIRTY" ]; then
+            printf '%s\n' "$DIRTY"
+            echo "::error::Vercel build changed or created non-ignored repository files"
+            exit 1
+          fi
 
       - name: Stage production deployment without assigning domain
         id: stage

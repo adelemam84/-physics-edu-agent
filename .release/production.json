@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "bf28656360b6e271a893f54b401fab6ade548c45",
+  "requested_code_sha": "38aadc9b0c98cc0cf7625b665c7b8543a3f96fbd",
   "requested_at": "2026-09-16",
-  "reason": "Promote canonical runtime version identity after green CI, security audit, and final technical readiness",
-  "content_ingestion": "deferred",
+  "reason": "Promote pre-content production intake lock after green CI and security audit",
+  "content_ingestion": "locked",
   "scope": "technical_runtime_only"
 }

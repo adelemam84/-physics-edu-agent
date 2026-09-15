@@ -1,5 +1,6 @@
 # Vercel local build/link state
 .vercel/
+.python-version
 
 # Python bytecode and test caches
 __pycache__/

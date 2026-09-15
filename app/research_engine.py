@@ -181,7 +181,9 @@ def _gemini_file_search_query(prompt: str, task: str):
                 citations.append(annotation)
     output_text = payload.get('output_text') or '\n'.join(texts).strip()
     if not output_text:
-        raise HTTPException(502, 'Gemini File Search returned no grounded text')
+        error = HTTPException(502, 'Gemini File Search returned no grounded text')
+        error.provider_attempts = provider_attempts(response)
+        raise error
     return output_text, payload.get('usage', {}), citations, provider_attempts(response)
 
 
@@ -212,7 +214,9 @@ def _post_generate_content(url: str, body: dict):
             if part.get('text'):
                 texts.append(part['text'])
     if not texts:
-        raise HTTPException(502, 'Gemini provider returned no grounded text')
+        error = HTTPException(502, 'Gemini provider returned no grounded text')
+        error.provider_attempts = provider_attempts(response)
+        raise error
     return '\n'.join(texts).strip(), payload.get('usageMetadata', {}), [], provider_attempts(response)
 
 
@@ -252,7 +256,7 @@ def _execute_orchestrated(req: ResearchRequest):
                 'source_mode': plan.source_mode,
                 'document_id': int(doc['id']),
                 'page_count': page_count,
-                'provider_attempts': int(getattr(exc, 'provider_attempts', 1)),
+                'provider_attempts': int(getattr(exc, 'provider_attempts', 0)),
             },
         )
         raise

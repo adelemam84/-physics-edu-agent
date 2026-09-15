@@ -1,0 +1,16 @@
+# Vercel local build/link state
+.vercel/
+
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# Local-only environment files
+.env
+.env.*
+!.env.example

@@ -14,6 +14,10 @@ from .main import app
 
 VERIFY_TOKEN = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "").strip()
 APP_SECRET = os.getenv("META_APP_SECRET", "").strip()
+MAX_WEBHOOK_BYTES = max(
+    1024,
+    int(os.getenv("WHATSAPP_WEBHOOK_MAX_BYTES", str(1024 * 1024))),
+)
 
 
 def _verify_signature(raw: bytes, header: str | None) -> bool:
@@ -23,6 +27,23 @@ def _verify_signature(raw: bytes, header: str | None) -> bool:
         return False
     expected = hmac.new(APP_SECRET.encode("utf-8"), raw, hashlib.sha256).hexdigest()
     return hmac.compare_digest(header.split("=",1)[1], expected)
+
+
+async def _read_limited_body(request: Request) -> bytes:
+    content_length = (request.headers.get("content-length") or "").strip()
+    if content_length:
+        try:
+            if int(content_length) > MAX_WEBHOOK_BYTES:
+                raise HTTPException(413, "Webhook payload is too large")
+        except ValueError:
+            pass
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_WEBHOOK_BYTES:
+            raise HTTPException(413, "Webhook payload is too large")
+        body.extend(chunk)
+    return bytes(body)
 
 
 def _provider_ts(value) -> datetime | None:
@@ -47,7 +68,10 @@ def verify_whatsapp_webhook(
 
 @app.post("/webhooks/whatsapp")
 async def whatsapp_webhook(request: Request):
-    raw = await request.body()
+    media_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if media_type != "application/json":
+        raise HTTPException(415, "Webhook content type must be application/json")
+    raw = await _read_limited_body(request)
     if not APP_SECRET:
         raise HTTPException(503, "META_APP_SECRET is not configured")
     if not _verify_signature(raw, request.headers.get("x-hub-signature-256")):

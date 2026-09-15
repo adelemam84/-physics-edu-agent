@@ -162,7 +162,7 @@ def usage_snapshot(hours: int = 24) -> dict:
                FROM (
                  SELECT *,
                    CASE
-                     WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[1-9][0-9]*$'
+                     WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[0-9]+$'
                        THEN (metadata_json->>'provider_attempts')::integer
                      ELSE 1
                    END provider_attempts
@@ -188,7 +188,7 @@ def usage_snapshot(hours: int = 24) -> dict:
                    FROM (
                      SELECT *,
                        CASE
-                         WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[1-9][0-9]*$'
+                         WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[0-9]+$'
                            THEN (metadata_json->>'provider_attempts')::integer
                          ELSE 1
                        END provider_attempts

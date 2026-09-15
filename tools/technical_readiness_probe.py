@@ -18,6 +18,16 @@ EXPECT_CONTENT_INGESTION_LOCKED = (
     os.getenv("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED", "true").strip().lower()
     not in {"0", "false", "no", "off"}
 )
+CONTENT_INGESTION_STATE_MIN_VERSION = (1, 8, 4)
+
+
+def _version_tuple(value: object) -> tuple[int, ...]:
+    parts = []
+    for raw in str(value or "").split("."):
+        if not raw.isdigit():
+            break
+        parts.append(int(raw))
+    return tuple(parts)
 
 SECURITY_HEADERS = {
     "strict-transport-security": "max-age=",
@@ -157,7 +167,10 @@ def _expect_ready(row: dict) -> list[str]:
         out.append("readiness payload is not ready")
     if "no-store" not in row["headers"].get("cache-control", "").lower():
         out.append("readiness response must be no-store")
-    if isinstance(data, dict):
+    if (
+        isinstance(data, dict)
+        and _version_tuple(data.get("version")) >= CONTENT_INGESTION_STATE_MIN_VERSION
+    ):
         expected = "locked" if EXPECT_CONTENT_INGESTION_LOCKED else "enabled"
         if data.get("content_ingestion") != expected:
             out.append(

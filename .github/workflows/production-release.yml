@@ -151,13 +151,22 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel build --prod --token="$VERCEL_TOKEN"
 
+      - name: Normalize Vercel-generated dependency metadata
+        run: |
+          set -euo pipefail
+          for generated in pyproject.toml uv.lock; do
+            if [ -e "$generated" ] && ! git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
+              rm -f -- "$generated"
+            fi
+          done
+
       - name: Verify clean release workspace after build
         run: |
           set -euo pipefail
           DIRTY="$(git status --porcelain --untracked-files=all)"
           if [ -n "$DIRTY" ]; then
             printf '%s\n' "$DIRTY"
-            echo "::error::Vercel build changed or created non-ignored repository files"
+            echo "::error::Vercel build changed or created unexpected non-ignored repository files"
             exit 1
           fi
 

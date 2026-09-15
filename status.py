@@ -6,6 +6,7 @@ import time
 
 from fastapi import FastAPI, Response
 
+from app.content_phase_guard import content_ingestion_enabled
 from app.db import STORAGE_BACKEND, connect
 from app.services.runtime_identity import runtime_identity
 from app.version import APPLICATION_VERSION
@@ -81,6 +82,7 @@ def _readiness_snapshot() -> dict:
             "database": db_ok,
             "critical_config": critical_config,
             "deployment_ok": deployment_ok,
+            "content_ingestion_locked": not content_ingestion_enabled(),
         }
         _readiness_cache = (time.monotonic(), result)
         return result
@@ -126,6 +128,7 @@ def health_ready(response: Response):
         "status": "ready" if probe["ready"] else "not_ready",
         "service": SERVICE,
         "version": VERSION,
+        "content_ingestion": "locked" if probe["content_ingestion_locked"] else "enabled",
     }
 
 

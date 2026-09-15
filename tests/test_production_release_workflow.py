@@ -56,6 +56,17 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--env RELEASE_GIT_REF=main", self.text)
         self.assertIn('--env RELEASE_GIT_SHA="$GITHUB_SHA"', self.text)
 
+    def test_runtime_bootstrap_runs_explicitly_before_build_and_deploy(self):
+        self.assertIn("Install production env loader", self.text)
+        self.assertIn('"python-dotenv==1.1.1"', self.text)
+        self.assertIn("Apply production runtime bootstrap", self.text)
+        self.assertIn("python tools/apply_runtime_bootstrap.py", self.text)
+        bootstrap = self.text.index("Apply production runtime bootstrap")
+        build = self.text.index("Build production artifact")
+        stage = self.text.index("Stage production deployment without assigning domain")
+        self.assertLess(bootstrap, build)
+        self.assertLess(build, stage)
+
     def test_production_is_staged_before_domain_assignment(self):
         stage = self.text.index("--prod --skip-domain")
         staged_health = self.text.index("Verify staged health contract")

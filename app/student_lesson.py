@@ -2,7 +2,7 @@ from __future__ import annotations
 from decimal import Decimal
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from .main import app
 from .db import connect
 from .student_quiz import is_correct
@@ -10,11 +10,11 @@ from .student_security import resolve_student_code
 
 class DiagnosticAnswer(BaseModel):
     question_id:int
-    answer:str
+    answer:str = Field(max_length=5000)
 
 class DiagnosticSubmit(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    answers:list[DiagnosticAnswer]
+    answers:list[DiagnosticAnswer] = Field(max_length=100)
 
 @app.get("/api/student/lessons/{lesson_id}")
 def student_lesson(lesson_id:int, request: Request):

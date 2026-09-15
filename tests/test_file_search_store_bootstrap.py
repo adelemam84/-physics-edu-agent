@@ -115,16 +115,8 @@ class FileSearchProductionBootstrapTests(unittest.TestCase):
         self.assertEqual(result["reason"], "provider_error")
         self.assertEqual(result["status_code"], 502)
 
-    def test_application_lifespan_executes_schema_only_startup_in_order(self):
+    def test_application_lifespan_delegates_to_explicit_bootstrap_when_enabled(self):
         events = []
-
-        @contextmanager
-        def fake_startup_lock():
-            events.append("lock_enter")
-            try:
-                yield
-            finally:
-                events.append("lock_exit")
 
         async def exercise():
             async with main.lifespan(main.app):
@@ -136,40 +128,18 @@ class FileSearchProductionBootstrapTests(unittest.TestCase):
             clear=False,
         ), patch.object(
             main,
-            "startup_migration_lock",
-            side_effect=fake_startup_lock,
-        ), patch.object(
+            "startup_bootstrap_enabled",
+            return_value=True,
+        ) as enabled, patch.object(
             main,
-            "init_db",
-            side_effect=lambda: events.append("init_db"),
-        ), patch(
-            "app.services.corpus_phase2_runtime.ensure_phase2_schemas",
-            side_effect=lambda **kwargs: events.append(
-                ("ensure_phase2_schemas", kwargs)
-            ),
-        ) as ensure, patch(
-            "app.services.corpus_phase2_runtime.run_phase2_bootstrap"
-        ) as business_bootstrap, patch.object(
-            file_search_store,
-            "bootstrap_store_if_enabled",
-            side_effect=lambda: events.append("file_search_bootstrap"),
-        ) as provider_bootstrap:
+            "apply_startup_bootstrap",
+            side_effect=lambda: events.append("bootstrap"),
+        ) as bootstrap:
             asyncio.run(exercise())
 
-        ensure.assert_called_once_with(release_schema_ready=True)
-        business_bootstrap.assert_not_called()
-        provider_bootstrap.assert_called_once_with()
-        self.assertEqual(
-            events,
-            [
-                "lock_enter",
-                "init_db",
-                ("ensure_phase2_schemas", {"release_schema_ready": True}),
-                "lock_exit",
-                "file_search_bootstrap",
-                "yield",
-            ],
-        )
+        enabled.assert_called_once_with()
+        bootstrap.assert_called_once_with()
+        self.assertEqual(events, ["bootstrap", "yield"])
 
 
 if __name__ == "__main__":

@@ -56,6 +56,14 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--env RELEASE_GIT_REF=main", self.text)
         self.assertIn('--env RELEASE_GIT_SHA="$GITHUB_SHA"', self.text)
 
+    def test_release_schema_is_applied_once_before_build(self):
+        schema_step = self.text.index("Apply release schema once before deployment")
+        build_step = self.text.index("Build production artifact")
+        self.assertLess(schema_step, build_step)
+        self.assertIn("source .vercel/.env.production.local", self.text)
+        self.assertIn('export RELEASE_GIT_SHA="$GITHUB_SHA"', self.text)
+        self.assertIn("python tools/run_release_schema.py", self.text)
+
     def test_production_is_staged_before_domain_assignment(self):
         stage = self.text.index("--prod --skip-domain")
         staged_health = self.text.index("Verify staged health contract")

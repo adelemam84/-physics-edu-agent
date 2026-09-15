@@ -69,6 +69,7 @@ class AITelemetryTests(unittest.TestCase):
                 usage={"promptTokenCount": 10, "candidatesTokenCount": 5},
                 metadata={
                     "document_id": 7,
+                    "provider_attempts": 3,
                     "prompt": "sensitive prompt",
                     "transcript": "sensitive source text",
                     "answer": "student answer",
@@ -79,6 +80,7 @@ class AITelemetryTests(unittest.TestCase):
         params = con.calls[0][1]
         metadata_json = params[10]
         self.assertIn("document_id", metadata_json)
+        self.assertIn('"provider_attempts": 3', metadata_json)
         self.assertNotIn("sensitive prompt", metadata_json)
         self.assertNotIn("sensitive source text", metadata_json)
         self.assertNotIn("student answer", metadata_json)

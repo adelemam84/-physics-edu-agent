@@ -22,7 +22,7 @@ from .services.science_diagrams import DiagramSpec, render as render_science_dia
 from .services.ai_telemetry import record_ai_usage
 from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
-from .services.provider_http import request_with_retries
+from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('LESSON_STUDIO_GEMINI_MODEL', os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash')).strip()
@@ -116,6 +116,7 @@ def _gemini_text(
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code='network',
+            metadata={'provider_attempts': provider_error_attempts(exc)},
         )
         raise HTTPException(502, 'Gemini is temporarily unavailable') from exc
     if r.status_code >= 400:
@@ -126,6 +127,7 @@ def _gemini_text(
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code=str(r.status_code),
+            metadata={'provider_attempts': provider_attempts(r)},
         )
         raise HTTPException(502, {'message': 'Gemini request failed', 'status': r.status_code})
     payload = r.json()
@@ -139,6 +141,7 @@ def _gemini_text(
             latency_ms=round((time.perf_counter()-started)*1000),
             usage=payload.get('usageMetadata', {}),
             error_code='empty_content',
+            metadata={'provider_attempts': provider_attempts(r)},
         )
         raise HTTPException(502, 'Gemini returned no content')
     record_ai_usage(
@@ -148,6 +151,7 @@ def _gemini_text(
         status='success',
         latency_ms=round((time.perf_counter()-started)*1000),
         usage=payload.get('usageMetadata', {}),
+        metadata={'provider_attempts': provider_attempts(r)},
     )
     return '\n'.join(texts).strip()
 
@@ -181,6 +185,7 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code='network',
+            metadata={'provider_attempts': provider_error_attempts(exc)},
         )
         raise HTTPException(502, 'Mathpix is temporarily unavailable') from exc
     if r.status_code >= 400:
@@ -191,6 +196,7 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code=str(r.status_code),
+            metadata={'provider_attempts': provider_attempts(r)},
         )
         raise HTTPException(502, {'message': 'Mathpix OCR failed', 'status': r.status_code})
     x = r.json()
@@ -201,6 +207,7 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
         status='success',
         latency_ms=round((time.perf_counter()-started)*1000),
         usage=x.get('usage') or {},
+        metadata={'provider_attempts': provider_attempts(r)},
     )
     return (x.get('text') or '').strip(), x.get('confidence')
 

@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import inspect
+import unittest
+
+from app import (
+    ai_operations,
+    lesson_studio_second_reviewer,
+    operations_readiness,
+    research_engine,
+    science_lesson_studio,
+    source_indexing,
+    technical_observability,
+)
+from app.services import ai_telemetry, provider_http
+
+
+class AIRetryObservabilityContractTests(unittest.TestCase):
+    def test_provider_helper_exposes_success_and_error_attempt_counts(self):
+        self.assertTrue(callable(provider_http.provider_attempts))
+        self.assertTrue(callable(provider_http.provider_error_attempts))
+
+    def test_provider_paths_emit_attempt_metadata(self):
+        for fn in (
+            research_engine._execute_orchestrated,
+            science_lesson_studio._gemini_text,
+            science_lesson_studio._mathpix_ocr,
+            lesson_studio_second_reviewer._openai_review,
+            source_indexing._operation,
+        ):
+            self.assertIn("provider_attempts", inspect.getsource(fn), fn.__name__)
+
+    def test_research_engine_preserves_real_attempt_count_and_zero_pre_provider(self):
+        file_search = inspect.getsource(research_engine._gemini_file_search_query)
+        generate = inspect.getsource(research_engine._post_generate_content)
+        execute = inspect.getsource(research_engine._execute_orchestrated)
+        self.assertIn("error.provider_attempts = provider_attempts(response)", file_search)
+        self.assertIn("error.provider_attempts = provider_attempts(response)", generate)
+        self.assertIn("getattr(exc, 'provider_attempts', 0)", execute)
+
+    def test_usage_snapshot_aggregates_retry_pressure_without_content(self):
+        source = inspect.getsource(ai_telemetry.usage_snapshot).lower()
+        self.assertIn("retried_calls", source)
+        self.assertIn("retry_attempts", source)
+        self.assertIn("retry_pct", source)
+        self.assertIn("metadata_json->>'provider_attempts'", source)
+        self.assertIn("'^[0-9]+$'", source)
+        # Privacy declarations such as stores_prompts=false are allowed; the
+        # telemetry query must never extract content-bearing metadata fields.
+        for field in ("prompt", "output", "student_answer", "source_text"):
+            self.assertNotIn(f"metadata_json->>'{field}'", source)
+
+    def test_retry_pressure_is_visible_in_admin_and_handoff_surfaces(self):
+        self.assertIn("Retry / 24س", ai_operations.PAGE)
+        self.assertIn("ai_retry_pressure", inspect.getsource(technical_observability.technical_observability_snapshot))
+        self.assertIn("ai_retry_pct_24h", inspect.getsource(operations_readiness.build_operations_readiness))
+
+
+if __name__ == "__main__":
+    unittest.main()

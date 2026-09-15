@@ -18,7 +18,7 @@ from .services.source_asset_runtime import _source_pdf
 from .services.ai_telemetry import record_ai_usage
 from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
-from .services.provider_http import request_with_retries
+from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash').strip() or 'gemini-3.8-flash'
@@ -159,12 +159,16 @@ def _gemini_file_search_query(prompt: str, task: str):
             timeout=90,
         )
     except httpx.HTTPError as exc:
-        raise HTTPException(502, 'Gemini File Search provider is temporarily unavailable') from exc
+        error = HTTPException(502, 'Gemini File Search provider is temporarily unavailable')
+        error.provider_attempts = provider_error_attempts(exc)
+        raise error from exc
     if response.status_code >= 400:
-        raise HTTPException(502, {
+        error = HTTPException(502, {
             'message': 'Gemini File Search request failed',
             'provider_status': response.status_code,
         })
+        error.provider_attempts = provider_attempts(response)
+        raise error
     payload = response.json()
     texts=[];citations=[]
     for step in payload.get('steps', []):
@@ -177,8 +181,10 @@ def _gemini_file_search_query(prompt: str, task: str):
                 citations.append(annotation)
     output_text = payload.get('output_text') or '\n'.join(texts).strip()
     if not output_text:
-        raise HTTPException(502, 'Gemini File Search returned no grounded text')
-    return output_text, payload.get('usage', {}), citations
+        error = HTTPException(502, 'Gemini File Search returned no grounded text')
+        error.provider_attempts = provider_attempts(response)
+        raise error
+    return output_text, payload.get('usage', {}), citations, provider_attempts(response)
 
 
 def _post_generate_content(url: str, body: dict):
@@ -191,12 +197,16 @@ def _post_generate_content(url: str, body: dict):
             timeout=90,
         )
     except httpx.HTTPError as exc:
-        raise HTTPException(502, 'Gemini research provider is temporarily unavailable') from exc
+        error = HTTPException(502, 'Gemini research provider is temporarily unavailable')
+        error.provider_attempts = provider_error_attempts(exc)
+        raise error from exc
     if response.status_code >= 400:
-        raise HTTPException(502, {
+        error = HTTPException(502, {
             'message': 'Gemini provider request failed',
             'provider_status': response.status_code,
         })
+        error.provider_attempts = provider_attempts(response)
+        raise error
     payload = response.json()
     texts=[]
     for candidate in payload.get('candidates', []):
@@ -204,8 +214,10 @@ def _post_generate_content(url: str, body: dict):
             if part.get('text'):
                 texts.append(part['text'])
     if not texts:
-        raise HTTPException(502, 'Gemini provider returned no grounded text')
-    return '\n'.join(texts).strip(), payload.get('usageMetadata', {}), []
+        error = HTTPException(502, 'Gemini provider returned no grounded text')
+        error.provider_attempts = provider_attempts(response)
+        raise error
+    return '\n'.join(texts).strip(), payload.get('usageMetadata', {}), [], provider_attempts(response)
 
 
 def _execute_orchestrated(req: ResearchRequest):
@@ -224,12 +236,12 @@ def _execute_orchestrated(req: ResearchRequest):
     started = time.perf_counter()
     try:
         if plan.source_mode == 'file_search':
-            answer, usage, citations = _gemini_file_search_query(
+            answer, usage, citations, attempt_count = _gemini_file_search_query(
                 f'المستند المطلوب: {doc["filename"]}. {req.prompt}', req.task
             )
         else:
             pdf_bytes = _subset_pdf(str(doc['storage_url']), req.page_start, req.page_end)
-            answer, usage, citations = _gemini_exact_pdf_query(
+            answer, usage, citations, attempt_count = _gemini_exact_pdf_query(
                 pdf_bytes, req.prompt, req.page_start, req.page_end, req.task
             )
     except HTTPException as exc:
@@ -244,6 +256,7 @@ def _execute_orchestrated(req: ResearchRequest):
                 'source_mode': plan.source_mode,
                 'document_id': int(doc['id']),
                 'page_count': page_count,
+                'provider_attempts': int(getattr(exc, 'provider_attempts', 0)),
             },
         )
         raise
@@ -258,6 +271,7 @@ def _execute_orchestrated(req: ResearchRequest):
             'source_mode': plan.source_mode,
             'document_id': int(doc['id']),
             'page_count': page_count,
+            'provider_attempts': attempt_count,
         },
     )
     return {

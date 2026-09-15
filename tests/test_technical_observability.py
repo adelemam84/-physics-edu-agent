@@ -32,6 +32,9 @@ class TechnicalObservabilityTests(unittest.TestCase):
             "calls": 1,
             "failures": 0,
             "failure_pct": 0.0,
+            "retried_calls": 0,
+            "retry_attempts": 0,
+            "retry_pct": 0.0,
             "avg_latency_ms": 280,
         }
         sync = sync or {
@@ -152,12 +155,33 @@ class TechnicalObservabilityTests(unittest.TestCase):
             "calls": 8,
             "failures": 3,
             "failure_pct": 37.5,
+            "retried_calls": 0,
+            "retry_attempts": 0,
+            "retry_pct": 0.0,
             "avg_latency_ms": 500,
         }
         data = self._snapshot(ai=ai)
         self.assertEqual(data["state"], "unhealthy")
         signal = next(x for x in data["signals"] if x["id"] == "ai_failure_rate")
         self.assertEqual(signal["severity"], "error")
+
+    def test_ai_retry_pressure_degrades_after_minimum_sample(self):
+        ai = {
+            "ok": True,
+            "state": "observed",
+            "calls": 10,
+            "failures": 0,
+            "failure_pct": 0.0,
+            "retried_calls": 4,
+            "retry_attempts": 5,
+            "retry_pct": 40.0,
+            "avg_latency_ms": 500,
+        }
+        data = self._snapshot(ai=ai)
+        self.assertEqual(data["state"], "degraded")
+        signal = next(x for x in data["signals"] if x["id"] == "ai_retry_pressure")
+        self.assertEqual(signal["severity"], "warning")
+        self.assertEqual(signal["evidence"]["retry_attempts"], 5)
 
     def test_source_sync_failure_is_warning_not_runtime_outage(self):
         sync = {

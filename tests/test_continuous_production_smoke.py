@@ -16,8 +16,9 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.tree = ast.parse(cls.script)
 
-    def test_monitor_is_scheduled_and_manual(self):
+    def test_monitor_is_scheduled_manual_and_self_validating_on_main(self):
         self.assertIn("workflow_dispatch:", self.workflow)
+        self.assertIn("branches: [main]", self.workflow)
         self.assertIn('cron: "17 */6 * * *"', self.workflow)
 
     def test_monitor_has_read_only_repo_permissions(self):

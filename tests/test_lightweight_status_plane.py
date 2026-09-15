@@ -83,6 +83,36 @@ class LightweightStatusPlaneTests(unittest.TestCase):
         self.assertTrue(second["ready"])
         self.assertEqual(calls["count"], 1)
 
+    def test_production_readiness_surfaces_pre_content_lock_without_affecting_runtime_ready(self):
+        identity = {
+            "provider": "vercel",
+            "production_environment": True,
+            "current_runtime_is_production_main": True,
+        }
+        env = {
+            "VERCEL_ENV": "production",
+            "CONTENT_INGESTION_ENABLED": "",
+            "DATABASE_URL": "postgresql://configured",
+            "ADMIN_API_KEY": "configured",
+            "STUDENT_SESSION_SECRET": "configured",
+            "AWS_ACCESS_KEY_ID": "configured",
+            "AWS_SECRET_ACCESS_KEY": "configured",
+            "AWS_ENDPOINT_URL_S3": "https://storage.example",
+            "AWS_REGION": "us-east-1",
+        }
+
+        @contextmanager
+        def fake_connect():
+            yield _RowConnection()
+
+        with patch.dict(os.environ, env, clear=False), patch.object(
+            status, "connect", fake_connect
+        ), patch.object(status, "runtime_identity", return_value=identity):
+            snapshot = status._readiness_snapshot()
+
+        self.assertTrue(snapshot["ready"])
+        self.assertTrue(snapshot["content_ingestion_locked"])
+
 
 if __name__ == "__main__":
     unittest.main()

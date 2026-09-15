@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - "status.py"
+      - "app/content_phase_guard.py"
       - "app/security.py"
       - "app/student_security.py"
       - "app/student_session_api.py"
@@ -14,11 +15,13 @@ on:
       - "app/services/ai_orchestrator.py"
       - "tools/technical_readiness_probe.py"
       - "tests/test_technical_readiness_probe_contract.py"
+      - "tests/test_lightweight_status_plane.py"
       - ".github/workflows/final-technical-readiness.yml"
   push:
     branches: [main]
     paths:
       - "status.py"
+      - "app/content_phase_guard.py"
       - "app/security.py"
       - "app/student_security.py"
       - "app/student_session_api.py"
@@ -28,6 +31,7 @@ on:
       - "app/services/ai_orchestrator.py"
       - "tools/technical_readiness_probe.py"
       - "tests/test_technical_readiness_probe_contract.py"
+      - "tests/test_lightweight_status_plane.py"
       - ".github/workflows/final-technical-readiness.yml"
   schedule:
     - cron: "43 2 * * *"
@@ -49,6 +53,7 @@ jobs:
       TECH_READY_TIMEOUT_SECONDS: "8"
       TECH_READY_ATTEMPTS: "2"
       TECH_READY_MAX_LATENCY_MS: "5000"
+      TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

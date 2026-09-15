@@ -22,7 +22,7 @@ concurrency:
 env:
   VERCEL_ORG_ID: team_GsqjHJAXTirB3YVlUto63rma
   VERCEL_PROJECT_ID: prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL
-  VERCEL_CLI_VERSION: 59.15.1
+  VERCEL_CLI_VERSION: 59.17.0
   PRODUCTION_URL: https://physics-edu-agent.vercel.app
 
 jobs:

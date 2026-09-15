@@ -2,6 +2,19 @@ name: Final Technical Readiness
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "status.py"
+      - "app/security.py"
+      - "app/student_security.py"
+      - "app/student_session_api.py"
+      - "app/services/rate_limit.py"
+      - "app/whatsapp_webhook.py"
+      - "app/services/ai_governance.py"
+      - "app/services/ai_orchestrator.py"
+      - "tools/technical_readiness_probe.py"
+      - "tests/test_technical_readiness_probe_contract.py"
+      - ".github/workflows/final-technical-readiness.yml"
   push:
     branches: [main]
     paths:
@@ -23,7 +36,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: physics-edu-agent-final-technical-readiness
+  group: physics-edu-agent-final-technical-readiness-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

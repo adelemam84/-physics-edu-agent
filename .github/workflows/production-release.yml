@@ -146,11 +146,6 @@ jobs:
           print("Required production environment keys are present")
           PY
 
-      - name: Apply production runtime bootstrap
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel env run -e production -- python tools/apply_runtime_bootstrap.py
-
       - name: Build production artifact
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -175,7 +170,32 @@ jobs:
             exit 1
           fi
 
-      - name: Stage production deployment without assigning domain
+      - name: Bootstrap staged production runtime
+        id: bootstrap_stage
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          BOOTSTRAP_TOKEN="$(python - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(48))
+          PY
+          )"
+          echo "::add-mask::$BOOTSTRAP_TOKEN"
+          BOOTSTRAP_DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --skip-domain --yes             --env RELEASE_GIT_REF=main             --env RELEASE_GIT_SHA="$GITHUB_SHA"             --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"             --token="$VERCEL_TOKEN")"
+          test -n "$BOOTSTRAP_DEPLOYMENT_URL"
+          vercel curl /api/internal/release-bootstrap             --deployment "$BOOTSTRAP_DEPLOYMENT_URL"             -X POST             -H "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN"             --fail-with-body > /tmp/bootstrap.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/bootstrap.json').read_text())
+          if data.get('status') != 'ok':
+              raise SystemExit(f"staged runtime bootstrap failed: {data}")
+          print("staged runtime bootstrap passed")
+          PY
+          echo "url=$BOOTSTRAP_DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Stage production deployment without bootstrap credential
         id: stage
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -211,6 +231,13 @@ jobs:
           DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
         run: vercel promote "$DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
 
+      - name: Remove bootstrap-only deployment
+        if: success()
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BOOTSTRAP_DEPLOYMENT_URL: ${{ steps.bootstrap_stage.outputs.url }}
+        run: vercel remove "$BOOTSTRAP_DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
+
       - name: Verify canonical production
         run: |
           set -euo pipefail
@@ -237,5 +264,5 @@ jobs:
             echo "- Commit: $GITHUB_SHA"
             echo "- Staged deployment: $DEPLOYMENT_URL"
             echo "- Production: $PRODUCTION_URL"
-            echo "- Gates: env presence + compile + unit tests + explicit runtime bootstrap + staged health + readiness + production smoke"
+            echo "- Gates: env presence + compile + unit tests + authenticated staged runtime bootstrap + staged health + readiness + production smoke"
           } >> "$GITHUB_STEP_SUMMARY"

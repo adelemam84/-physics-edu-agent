@@ -102,12 +102,30 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
             2,
         )
 
+    def test_vercel_transient_python_manifests_are_removed_only_when_untracked(self):
+        self.assertIn(
+            "Normalize Vercel-generated dependency metadata",
+            self.text,
+        )
+        self.assertIn("for generated in pyproject.toml uv.lock", self.text)
+        self.assertIn(
+            'git ls-files --error-unmatch "$generated"',
+            self.text,
+        )
+        self.assertIn('rm -f -- "$generated"', self.text)
+        self.assertIn(
+            "unexpected non-ignored repository files",
+            self.text,
+        )
+
     def test_generated_release_files_are_gitignored(self):
         gitignore = Path(".gitignore").read_text(encoding="utf-8")
         self.assertIn(".vercel/", gitignore)
         self.assertIn("__pycache__/", gitignore)
         self.assertIn("*.py[cod]", gitignore)
         self.assertIn("!.env.example", gitignore)
+        self.assertNotIn("pyproject.toml", gitignore)
+        self.assertNotIn("uv.lock", gitignore)
 
 
 if __name__ == "__main__":

@@ -152,7 +152,7 @@ jobs:
       - name: Apply production runtime bootstrap
         env:
           PRODUCTION_ENV_FILE: .vercel/.env.production.local
-        run: python tools/apply_runtime_bootstrap.py
+        run: PYTHONPATH=. python tools/apply_runtime_bootstrap.py
 
       - name: Build production artifact
         env:

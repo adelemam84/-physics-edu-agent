@@ -60,7 +60,7 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("Install production env loader", self.text)
         self.assertIn('"python-dotenv==1.1.1"', self.text)
         self.assertIn("Apply production runtime bootstrap", self.text)
-        self.assertIn("python tools/apply_runtime_bootstrap.py", self.text)
+        self.assertIn("PYTHONPATH=. python tools/apply_runtime_bootstrap.py", self.text)
         bootstrap = self.text.index("Apply production runtime bootstrap")
         build = self.text.index("Build production artifact")
         stage = self.text.index("Stage production deployment without assigning domain")

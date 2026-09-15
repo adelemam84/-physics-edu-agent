@@ -3,5 +3,6 @@
   "scope": "safe_read_only_production_probe",
   "requests": 100,
   "concurrency": 10,
-  "content_ingestion": "deferred"
+  "content_ingestion": "deferred",
+  "last_verified_at": "2026-09-15T18:08:53Z"
 }

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import threading
+import time
+
 from fastapi import Depends
 
 from .db import connect
@@ -11,6 +15,12 @@ from .security import require_admin
 from .services.active_content_integrity import active_content_integrity_snapshot
 
 NEXT_RELEASE = app.version
+PUBLIC_STATUS_TTL_SECONDS = max(
+    1.0,
+    min(float(os.getenv("NEXT_RELEASE_PUBLIC_CACHE_SECONDS", "5")), 30.0),
+)
+_public_status_lock = threading.Lock()
+_public_status_cache: tuple[float, dict] | None = None
 
 
 def _sync_summary() -> dict:
@@ -160,9 +170,7 @@ def next_release_status() -> dict:
     }
 
 
-@app.get("/api/next-release/status")
-def public_next_release_status():
-    data = next_release_status()
+def _public_status_projection(data: dict) -> dict:
     return {
         "version": data["version"],
         "release_state": data["release_state"],
@@ -171,6 +179,31 @@ def public_next_release_status():
         "source_page_coverage": data["source_page_coverage"],
         "exam_blueprint": data["exam_blueprint"],
     }
+
+
+def _public_next_release_snapshot() -> dict:
+    """Coalesce bursty public status reads without caching admin diagnostics."""
+    global _public_status_cache
+
+    now = time.monotonic()
+    cached = _public_status_cache
+    if cached is not None and now - cached[0] < PUBLIC_STATUS_TTL_SECONDS:
+        return cached[1]
+
+    with _public_status_lock:
+        now = time.monotonic()
+        cached = _public_status_cache
+        if cached is not None and now - cached[0] < PUBLIC_STATUS_TTL_SECONDS:
+            return cached[1]
+
+        value = _public_status_projection(next_release_status())
+        _public_status_cache = (now, value)
+        return value
+
+
+@app.get("/api/next-release/status")
+def public_next_release_status():
+    return _public_next_release_snapshot()
 
 
 @app.get(

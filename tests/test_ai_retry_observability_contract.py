@@ -31,12 +31,15 @@ class AIRetryObservabilityContractTests(unittest.TestCase):
             self.assertIn("provider_attempts", inspect.getsource(fn), fn.__name__)
 
     def test_usage_snapshot_aggregates_retry_pressure_without_content(self):
-        source = inspect.getsource(ai_telemetry.usage_snapshot)
+        source = inspect.getsource(ai_telemetry.usage_snapshot).lower()
         self.assertIn("retried_calls", source)
         self.assertIn("retry_attempts", source)
         self.assertIn("retry_pct", source)
         self.assertIn("metadata_json->>'provider_attempts'", source)
-        self.assertNotIn("prompt", source.lower())
+        # Privacy declarations such as stores_prompts=false are allowed; the
+        # telemetry query must never extract content-bearing metadata fields.
+        for field in ("prompt", "output", "student_answer", "source_text"):
+            self.assertNotIn(f"metadata_json->>'{field}'", source)
 
     def test_retry_pressure_is_visible_in_admin_and_handoff_surfaces(self):
         self.assertIn("Retry / 24س", ai_operations.PAGE)

@@ -57,10 +57,13 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('--env RELEASE_GIT_SHA="$GITHUB_SHA"', self.text)
 
     def test_runtime_bootstrap_runs_explicitly_before_build_and_deploy(self):
-        self.assertIn("Install production env loader", self.text)
-        self.assertIn('"python-dotenv==1.1.1"', self.text)
+        self.assertNotIn("Install production env loader", self.text)
         self.assertIn("Apply production runtime bootstrap", self.text)
-        self.assertIn("python tools/apply_runtime_bootstrap.py", self.text)
+        self.assertIn(
+            "vercel env run -e production -- python tools/apply_runtime_bootstrap.py",
+            self.text,
+        )
+        self.assertIn("VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}", self.text)
         bootstrap = self.text.index("Apply production runtime bootstrap")
         build = self.text.index("Build production artifact")
         stage = self.text.index("Stage production deployment without assigning domain")

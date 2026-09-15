@@ -1,8 +1,9 @@
 {
-  "requested_at": "2026-09-15",
+  "requested_at": "2026-09-16",
   "scope": "safe_read_only_production_probe",
   "requests": 100,
   "concurrency": 10,
   "content_ingestion": "deferred",
-  "last_verified_at": "2026-09-15T20:47:00Z"
+  "reason": "Verify public release-status burst coalescing under unchanged production thresholds",
+  "last_verified_at": "2026-09-15T21:24:46Z"
 }

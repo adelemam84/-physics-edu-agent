@@ -16,101 +16,166 @@ NEXT_RELEASE = app.version
 def _sync_summary() -> dict:
     try:
         with connect() as con:
-            exists=con.execute("SELECT to_regclass('public.gemini_source_sync') name").fetchone()['name']
+            exists = con.execute(
+                "SELECT to_regclass('public.gemini_source_sync') name"
+            ).fetchone()["name"]
             if not exists:
-                return {'total':0,'active':0,'processing':0,'failed':0}
-            row=con.execute("""SELECT count(*) total,
-              count(*) FILTER(WHERE state='active') active,
-              count(*) FILTER(WHERE state='processing') processing,
-              count(*) FILTER(WHERE state='failed') failed
-              FROM gemini_source_sync""").fetchone()
-        return {k:int(row[k] or 0) for k in ('total','active','processing','failed')}
+                return {"total": 0, "active": 0, "processing": 0, "failed": 0}
+            row = con.execute(
+                """SELECT count(*) total,
+                  count(*) FILTER(WHERE state='active') active,
+                  count(*) FILTER(WHERE state='processing') processing,
+                  count(*) FILTER(WHERE state='failed') failed
+                  FROM gemini_source_sync"""
+            ).fetchone()
+        return {
+            k: int(row[k] or 0)
+            for k in ("total", "active", "processing", "failed")
+        }
     except Exception:
-        return {'total':0,'active':0,'processing':0,'failed':0}
+        return {"total": 0, "active": 0, "processing": 0, "failed": 0}
 
 
-def _classify_release_state(runtime_blockers: list[str], content_gates: list[str]) -> str:
+def _classify_release_state(
+    runtime_blockers: list[str],
+    content_gates: list[str],
+) -> str:
     if runtime_blockers:
-        return 'code_ready_pending_runtime_activation'
+        return "code_ready_pending_runtime_activation"
     if content_gates:
-        return 'runtime_ready_content_gate_open'
-    return 'runtime_ready'
+        return "runtime_ready_content_gate_open"
+    return "runtime_ready"
 
 
 def next_release_status() -> dict:
-    research=research_engine_status()
-    blueprint=blueprint_readiness()
+    """Return release state without turning deferred AI/content capabilities into runtime blockers.
+
+    Gemini and File Search are valuable source-processing capabilities, but source ingestion is
+    intentionally independent from technical runtime handoff. Their absence is therefore reported
+    as an optional capability warning rather than as a runtime activation failure.
+    """
+    research = research_engine_status()
+    blueprint = blueprint_readiness()
     from .source_review import _source_page_coverage_snapshot
-    source_coverage=_source_page_coverage_snapshot()["summary"]
-    content_integrity=active_content_integrity_snapshot()
-    sync=_sync_summary()
-    checks={
-        'database_configured': True,
-        'pdf_only_policy': True,
-        'gemini_api_key_configured': bool(research.get('configured')),
-        'file_search_store_configured': bool(configured_store_name()),
-        'orchestrator_active': research.get('orchestrator',{}).get('status') == 'active',
-        'question_bank_auto_write_disabled': research.get('guardrails',{}).get('question_bank_auto_write') is False,
-        'exam_blueprint_23_23_active': blueprint.get('blueprint',{}).get('objective_questions') == 23 and blueprint.get('blueprint',{}).get('essay_questions') == 23,
-        'source_page_coverage_ready': bool(source_coverage.get('coverage_ready')),
-        'active_content_integrity_ready': bool(content_integrity.get('ready')),
+
+    source_coverage = _source_page_coverage_snapshot()["summary"]
+    content_integrity = active_content_integrity_snapshot()
+    sync = _sync_summary()
+
+    checks = {
+        "database_configured": True,
+        "pdf_only_policy": True,
+        "gemini_api_key_configured": bool(research.get("configured")),
+        "file_search_store_configured": bool(configured_store_name()),
+        "orchestrator_active": (
+            research.get("orchestrator", {}).get("status") == "active"
+        ),
+        "question_bank_auto_write_disabled": (
+            research.get("guardrails", {}).get("question_bank_auto_write") is False
+        ),
+        "exam_blueprint_23_23_active": (
+            blueprint.get("blueprint", {}).get("objective_questions") == 23
+            and blueprint.get("blueprint", {}).get("essay_questions") == 23
+        ),
+        "source_page_coverage_ready": bool(
+            source_coverage.get("coverage_ready")
+        ),
+        "active_content_integrity_ready": bool(content_integrity.get("ready")),
     }
-    runtime_blockers=[]
-    content_gates=[]
-    if not checks['gemini_api_key_configured']:
-        runtime_blockers.append('GEMINI_API_KEY is not visible to the deployed runtime yet')
-    if not checks['file_search_store_configured']:
-        runtime_blockers.append('Gemini File Search Store has not been provisioned yet')
-    if not checks['source_page_coverage_ready']:
-        content_gates.append(
-            f"source page coverage gap: open_zero={source_coverage.get('open_zero_question_pages',0)}, "
-            f"count_mismatch={source_coverage.get('count_mismatch_pages',0)}"
+
+    # Runtime blockers are reserved for genuine platform/safety failures.
+    # Optional AI/source-processing integrations are reported separately below.
+    runtime_blockers: list[str] = []
+    if not checks["question_bank_auto_write_disabled"]:
+        runtime_blockers.append(
+            "AI question-bank auto-write guard is not enforced"
         )
-    if not checks['active_content_integrity_ready']:
+
+    optional_capabilities = {
+        "gemini_source_engine": checks["gemini_api_key_configured"],
+        "gemini_file_search": checks["file_search_store_configured"],
+    }
+    optional_warnings: list[str] = []
+    if not optional_capabilities["gemini_source_engine"]:
+        optional_warnings.append(
+            "Gemini source tools are not configured; deterministic/runtime paths remain available"
+        )
+    if not optional_capabilities["gemini_file_search"]:
+        optional_warnings.append(
+            "Gemini File Search is not configured; deferred source ingestion does not block runtime readiness"
+        )
+
+    content_gates: list[str] = []
+    if not checks["source_page_coverage_ready"]:
+        content_gates.append(
+            "source page coverage gap: "
+            f"open_zero={source_coverage.get('open_zero_question_pages', 0)}, "
+            f"count_mismatch={source_coverage.get('count_mismatch_pages', 0)}"
+        )
+    if not checks["active_content_integrity_ready"]:
         content_gates.append(
             "active curriculum integrity gap: "
-            f"invalid_approved={content_integrity.get('invalid_approved_questions',0)}, "
-            f"question_lesson_mismatch={content_integrity.get('question_lesson_mismatches',0)}, "
-            f"quiz_question_mismatch={content_integrity.get('quiz_question_mismatches',0)}, "
-            f"critical_qa={content_integrity.get('critical_open_qa',0)}"
+            f"invalid_approved={content_integrity.get('invalid_approved_questions', 0)}, "
+            f"question_lesson_mismatch={content_integrity.get('question_lesson_mismatches', 0)}, "
+            f"quiz_question_mismatch={content_integrity.get('quiz_question_mismatches', 0)}, "
+            f"critical_qa={content_integrity.get('critical_open_qa', 0)}"
         )
-    if not blueprint.get('active_shape_feasible',False):
-        gaps=blueprint.get('gaps',{})
-        content_gates.append(f"23+23 exam bank gap: objective={gaps.get('objective',0)}, essay={gaps.get('essay',0)}")
+    if not blueprint.get("active_shape_feasible", False):
+        gaps = blueprint.get("gaps", {})
+        content_gates.append(
+            "23+23 exam bank gap: "
+            f"objective={gaps.get('objective', 0)}, essay={gaps.get('essay', 0)}"
+        )
+
     return {
-        'version':NEXT_RELEASE,
-        'release_state':_classify_release_state(runtime_blockers,content_gates),
-        'checks':checks,
-        'runtime_blockers':runtime_blockers,
-        'content_gates':content_gates,
-        'blockers':runtime_blockers+content_gates,
-        'gemini_source_sync':sync,
-        'source_page_coverage':source_coverage,
-        'active_content_integrity':content_integrity,
-        'exam_blueprint':{
-            'total_questions':46,
-            'objective_questions':23,
-            'essay_questions':23,
-            'feasible':bool(blueprint.get('active_shape_feasible')),
-            'gaps':blueprint.get('gaps',{}),
+        "version": NEXT_RELEASE,
+        "release_state": _classify_release_state(
+            runtime_blockers,
+            content_gates,
+        ),
+        "checks": checks,
+        "runtime_blockers": runtime_blockers,
+        "optional_capabilities": optional_capabilities,
+        "optional_warnings": optional_warnings,
+        "content_gates": content_gates,
+        "blockers": runtime_blockers + content_gates,
+        "gemini_source_sync": sync,
+        "source_page_coverage": source_coverage,
+        "active_content_integrity": content_integrity,
+        "exam_blueprint": {
+            "total_questions": 46,
+            "objective_questions": 23,
+            "essay_questions": 23,
+            "feasible": bool(blueprint.get("active_shape_feasible")),
+            "gaps": blueprint.get("gaps", {}),
         },
-        'deployment_policy':'promote only a green main commit after CI and production smoke checks pass',
+        "policy": {
+            "technical_runtime_independent_of_deferred_content_ingestion": True,
+            "optional_ai_capabilities_do_not_block_runtime": True,
+            "question_bank_auto_write_must_remain_disabled": True,
+        },
+        "deployment_policy": (
+            "promote only a green main commit after CI and production smoke checks pass"
+        ),
     }
 
 
-@app.get('/api/next-release/status')
+@app.get("/api/next-release/status")
 def public_next_release_status():
-    data=next_release_status()
+    data = next_release_status()
     return {
-        'version':data['version'],
-        'release_state':data['release_state'],
-        'orchestrator_active':data['checks']['orchestrator_active'],
-        'pdf_only_policy':True,
-        'source_page_coverage':data['source_page_coverage'],
-        'exam_blueprint':data['exam_blueprint'],
+        "version": data["version"],
+        "release_state": data["release_state"],
+        "orchestrator_active": data["checks"]["orchestrator_active"],
+        "pdf_only_policy": True,
+        "source_page_coverage": data["source_page_coverage"],
+        "exam_blueprint": data["exam_blueprint"],
     }
 
 
-@app.get('/api/admin/next-release/status',dependencies=[Depends(require_admin)])
+@app.get(
+    "/api/admin/next-release/status",
+    dependencies=[Depends(require_admin)],
+)
 def admin_next_release_status():
     return next_release_status()

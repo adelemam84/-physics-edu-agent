@@ -146,13 +146,10 @@ jobs:
           print("Required production environment keys are present")
           PY
 
-      - name: Install production env loader
-        run: python -m pip install --disable-pip-version-check "python-dotenv==1.1.1"
-
       - name: Apply production runtime bootstrap
         env:
-          PRODUCTION_ENV_FILE: .vercel/.env.production.local
-        run: python tools/apply_runtime_bootstrap.py
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel env run -e production -- python tools/apply_runtime_bootstrap.py
 
       - name: Build production artifact
         env:

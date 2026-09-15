@@ -19,6 +19,7 @@ from .security import admin_configured, admin_session_valid, require_admin
 from .services.pdf_ingest import detect_verbatim_question_candidates, extract_pages
 from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, storage_configured
 from .release_candidate import source_corpus_benchmark, release_readiness
+from .version import APPLICATION_VERSION
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,7 +30,7 @@ async def lifespan(app: FastAPI):
         apply_startup_bootstrap()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.8.2", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version=APPLICATION_VERSION, lifespan=lifespan)
 
 SENSITIVE_CACHE_PREFIXES = (
     "/admin",

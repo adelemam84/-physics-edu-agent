@@ -21,15 +21,11 @@ from .release_candidate import source_corpus_benchmark, release_readiness
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.getenv('DATABASE_URL'):
-        from .services.corpus_phase2_runtime import ensure_phase2_schemas
-        with startup_migration_lock():
-            init_db()
-            ensure_phase2_schemas(release_schema_ready=True)
-        # External provider bootstrap has its own advisory lock and must not hold
-        # the global schema lock while waiting on the network.
-        from .file_search_store import bootstrap_store_if_enabled
-        bootstrap_store_if_enabled()
+    # Production/serverless releases apply idempotent migrations explicitly in the
+    # gated release workflow. Repeating DDL and provider bootstrap on every new
+    # function instance serializes cold starts and creates multi-second tail latency.
+    if os.getenv("DATABASE_URL") and startup_bootstrap_enabled():
+        apply_startup_bootstrap()
     yield
 
 app = FastAPI(title="Science Education Platform", version="1.8.1", lifespan=lifespan)

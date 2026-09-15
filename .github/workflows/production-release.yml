@@ -184,7 +184,12 @@ jobs:
           echo "::add-mask::$BOOTSTRAP_TOKEN"
           BOOTSTRAP_DEPLOYMENT_URL="$(vercel deploy --prebuilt --prod --skip-domain --yes             --env RELEASE_GIT_REF=main             --env RELEASE_GIT_SHA="$GITHUB_SHA"             --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"             --token="$VERCEL_TOKEN")"
           test -n "$BOOTSTRAP_DEPLOYMENT_URL"
-          vercel curl /api/internal/release-bootstrap             --deployment "$BOOTSTRAP_DEPLOYMENT_URL"             -X POST             -H "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN"             --fail-with-body > /tmp/bootstrap.json
+          vercel curl /api/internal/release-bootstrap \
+            --deployment "$BOOTSTRAP_DEPLOYMENT_URL" \
+            -- \
+            --request POST \
+            --header "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN" \
+            --fail-with-body > /tmp/bootstrap.json
           python - <<'PY'
           import json
           from pathlib import Path

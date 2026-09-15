@@ -31,7 +31,7 @@ Provider capabilities observed on 2026-09-16:
 - Automatic snapshot schedules are not enabled for the current project/plan.
 - Protected branches are not available within the current plan limit.
 - A provider snapshot exists from the earlier corpus work.
-- A current no-compute recovery branch named `backup-technical-hardening-2026-09-16` was created from production after the technical-hardening baseline.
+- The plan currently rejects both another protected branch and another provider snapshot (`maximum number of protected branches` / `snapshots limit exceeded`).\n- A fresh no-compute recovery branch named `pre-content-technical-complete-2026-09-16-v2` was created directly from the current production HEAD after the v1.8.2 technical release. Its parent is the production branch and its recorded parent timestamp is `2026-09-15T23:39:38Z`.\n- Keep the earlier `backup-technical-hardening-2026-09-16` recovery branch as an additional older checkpoint until a deliberate cleanup decision.
 
 Do not delete or reset production automatically. If database recovery is required, first determine whether the incident is application-only. Prefer application rollback when the database is healthy. A database restore must be treated as a separate operator decision with loss-window review.
 
@@ -54,3 +54,4 @@ After any recovery action:
 - Vercel shows no new runtime error cluster.
 - Neon has no stalled queries or blocking locks.
 - Production deployment provenance is recorded.
+\n\n## Pre-content intake lock\n\nProduction source uploads are fail-closed while the curriculum phase is deferred. `CONTENT_INGESTION_ENABLED` must be explicitly set to `true` before PDF/Drive/reference/question-asset/Lesson-Studio source intake is allowed. Local and CI execution remain usable by default so technical regression tests do not depend on production content state.\n

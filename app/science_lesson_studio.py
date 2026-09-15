@@ -13,6 +13,7 @@ import httpx
 from fastapi import Depends, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import HTMLResponse, Response
 
+from .content_phase_guard import require_content_ingestion_enabled
 from .db import connect
 from .main import app
 from .security import require_admin
@@ -384,6 +385,7 @@ def lesson_studio_status():
 async def create_lesson_job(
     title: str = Form(...), subject: str = Form(...), grade_label: str = Form(''), output_mode: str = Form('teacher_notes'), files: list[UploadFile] = File(...)
 ):
+    require_content_ingestion_enabled()
     _schema()
     if subject not in SUBJECTS:
         raise HTTPException(400, 'subject must be physics, chemistry, or science')

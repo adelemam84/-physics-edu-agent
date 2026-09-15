@@ -1,0 +1,58 @@
+name: Final Technical Readiness
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "status.py"
+      - "app/security.py"
+      - "app/student_security.py"
+      - "app/student_session_api.py"
+      - "app/services/rate_limit.py"
+      - "app/whatsapp_webhook.py"
+      - "app/services/ai_governance.py"
+      - "app/services/ai_orchestrator.py"
+      - "tools/technical_readiness_probe.py"
+      - "tests/test_technical_readiness_probe_contract.py"
+      - ".github/workflows/final-technical-readiness.yml"
+  schedule:
+    - cron: "43 2 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-final-technical-readiness
+  cancel-in-progress: true
+
+jobs:
+  readiness:
+    name: Production technical readiness contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TECH_READY_BASE_URL: https://physics-edu-agent.vercel.app
+      TECH_READY_TIMEOUT_SECONDS: "8"
+      TECH_READY_ATTEMPTS: "2"
+      TECH_READY_MAX_LATENCY_MS: "5000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run final technical readiness gate
+        run: python tools/technical_readiness_probe.py
+
+      - name: Upload readiness evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: final-technical-readiness-${{ github.run_id }}
+          path: technical-readiness-results.json
+          if-no-files-found: error
+          retention-days: 30

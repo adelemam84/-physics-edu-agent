@@ -34,7 +34,7 @@ jobs:
       - name: Checkout exact release commit
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 2
 
       - name: Verify main release context
         env:
@@ -45,6 +45,20 @@ jobs:
           if [ -n "${EXPECTED_SHA:-}" ] && [ "$EXPECTED_SHA" != "$GITHUB_SHA" ]; then
             echo "::error::Expected SHA $EXPECTED_SHA but workflow is running $GITHUB_SHA"
             exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            REQUESTED_CODE_SHA="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path(".release/production.json").read_text(encoding="utf-8"))
+          print(str(data.get("requested_code_sha") or "").strip())
+          PY
+          )"
+            PARENT_SHA="$(git rev-parse HEAD^)"
+            if [ -z "$REQUESTED_CODE_SHA" ] || [ "$REQUESTED_CODE_SHA" != "$PARENT_SHA" ]; then
+              echo "::error::Release marker requested_code_sha must equal the release commit parent $PARENT_SHA"
+              exit 1
+            fi
           fi
 
       - name: Require Vercel release credential
@@ -87,6 +101,11 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      - name: Verify clean release workspace after Vercel pull
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+
       - name: Validate production runtime configuration
         run: |
           python - <<'PY'
@@ -126,6 +145,11 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Verify clean release workspace after build
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
 
       - name: Stage production deployment without assigning domain
         id: stage

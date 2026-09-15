@@ -13,22 +13,21 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel
 from psycopg.errors import UniqueViolation
 
-from .db import STORAGE_BACKEND, connect, init_db, startup_migration_lock
+from .db import STORAGE_BACKEND, connect
 from .security import admin_configured, admin_session_valid, require_admin
 from .services.pdf_ingest import detect_verbatim_question_candidates, extract_pages
 from .services.storage import BUCKET, get_bytes, presigned_get, put_bytes, storage_configured
 from .release_candidate import source_corpus_benchmark, release_readiness
+from .startup_schema import ensure_runtime_schema
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if os.getenv('DATABASE_URL'):
-        from .services.corpus_phase2_runtime import ensure_phase2_schemas
-        with startup_migration_lock():
-            init_db()
-            ensure_phase2_schemas(release_schema_ready=True)
-        # External provider bootstrap has its own advisory lock and must not hold
-        # the global schema lock while waiting on the network.
+    if os.getenv("DATABASE_URL"):
+        ensure_runtime_schema()
+        # External provider bootstrap has its own advisory lock and stays outside
+        # the schema migration path. Once configured it is a cheap reuse check.
         from .file_search_store import bootstrap_store_if_enabled
+
         bootstrap_store_if_enabled()
     yield
 

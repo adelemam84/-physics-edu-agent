@@ -2,6 +2,12 @@ name: Production Smoke Monitor
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-smoke.yml"
+      - "tools/production_smoke.py"
+      - "tests/test_continuous_production_smoke.py"
   schedule:
     - cron: "17 */6 * * *"
 

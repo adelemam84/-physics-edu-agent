@@ -62,18 +62,15 @@ class StartupMigrationLockTests(unittest.TestCase):
         self.assertIn("finally:", source)
         self.assertIn("con.close()", source)
 
-    def test_application_lifespan_serializes_schema_but_not_external_provider(self):
+    def test_application_lifespan_delegates_schema_guard_before_external_provider(self):
         source = inspect.getsource(main.lifespan)
-        self.assertIn("with startup_migration_lock():", source)
-        self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", source)
+        self.assertIn("ensure_runtime_schema()", source)
+        self.assertNotIn("startup_migration_lock", source)
+        self.assertNotIn("ensure_phase2_schemas", source)
         self.assertNotIn("run_phase2_bootstrap(", source)
-        lock_start = source.index("with startup_migration_lock():")
-        init_pos = source.index("init_db()")
-        phase2_pos = source.index("ensure_phase2_schemas(release_schema_ready=True)")
+        schema_pos = source.index("ensure_runtime_schema()")
         provider_pos = source.index("bootstrap_store_if_enabled()")
-        self.assertLess(lock_start, init_pos)
-        self.assertLess(init_pos, phase2_pos)
-        self.assertLess(phase2_pos, provider_pos)
+        self.assertLess(schema_pos, provider_pos)
 
     def test_phase2_schema_bootstrap_can_skip_release_schema_when_init_db_applied_it(self):
         with patch(

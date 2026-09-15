@@ -11,7 +11,8 @@ from app.services import corpus_phase2_runtime as phase2
 class Phase2ExplicitBootstrapTests(unittest.TestCase):
     def test_cold_start_has_no_phase2_business_bootstrap(self):
         source = inspect.getsource(main.lifespan)
-        self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", source)
+        self.assertIn("ensure_runtime_schema()", source)
+        self.assertNotIn("ensure_phase2_schemas", source)
         self.assertNotIn("run_phase2_bootstrap(", source)
 
     def test_schema_helper_contains_only_schema_initializers(self):

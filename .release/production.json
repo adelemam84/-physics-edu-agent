@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "ee23e964057e1b841182b42fe360005185614a10",
+  "requested_code_sha": "528a7d5d00eee6e1718ce38e2dc585709d2ca7d5",
   "requested_at": "2026-09-16",
-  "reason": "Validate controlled production release with immutable Node 24 GitHub Actions supply-chain hardening",
+  "reason": "Promote public release-status burst coalescing after production performance regression",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

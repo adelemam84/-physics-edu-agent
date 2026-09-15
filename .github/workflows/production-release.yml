@@ -151,12 +151,12 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel build --prod --token="$VERCEL_TOKEN"
 
-      - name: Normalize Vercel-generated dependency metadata
+      - name: Isolate Vercel-generated dependency metadata
         run: |
           set -euo pipefail
           for generated in pyproject.toml uv.lock; do
             if [ -e "$generated" ] && ! git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
-              rm -f -- "$generated"
+              printf '/%s\n' "$generated" >> .git/info/exclude
             fi
           done
 

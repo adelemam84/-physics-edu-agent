@@ -1,0 +1,51 @@
+name: Production Performance Readiness
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/performance-readiness.yml"
+      - "tools/performance_probe.py"
+      - "tests/test_performance_probe_contract.py"
+      - ".performance/probe.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-performance-readiness
+  cancel-in-progress: false
+
+jobs:
+  safe-read-only-probe:
+    name: Safe read-only production probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PERF_BASE_URL: https://physics-edu-agent.vercel.app
+      PERF_REQUESTS: "100"
+      PERF_CONCURRENCY: "10"
+      PERF_TIMEOUT_SECONDS: "10"
+      PERF_MAX_ERROR_RATE: "0.01"
+      PERF_P95_LIMIT_MS: "2500"
+      PERF_MAX_LIMIT_MS: "8000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run bounded read-only performance probe
+        run: python tools/performance_probe.py
+
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-performance-readiness
+          path: performance-results.json
+          if-no-files-found: error
+          retention-days: 14

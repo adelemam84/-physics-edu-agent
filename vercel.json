@@ -2,11 +2,27 @@
   "version": 2,
   "builds": [
     {
+      "src": "status.py",
+      "use": "@vercel/python"
+    },
+    {
       "src": "index.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
+    {
+      "src": "/health",
+      "dest": "status.py"
+    },
+    {
+      "src": "/health/ready",
+      "dest": "status.py"
+    },
+    {
+      "src": "/api/research-engine/status",
+      "dest": "status.py"
+    },
     {
       "src": "/(.*)",
       "dest": "index.py"

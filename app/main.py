@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -34,6 +35,7 @@ app = FastAPI(title="Science Education Platform", version="1.8.1", lifespan=life
 SENSITIVE_CACHE_PREFIXES = (
     "/admin",
     "/api/admin",
+    "/api/internal",
     "/student",
     "/api/student",
     "/api/practice",
@@ -140,6 +142,24 @@ class AttemptSubmit(BaseModel):
     student_code:str
     quiz_id:int
     answers:list[AttemptAnswer]
+
+@app.post("/api/internal/release-bootstrap", include_in_schema=False)
+def release_runtime_bootstrap(request: Request):
+    """Run idempotent release bootstrap only on an authenticated staged production deployment."""
+    expected = os.getenv("RELEASE_BOOTSTRAP_TOKEN", "").strip()
+    supplied = request.headers.get("x-release-bootstrap-token", "").strip()
+    if (
+        not _production_runtime()
+        or not expected
+        or not supplied
+        or not secrets.compare_digest(supplied, expected)
+    ):
+        raise HTTPException(status_code=404, detail="Not found")
+    apply_startup_bootstrap()
+    return {
+        "status": "ok",
+        "release_git_sha": os.getenv("RELEASE_GIT_SHA", "").strip(),
+    }
 
 @app.get("/health")
 def health():

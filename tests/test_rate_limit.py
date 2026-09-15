@@ -74,11 +74,34 @@ class RateLimitTests(unittest.TestCase):
                 (9, 120),
             )
 
-    def test_request_subject_prefers_forwarded_client_ip(self):
-        self.assertEqual(
-            rate_limit.request_subject(_request("203.0.113.4, 10.0.0.1")),
-            "ip:203.0.113.4",
-        )
+    def test_request_subject_prefers_forwarded_client_ip_on_vercel(self):
+        with patch.dict(os.environ, {"VERCEL": "1"}, clear=False):
+            self.assertEqual(
+                rate_limit.request_subject(_request("203.0.113.4, 10.0.0.1")),
+                "ip:203.0.113.4",
+            )
+
+    def test_request_subject_ignores_forwarded_ip_without_trusted_proxy(self):
+        with patch.dict(
+            os.environ,
+            {"VERCEL": "", "VERCEL_ENV": "", "TRUST_PROXY_HEADERS": ""},
+            clear=False,
+        ):
+            self.assertEqual(
+                rate_limit.request_subject(_request("203.0.113.4, 10.0.0.1")),
+                "ip:10.0.0.1",
+            )
+
+    def test_explicit_trusted_proxy_mode_uses_forwarded_ip(self):
+        with patch.dict(
+            os.environ,
+            {"VERCEL": "", "VERCEL_ENV": "", "TRUST_PROXY_HEADERS": "true"},
+            clear=False,
+        ):
+            self.assertEqual(
+                rate_limit.request_subject(_request("203.0.113.4")),
+                "ip:203.0.113.4",
+            )
 
     def test_hash_never_exposes_subject(self):
         digest = rate_limit.subject_hash("scope", "STUDENT-SECRET-CODE")

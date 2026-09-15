@@ -1,0 +1,49 @@
+name: Production Smoke Monitor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-smoke.yml"
+      - "tools/production_smoke.py"
+      - "tests/test_continuous_production_smoke.py"
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-production-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Read-only production health contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SMOKE_BASE_URL: https://physics-edu-agent.vercel.app
+      SMOKE_TIMEOUT_SECONDS: "8"
+      SMOKE_ATTEMPTS: "3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run bounded read-only smoke checks
+        run: python tools/production_smoke.py
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-smoke-${{ github.run_id }}
+          path: production-smoke-results.json
+          if-no-files-found: error
+          retention-days: 14

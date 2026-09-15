@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "682bc3ec454395eb3cb7dbdacb2f8d5682f30fef",
+  "requested_code_sha": "8b2822be227aee4265e2a71f49d25eed4006fa65",
   "requested_at": "2026-09-15",
-  "reason": "Promote lightweight status plane with authenticated staged runtime bootstrap",
+  "reason": "Promote lightweight status plane after Vercel local workspace hardening",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

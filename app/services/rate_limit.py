@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import ipaddress
 import os
 
 from fastapi import HTTPException, Request
@@ -24,17 +26,49 @@ def policy(name: str, *, default_limit: int, default_window_seconds: int) -> tup
     )
 
 
+def _subject_hash_key() -> bytes:
+    # Keep rate-limit subjects opaque even if the limiter table is exposed.
+    # RATE_LIMIT_HASH_SECRET is optional; stable application secrets already
+    # required by production readiness provide a safe deployment-wide fallback.
+    for name in (
+        "RATE_LIMIT_HASH_SECRET",
+        "STUDENT_SESSION_SECRET",
+        "ADMIN_SESSION_SECRET",
+        "ADMIN_API_KEY",
+    ):
+        value = os.getenv(name, "").strip()
+        if value:
+            return hashlib.sha256(("science-rate-limit:" + value).encode("utf-8")).digest()
+    return hashlib.sha256(b"science-rate-limit:development-only").digest()
+
+
 def subject_hash(scope: str, subject: str) -> str:
     value = f"{scope}:{subject}".encode("utf-8", "ignore")
-    return hashlib.sha256(value).hexdigest()
+    return hmac.new(_subject_hash_key(), value, hashlib.sha256).hexdigest()
+
+
+def _normalized_ip(value: str | None) -> str | None:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return None
+    try:
+        return ipaddress.ip_address(candidate).compressed
+    except ValueError:
+        return None
 
 
 def request_subject(request: Request) -> str:
+    # Vercel overwrites x-forwarded-for at the edge, so it is the canonical
+    # public client address in production. Still validate it to avoid arbitrary
+    # attacker-controlled high-cardinality keys in other runtimes/proxies.
     forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
-    if forwarded:
-        return "ip:" + forwarded
+    ip = _normalized_ip(forwarded)
+    if ip:
+        return "ip:" + ip
     if request.client and request.client.host:
-        return "ip:" + request.client.host
+        ip = _normalized_ip(request.client.host)
+        if ip:
+            return "ip:" + ip
     return "ip:unknown"
 
 

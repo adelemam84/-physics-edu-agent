@@ -146,6 +146,14 @@ jobs:
           print("Required production environment keys are present")
           PY
 
+      - name: Install production env loader
+        run: python -m pip install --disable-pip-version-check "python-dotenv==1.1.1"
+
+      - name: Apply production runtime bootstrap
+        env:
+          PRODUCTION_ENV_FILE: .vercel/.env.production.local
+        run: python tools/apply_runtime_bootstrap.py
+
       - name: Build production artifact
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -232,5 +240,5 @@ jobs:
             echo "- Commit: $GITHUB_SHA"
             echo "- Staged deployment: $DEPLOYMENT_URL"
             echo "- Production: $PRODUCTION_URL"
-            echo "- Gates: env presence + compile + unit tests + staged health + readiness + production smoke"
+            echo "- Gates: env presence + compile + unit tests + explicit runtime bootstrap + staged health + readiness + production smoke"
           } >> "$GITHUB_STEP_SUMMARY"

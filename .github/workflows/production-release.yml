@@ -146,6 +146,15 @@ jobs:
           print("Required production environment keys are present")
           PY
 
+      - name: Apply release schema once before deployment
+        run: |
+          set -euo pipefail
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          export RELEASE_GIT_SHA="$GITHUB_SHA"
+          python tools/run_release_schema.py
+
       - name: Build production artifact
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

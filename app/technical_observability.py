@@ -118,17 +118,25 @@ def _ai_probe(hours: int = 24) -> dict:
             "calls": 0,
             "failures": 0,
             "failure_pct": 0.0,
+            "retried_calls": 0,
+            "retry_attempts": 0,
+            "retry_pct": 0.0,
             "avg_latency_ms": 0,
         }
     summary = usage.get("summary") or {}
     calls = int(summary.get("total_calls") or 0)
     failures = int(summary.get("failed_calls") or 0)
+    retried_calls = int(summary.get("retried_calls") or 0)
+    retry_attempts = int(summary.get("retry_attempts") or 0)
     return {
         "ok": True,
         "state": "observed" if calls else "no_recent_calls",
         "calls": calls,
         "failures": failures,
         "failure_pct": round(failures / calls * 100.0, 2) if calls else 0.0,
+        "retried_calls": retried_calls,
+        "retry_attempts": retry_attempts,
+        "retry_pct": round(retried_calls / calls * 100.0, 2) if calls else 0.0,
         "avg_latency_ms": int(summary.get("avg_latency_ms") or 0),
     }
 
@@ -245,6 +253,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
     ai_min_calls = _int_env("TECH_OBSERVABILITY_AI_MIN_CALLS", 5)
     ai_failure_warn_pct = _float_env("TECH_OBSERVABILITY_AI_FAILURE_WARN_PCT", 10.0)
     ai_failure_error_pct = _float_env("TECH_OBSERVABILITY_AI_FAILURE_ERROR_PCT", 25.0)
+    ai_retry_warn_pct = _float_env("TECH_OBSERVABILITY_AI_RETRY_WARN_PCT", 20.0)
     ai_latency_warn_ms = _int_env("TECH_OBSERVABILITY_AI_LATENCY_WARN_MS", 15000)
     sync_stale_minutes = _int_env("TECH_OBSERVABILITY_SYNC_STALE_MINUTES", 30)
     rate_limit_near_pct = min(
@@ -348,6 +357,15 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
             f'معدل فشل AI خلال 24 ساعة = {ai["failure_pct"]}%',
             "/admin/ai-operations", ai,
         ))
+    elif ai["calls"] >= ai_min_calls and ai["retry_pct"] >= ai_retry_warn_pct:
+        signals.append(_signal(
+            "ai_retry_pressure", "AI provider retry pressure", "warning", False,
+            (
+                f'{ai["retry_pct"]}% من استدعاءات AI احتاجت إعادة محاولة '
+                f'({ai["retry_attempts"]} محاولة إضافية)'
+            ),
+            "/admin/ai-operations", ai,
+        ))
     elif ai["avg_latency_ms"] >= ai_latency_warn_ms and ai["calls"]:
         signals.append(_signal(
             "ai_latency", "AI latency", "warning", False,
@@ -358,7 +376,7 @@ def technical_observability_snapshot(*, readiness_snapshot: dict | None = None) 
         signals.append(_signal(
             "ai_telemetry", "AI telemetry", "info", True,
             (
-                f'{ai["calls"]} استدعاء خلال 24 ساعة · فشل {ai["failure_pct"]}%'
+                f'{ai["calls"]} استدعاء خلال 24 ساعة · فشل {ai["failure_pct"]}% · Retry {ai["retry_pct"]}%'
                 if ai["calls"]
                 else "لا توجد استدعاءات AI حديثة؛ لا يوجد إنذار"
             ),

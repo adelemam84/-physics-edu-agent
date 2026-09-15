@@ -110,6 +110,10 @@ def request_with_retries(
                 )
         except httpx.HTTPError as exc:
             last_error = exc
+            try:
+                setattr(exc, "provider_attempts", attempt)
+            except Exception:
+                pass
             if attempt >= attempts:
                 raise
         else:
@@ -129,6 +133,13 @@ def request_with_retries(
 def provider_attempts(response: httpx.Response) -> int:
     try:
         return max(1, int(response.extensions.get("provider_attempts", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def provider_error_attempts(exc: BaseException) -> int:
+    try:
+        return max(1, int(getattr(exc, "provider_attempts", 1)))
     except (TypeError, ValueError):
         return 1
 

@@ -8,8 +8,9 @@ from fastapi import FastAPI, Response
 
 from app.db import STORAGE_BACKEND, connect
 from app.services.runtime_identity import runtime_identity
+from app.version import APPLICATION_VERSION
 
-VERSION = "1.8.1"
+VERSION = APPLICATION_VERSION
 SERVICE = "science-education-platform"
 READINESS_TTL_SECONDS = 2.0
 

@@ -79,6 +79,36 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("group: physics-edu-agent-production", self.text)
         self.assertIn("cancel-in-progress: false", self.text)
 
+    def test_release_marker_is_bound_to_its_parent_code_commit(self):
+        self.assertIn("fetch-depth: 2", self.text)
+        self.assertIn("requested_code_sha", self.text)
+        self.assertIn('PARENT_SHA="$(git rev-parse HEAD^)"', self.text)
+        self.assertIn(
+            'REQUESTED_CODE_SHA" != "$PARENT_SHA',
+            self.text,
+        )
+
+    def test_generated_vercel_workspace_must_not_dirty_release_source(self):
+        self.assertIn(
+            "Verify clean release workspace after Vercel pull",
+            self.text,
+        )
+        self.assertIn(
+            "Verify clean release workspace after build",
+            self.text,
+        )
+        self.assertGreaterEqual(
+            self.text.count('git status --porcelain --untracked-files=all'),
+            2,
+        )
+
+    def test_generated_release_files_are_gitignored(self):
+        gitignore = Path(".gitignore").read_text(encoding="utf-8")
+        self.assertIn(".vercel/", gitignore)
+        self.assertIn("__pycache__/", gitignore)
+        self.assertIn("*.py[cod]", gitignore)
+        self.assertIn("!.env.example", gitignore)
+
 
 if __name__ == "__main__":
     unittest.main()

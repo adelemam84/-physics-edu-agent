@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "d1e39d48cc17473da75a69d4864387cdada28ca4",
+  "requested_code_sha": "441314014fa2bdc11897fed78c29ff11ee668a6e",
   "requested_at": "2026-09-16",
-  "reason": "Promote AI provider reliability hardening after green CI, security audit, and final technical readiness",
+  "reason": "Promote privacy-safe AI retry observability and operational hardening after green CI and security audit",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

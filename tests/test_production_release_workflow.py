@@ -24,7 +24,7 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("VERCEL_TOKEN: vcp_", self.text)
 
     def test_cli_is_pinned(self):
-        self.assertIn("VERCEL_CLI_VERSION: 59.15.1", self.text)
+        self.assertIn("VERCEL_CLI_VERSION: 59.17.0", self.text)
         self.assertIn('vercel@${VERCEL_CLI_VERSION}', self.text)
 
     def test_local_python_build_prerequisites_are_explicit(self):

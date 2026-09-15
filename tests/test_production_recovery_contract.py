@@ -32,6 +32,12 @@ class ProductionRecoveryContractTests(unittest.TestCase):
         self.assertIn("group: physics-edu-agent-production", release)
         self.assertIn("cancel-in-progress: false", self.workflow)
 
+    def test_rollback_and_release_use_same_pinned_vercel_cli(self):
+        release = Path(".github/workflows/production-release.yml").read_text(encoding="utf-8")
+        expected = "VERCEL_CLI_VERSION: 59.17.0"
+        self.assertIn(expected, self.workflow)
+        self.assertIn(expected, release)
+
     def test_database_is_never_automatically_rewound(self):
         self.assertNotIn("neon", self.workflow.lower())
         self.assertNotIn("restore_snapshot", self.workflow)

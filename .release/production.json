@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "e0803d6b4b816f6f706a512183486803e58fea10",
+  "requested_code_sha": "6cfbc913b1fc02c99a04b632da3cbc439552b2d2",
   "requested_at": "2026-09-15",
-  "reason": "Promote post-production hardening that aligns release readiness with deferred content ingestion and optional AI capability policy",
+  "reason": "Promote clean controlled-release provenance hardening after green CI",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

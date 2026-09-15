@@ -4,7 +4,7 @@ import re
 from decimal import Decimal
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .main import app
 from .db import connect
@@ -19,17 +19,17 @@ def is_correct(answer: str, accepted: str | None) -> bool:
 
 class AnswerIn(BaseModel):
     question_id: int
-    answer: str
+    answer: str = Field(max_length=5000)
 
 class SubmitAttempt(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    answers: list[AnswerIn]
+    answers: list[AnswerIn] = Field(max_length=200)
     attempt_id: int | None = None
 
 class SaveAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question_id: int
-    answer: str
+    answer: str = Field(max_length=5000)
 
 @app.patch("/api/quizzes/{quiz_id}/publish", dependencies=[Depends(require_admin)])
 def legacy_publish_quiz(quiz_id: int, published: bool = True):

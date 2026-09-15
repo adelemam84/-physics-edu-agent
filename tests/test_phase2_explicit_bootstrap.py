@@ -4,15 +4,18 @@ import inspect
 import unittest
 from unittest.mock import MagicMock, patch
 
-from app import main, phase2_admin, technical_observability
+from app import main, phase2_admin, startup_bootstrap, technical_observability
 from app.services import corpus_phase2_runtime as phase2
 
 
 class Phase2ExplicitBootstrapTests(unittest.TestCase):
     def test_cold_start_has_no_phase2_business_bootstrap(self):
-        source = inspect.getsource(main.lifespan)
-        self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", source)
-        self.assertNotIn("run_phase2_bootstrap(", source)
+        lifespan_source = inspect.getsource(main.lifespan)
+        bootstrap_source = inspect.getsource(startup_bootstrap.apply_startup_bootstrap)
+        self.assertIn("apply_startup_bootstrap()", lifespan_source)
+        self.assertIn("ensure_phase2_schemas(release_schema_ready=True)", bootstrap_source)
+        self.assertNotIn("run_phase2_bootstrap(", lifespan_source)
+        self.assertNotIn("run_phase2_bootstrap(", bootstrap_source)
 
     def test_schema_helper_contains_only_schema_initializers(self):
         source = inspect.getsource(phase2.ensure_phase2_schemas)

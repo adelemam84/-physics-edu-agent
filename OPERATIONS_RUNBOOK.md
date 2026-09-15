@@ -33,24 +33,34 @@ This runbook covers the technical production runtime only. Question/source conte
 
 A non-destructive recovery drill successfully restored snapshot `before-current-corpus-batch-2` (`snap-withered-dew-a5q7bh6e`) to a separate Neon branch and verified that database `physics_agent` was readable. Representative restored counts were 216 questions, 7 quizzes, 3 documents and 17 lessons. Production was not modified.
 
-### Current Neon backup limitation
+### Current Neon backup posture
 
-At the time of the drill:
+At the time of the drill and the follow-up hardening:
 
 - A new manual snapshot could not be created because the project snapshot limit was reached.
 - Automatic backup schedule creation was rejected because backup scheduling is not enabled for this Neon project.
-- The existing manual snapshot must therefore not be deleted until a newer recovery point can be created under an upgraded/changed Neon backup entitlement or another approved backup mechanism.
+- The existing manual snapshot `before-current-corpus-batch-2` remains retained as an independently tested recovery point.
+- A fresh persistent no-compute checkpoint branch, `recovery-pre-content-2026-09-16` (`br-lucky-dawn-a5qilaos`), was created from the current production branch at parent timestamp `2026-09-15T22:52:52Z` / parent LSN `0/25F2918`. It reached `ready` with zero compute time and did not modify production.
 
-This limitation is operational, not a runtime-readiness failure, but it increases recovery-point age. Re-evaluate before loading material amounts of production student/content data.
+This gives the project a current pre-content recovery point without a paid-plan change. The branch checkpoint is deliberately retained separately from the older tested snapshot.
+
+### RPO and retention policy
+
+- Before any material student/content import, destructive migration, or other high-impact data change, create a fresh no-compute recovery branch from the current production branch immediately before the operation.
+- For controlled batch work, the recovery point objective is the timestamp of the latest pre-change checkpoint branch. The current pre-content checkpoint is `2026-09-15T22:52:52Z`.
+- The project currently reports 21,600 seconds (6 hours) of native history retention. Treat that as a short-window recovery aid, not as a replacement for a retained checkpoint.
+- Retain at least the newest verified checkpoint and the existing tested manual snapshot until a newer recovery point is created and verified. Never delete the last verified recovery point first.
+- Because automatic snapshot scheduling is unavailable on the current Neon free plan, there is no guaranteed unattended backup cadence. Re-evaluate the backup entitlement before the data becomes important enough to require a continuous/automatic RPO.
 
 ## Database recovery procedure
 
 1. Never restore directly over the production branch as the first recovery action.
-2. Restore the selected snapshot to a new recovery branch.
-3. Verify the expected database exists and run read-only integrity/count checks.
-4. Compare the recovery point with the incident time and required RPO.
-5. Only after explicit operator approval should production traffic/database pointers be changed or an existing production branch be replaced.
-6. Remove temporary recovery branches after the drill when explicitly authorized.
+2. Select either a retained snapshot or a retained checkpoint branch whose timestamp satisfies the incident RPO.
+3. Restore the snapshot to a new recovery branch, or create/attach an isolated verification branch/compute from the retained checkpoint.
+4. Verify the expected database exists and run read-only integrity/count checks before any production cutover.
+5. Compare the recovery point with the incident time and required RPO.
+6. Only after explicit operator approval should production traffic/database pointers be changed or an existing production branch be replaced.
+7. Remove temporary drill branches after verification when explicitly authorized; retained checkpoint branches stay until a newer verified point supersedes them.
 
 ## Performance baseline
 

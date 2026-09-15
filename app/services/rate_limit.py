@@ -57,14 +57,29 @@ def _normalized_ip(value: str | None) -> str | None:
         return None
 
 
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trusted_proxy_headers() -> bool:
+    # Vercel owns/overwrites the forwarding chain at the public edge. Other
+    # runtimes must opt in only when their reverse proxy also overwrites
+    # X-Forwarded-For rather than passing arbitrary client input through.
+    return bool(os.getenv("VERCEL")) or os.getenv("VERCEL_ENV", "").strip().lower() in {
+        "production",
+        "preview",
+    } or _truthy_env("TRUST_PROXY_HEADERS")
+
+
 def request_subject(request: Request) -> str:
-    # Vercel overwrites x-forwarded-for at the edge, so it is the canonical
-    # public client address in production. Still validate it to avoid arbitrary
-    # attacker-controlled high-cardinality keys in other runtimes/proxies.
-    forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
-    ip = _normalized_ip(forwarded)
-    if ip:
-        return "ip:" + ip
+    if _trusted_proxy_headers():
+        forwarded = (
+            request.headers.get("x-forwarded-for") or ""
+        ).split(",", 1)[0].strip()
+        ip = _normalized_ip(forwarded)
+        if ip:
+            return "ip:" + ip
+
     if request.client and request.client.host:
         ip = _normalized_ip(request.client.host)
         if ip:

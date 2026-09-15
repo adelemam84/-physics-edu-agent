@@ -61,19 +61,54 @@ def admin_session_valid(request: Request) -> bool:
     return hmac.compare_digest(sig, expected_sig)
 
 
+def _canonical_origin(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlparse(value)
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        scheme = (parsed.scheme or "").lower()
+        host = (parsed.hostname or "").rstrip(".").lower()
+        if scheme not in {"http", "https"} or not host:
+            return None
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    return scheme, host, int(port)
+
+
 def same_origin_request(request: Request) -> bool:
-    origin=(request.headers.get("origin") or "").strip()
-    referer=(request.headers.get("referer") or "").strip()
-    source=origin or referer
+    # Fetch Metadata is browser-controlled and gives an early, explicit denial for
+    # cross-site mutations. Older clients may omit it, so Origin/Referer remains
+    # the authoritative compatibility check.
+    fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site == "cross-site":
+        return False
+
+    origin = (request.headers.get("origin") or "").strip()
+    referer = (request.headers.get("referer") or "").strip()
+    source = origin or referer
     if not source:
         return False
-    try:
-        parsed=urlparse(source)
-    except ValueError:
+
+    host = (request.headers.get("host") or request.url.netloc or "").strip()
+    if not host:
         return False
-    host=(request.headers.get("host") or request.url.netloc or "").lower()
-    source_host=(parsed.netloc or "").lower()
-    return bool(source_host and host and source_host==host)
+
+    scheme = str(getattr(request.url, "scheme", "") or "").strip().lower()
+    if os.getenv("VERCEL") or os.getenv("VERCEL_ENV"):
+        forwarded_proto = (
+            request.headers.get("x-forwarded-proto") or ""
+        ).split(",", 1)[0].strip().lower()
+        if forwarded_proto in {"http", "https"}:
+            scheme = forwarded_proto
+    if scheme not in {"http", "https"}:
+        return False
+
+    source_origin = _canonical_origin(source)
+    target_origin = _canonical_origin(f"{scheme}://{host}")
+    return bool(source_origin and target_origin and source_origin == target_origin)
 
 def require_admin(request: Request, x_admin_key: str | None = Header(default=None)):
     expected = _expected_key()

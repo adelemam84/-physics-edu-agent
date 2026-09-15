@@ -77,16 +77,31 @@ class SecurityAbuseResistanceTests(unittest.TestCase):
         self.assertNotIn("STUDENT-123", first)
 
     def test_invalid_forwarded_ip_cannot_create_arbitrary_bucket_key(self):
-        self.assertEqual(
-            rate_limit.request_subject(_request(forwarded="attacker-controlled-value")),
-            "ip:10.0.0.1",
-        )
+        with patch.dict(os.environ, {"VERCEL": "1"}, clear=False):
+            self.assertEqual(
+                rate_limit.request_subject(_request(forwarded="attacker-controlled-value")),
+                "ip:10.0.0.1",
+            )
 
-    def test_forwarded_ip_is_normalized(self):
-        self.assertEqual(
-            rate_limit.request_subject(_request(forwarded="2001:0db8::1")),
-            "ip:2001:db8::1",
-        )
+    def test_forwarded_ip_is_normalized_on_vercel(self):
+        with patch.dict(os.environ, {"VERCEL": "1"}, clear=False):
+            self.assertEqual(
+                rate_limit.request_subject(_request(forwarded="2001:0db8::1")),
+                "ip:2001:db8::1",
+            )
+
+    def test_untrusted_proxy_header_is_ignored_outside_managed_edge(self):
+        with patch.dict(
+            os.environ,
+            {"VERCEL": "", "VERCEL_ENV": "", "TRUST_PROXY_HEADERS": ""},
+            clear=False,
+        ):
+            self.assertEqual(
+                rate_limit.request_subject(
+                    _request(forwarded="203.0.113.99", client="198.51.100.20")
+                ),
+                "ip:198.51.100.20",
+            )
 
     def test_session_mutation_policy_covers_high_write_student_routes(self):
         expected = {

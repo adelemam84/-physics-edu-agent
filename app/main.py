@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
         apply_startup_bootstrap()
     yield
 
-app = FastAPI(title="Science Education Platform", version="1.8.1", lifespan=lifespan)
+app = FastAPI(title="Science Education Platform", version="1.8.2", lifespan=lifespan)
 
 SENSITIVE_CACHE_PREFIXES = (
     "/admin",

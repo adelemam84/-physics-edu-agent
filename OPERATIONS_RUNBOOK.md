@@ -61,6 +61,8 @@ The bounded production performance probe uses 100 read-only requests at concurre
 - Admin and student authentication use signed HttpOnly cookies; admin cookie mutations require same-origin when using browser session authentication.
 - Login and expensive operations are rate-limited using database-backed counters.
 - Rate-limit subjects are keyed with HMAC-derived identifiers rather than storing raw subjects.
+- Forwarded client IP headers are trusted automatically only on Vercel; other reverse proxies must explicitly opt in after they are configured to overwrite client-supplied forwarding headers.
+- Browser-session mutations require an exact scheme/host/effective-port origin match, and explicit cross-site Fetch Metadata is rejected.
 - Meta WhatsApp POST callbacks require the Meta HMAC signature and enforce a bounded request body.
 - AI provider operations are governed by task policy, telemetry, budget controls and bounded retry rules; stateful provider mutations are not blindly replayed.
 - Secrets must stay in Vercel/GitHub/managed provider secret stores and must never be committed to the repository.

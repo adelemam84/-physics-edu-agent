@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "c2ac7f02f1dd70484effa9f18d54f2cb70aa22aa",
+  "requested_code_sha": "078fe425f3b0b63363f384d5c6b84f1df137569f",
   "requested_at": "2026-09-15",
-  "reason": "Promote serverless cold-start hardening with secret-safe Vercel production bootstrap",
+  "reason": "Promote lightweight public status plane after production performance-readiness failure",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

@@ -162,7 +162,14 @@ def usage_snapshot(hours: int = 24) -> dict:
                FROM (
                  SELECT *,
                    CASE
-                     WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[1-9][0-9]*            (hours,),
+                     WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[1-9][0-9]*$'
+                       THEN (metadata_json->>'provider_attempts')::integer
+                     ELSE 1
+                   END provider_attempts
+                 FROM ai_usage_events
+                 WHERE created_at >= now() - (%s * interval '1 hour')
+               ) observed""",
+            (hours,),
         ).fetchone()
         groups = list(
             con.execute(
@@ -181,7 +188,16 @@ def usage_snapshot(hours: int = 24) -> dict:
                    FROM (
                      SELECT *,
                        CASE
-                         WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[1-9][0-9]*                (hours,),
+                         WHEN coalesce(metadata_json->>'provider_attempts','') ~ '^[1-9][0-9]*$'
+                           THEN (metadata_json->>'provider_attempts')::integer
+                         ELSE 1
+                       END provider_attempts
+                     FROM ai_usage_events
+                     WHERE created_at >= now() - (%s * interval '1 hour')
+                   ) observed
+                   GROUP BY provider,task,model
+                   ORDER BY calls DESC,provider,task""",
+                (hours,),
             ).fetchall()
         )
         failures = list(
@@ -214,144 +230,6 @@ def usage_snapshot(hours: int = 24) -> dict:
         "window_hours": hours,
         "summary": summary_data,
         "groups": group_data,
-        "recent_failures": [dict(x) for x in failures],
-        "pricing_configured": bool(_pricing()),
-        "privacy": {
-            "stores_prompts": False,
-            "stores_outputs": False,
-            "stores_student_answers": False,
-            "stores_source_text": False,
-        },
-    }
-
-                       THEN (metadata_json->>'provider_attempts')::integer
-                     ELSE 1
-                   END provider_attempts
-                 FROM ai_usage_events
-                 WHERE created_at >= now() - (%s * interval '1 hour')
-               ) observed""",
-            (hours,),
-        ).fetchone()
-        groups = list(
-            con.execute(
-                """SELECT provider,task,model,
-                     count(*) calls,
-                     count(*) FILTER(WHERE status='success') success_calls,
-                     count(*) FILTER(WHERE status<>'success') failed_calls,
-                     coalesce(sum(input_tokens),0) input_tokens,
-                     coalesce(sum(output_tokens),0) output_tokens,
-                     coalesce(sum(total_tokens),0) total_tokens,
-                     coalesce(sum(estimated_cost_usd),0) estimated_cost_usd,
-                     round(avg(latency_ms) FILTER(WHERE latency_ms IS NOT NULL)) avg_latency_ms
-                   FROM ai_usage_events
-                   WHERE created_at >= now() - (%s * interval '1 hour')
-                   GROUP BY provider,task,model
-                   ORDER BY calls DESC,provider,task""",
-                (hours,),
-            ).fetchall()
-        )
-        failures = list(
-            con.execute(
-                """SELECT provider,task,model,error_code,created_at
-                   FROM ai_usage_events
-                   WHERE created_at >= now() - (%s * interval '1 hour')
-                     AND status<>'success'
-                   ORDER BY created_at DESC
-                   LIMIT 20""",
-                (hours,),
-            ).fetchall()
-        )
-    return {
-        "window_hours": hours,
-        "summary": dict(summary or {}),
-        "groups": [dict(x) for x in groups],
-        "recent_failures": [dict(x) for x in failures],
-        "pricing_configured": bool(_pricing()),
-        "privacy": {
-            "stores_prompts": False,
-            "stores_outputs": False,
-            "stores_student_answers": False,
-            "stores_source_text": False,
-        },
-    }
-
-                           THEN (metadata_json->>'provider_attempts')::integer
-                         ELSE 1
-                       END provider_attempts
-                     FROM ai_usage_events
-                     WHERE created_at >= now() - (%s * interval '1 hour')
-                   ) observed
-                   GROUP BY provider,task,model
-                   ORDER BY calls DESC,provider,task""",
-                (hours,),
-            ).fetchall()
-        )
-        failures = list(
-            con.execute(
-                """SELECT provider,task,model,error_code,created_at
-                   FROM ai_usage_events
-                   WHERE created_at >= now() - (%s * interval '1 hour')
-                     AND status<>'success'
-                   ORDER BY created_at DESC
-                   LIMIT 20""",
-                (hours,),
-            ).fetchall()
-        )
-    return {
-        "window_hours": hours,
-        "summary": dict(summary or {}),
-        "groups": [dict(x) for x in groups],
-        "recent_failures": [dict(x) for x in failures],
-        "pricing_configured": bool(_pricing()),
-        "privacy": {
-            "stores_prompts": False,
-            "stores_outputs": False,
-            "stores_student_answers": False,
-            "stores_source_text": False,
-        },
-    }
-
-                       THEN (metadata_json->>'provider_attempts')::integer
-                     ELSE 1
-                   END provider_attempts
-                 FROM ai_usage_events
-                 WHERE created_at >= now() - (%s * interval '1 hour')
-               ) observed""",
-            (hours,),
-        ).fetchone()
-        groups = list(
-            con.execute(
-                """SELECT provider,task,model,
-                     count(*) calls,
-                     count(*) FILTER(WHERE status='success') success_calls,
-                     count(*) FILTER(WHERE status<>'success') failed_calls,
-                     coalesce(sum(input_tokens),0) input_tokens,
-                     coalesce(sum(output_tokens),0) output_tokens,
-                     coalesce(sum(total_tokens),0) total_tokens,
-                     coalesce(sum(estimated_cost_usd),0) estimated_cost_usd,
-                     round(avg(latency_ms) FILTER(WHERE latency_ms IS NOT NULL)) avg_latency_ms
-                   FROM ai_usage_events
-                   WHERE created_at >= now() - (%s * interval '1 hour')
-                   GROUP BY provider,task,model
-                   ORDER BY calls DESC,provider,task""",
-                (hours,),
-            ).fetchall()
-        )
-        failures = list(
-            con.execute(
-                """SELECT provider,task,model,error_code,created_at
-                   FROM ai_usage_events
-                   WHERE created_at >= now() - (%s * interval '1 hour')
-                     AND status<>'success'
-                   ORDER BY created_at DESC
-                   LIMIT 20""",
-                (hours,),
-            ).fetchall()
-        )
-    return {
-        "window_hours": hours,
-        "summary": dict(summary or {}),
-        "groups": [dict(x) for x in groups],
         "recent_failures": [dict(x) for x in failures],
         "pricing_configured": bool(_pricing()),
         "privacy": {

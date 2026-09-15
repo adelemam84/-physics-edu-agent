@@ -25,6 +25,12 @@ class TechnicalReadinessProbeContractTests(unittest.TestCase):
         self.assertIn('state.startswith("runtime_ready")', TOOL)
         self.assertNotIn("content_release_ready", TOOL)
 
+    def test_gate_detects_content_intake_drift(self):
+        self.assertIn("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED", TOOL)
+        self.assertIn("content ingestion drift", TOOL)
+        self.assertIn("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: \"true\"", WORKFLOW)
+        self.assertIn('data.get("content_ingestion")', TOOL)
+
     def test_gate_checks_baseline_security_headers(self):
         for name in (
             "strict-transport-security",

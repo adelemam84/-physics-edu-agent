@@ -56,19 +56,27 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("--env RELEASE_GIT_REF=main", self.text)
         self.assertIn('--env RELEASE_GIT_SHA="$GITHUB_SHA"', self.text)
 
-    def test_runtime_bootstrap_runs_explicitly_before_build_and_deploy(self):
-        self.assertNotIn("Install production env loader", self.text)
-        self.assertIn("Apply production runtime bootstrap", self.text)
-        self.assertIn(
-            "vercel env run -e production -- python tools/apply_runtime_bootstrap.py",
-            self.text,
-        )
-        self.assertIn("VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}", self.text)
-        bootstrap = self.text.index("Apply production runtime bootstrap")
+    def test_runtime_bootstrap_runs_inside_ephemeral_staged_deployment(self):
+        self.assertNotIn("vercel env run -e production", self.text)
+        self.assertIn("Bootstrap staged production runtime", self.text)
+        self.assertIn("--env RELEASE_BOOTSTRAP_TOKEN=", self.text)
+        self.assertIn("X-Release-Bootstrap-Token:", self.text)
+        self.assertIn("/api/internal/release-bootstrap", self.text)
+        self.assertIn("--request POST", self.text)
+        self.assertIn('--header "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN"', self.text)
         build = self.text.index("Build production artifact")
-        stage = self.text.index("Stage production deployment without assigning domain")
-        self.assertLess(bootstrap, build)
-        self.assertLess(build, stage)
+        bootstrap = self.text.index("Bootstrap staged production runtime")
+        stage = self.text.index("Stage production deployment without bootstrap credential")
+        self.assertLess(build, bootstrap)
+        self.assertLess(bootstrap, stage)
+
+    def test_bootstrap_credential_is_not_present_on_promoted_deployment(self):
+        final_stage = self.text.index("Stage production deployment without bootstrap credential")
+        staged_health = self.text.index("Verify staged health contract")
+        final_block = self.text[final_stage:staged_health]
+        self.assertNotIn("RELEASE_BOOTSTRAP_TOKEN", final_block)
+        self.assertIn("Remove bootstrap-only deployment", self.text)
+        self.assertIn('vercel remove "$BOOTSTRAP_DEPLOYMENT_URL"', self.text)
 
     def test_production_is_staged_before_domain_assignment(self):
         stage = self.text.index("--prod --skip-domain")
@@ -103,38 +111,23 @@ class ControlledProductionReleaseWorkflowTests(unittest.TestCase):
         )
 
     def test_generated_vercel_workspace_must_not_dirty_release_source(self):
-        self.assertIn(
-            "Verify clean release workspace after Vercel pull",
-            self.text,
-        )
-        self.assertIn(
-            "Verify clean release workspace after build",
-            self.text,
-        )
+        self.assertIn("Verify clean release workspace after Vercel pull", self.text)
+        self.assertIn("Verify clean release workspace after build", self.text)
         self.assertGreaterEqual(
             self.text.count('git status --porcelain --untracked-files=all'),
             2,
         )
 
     def test_vercel_transient_python_manifests_are_locally_excluded_only_when_untracked(self):
-        self.assertIn(
-            "Isolate Vercel-generated dependency metadata",
-            self.text,
-        )
+        self.assertIn("Isolate Vercel-generated dependency metadata", self.text)
         self.assertIn("for generated in pyproject.toml uv.lock", self.text)
-        self.assertIn(
-            'git ls-files --error-unmatch "$generated"',
-            self.text,
-        )
+        self.assertIn('git ls-files --error-unmatch "$generated"', self.text)
         self.assertIn(
             'printf \'/%s\\n\' "$generated" >> .git/info/exclude',
             self.text,
         )
         self.assertNotIn('rm -f -- "$generated"', self.text)
-        self.assertIn(
-            "unexpected non-ignored repository files",
-            self.text,
-        )
+        self.assertIn("unexpected non-ignored repository files", self.text)
 
     def test_generated_release_files_are_gitignored(self):
         gitignore = Path(".gitignore").read_text(encoding="utf-8")

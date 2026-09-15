@@ -30,6 +30,7 @@ from app import technical_observability  # noqa: F401,E402
 from app import database_performance  # noqa: F401,E402
 from app import runtime_health  # noqa: F401,E402
 from app import runtime_probe  # noqa: F401,E402
+from app import release_bootstrap_api  # noqa: F401,E402
 from app import phase2_admin  # noqa: F401,E402
 from app import admin_auth  # noqa: F401,E402
 from app import system_diagnostics  # noqa: F401,E402

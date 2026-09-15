@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "2ed94d79e33e89b80f1f4ff404674ccc3bdbc1d3",
+  "requested_code_sha": "b092428890198186c38f1a51bbea76b05839219b",
   "requested_at": "2026-09-15",
-  "reason": "Promote serverless cold-start hardening and explicit release-time runtime bootstrap",
+  "reason": "Promote cold-start hardening after fixing explicit production bootstrap import path",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

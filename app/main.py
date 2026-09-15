@@ -143,24 +143,6 @@ class AttemptSubmit(BaseModel):
     quiz_id:int
     answers:list[AttemptAnswer]
 
-@app.post("/api/internal/release-bootstrap", include_in_schema=False)
-def release_runtime_bootstrap(request: Request):
-    """Run idempotent release bootstrap only on an authenticated staged production deployment."""
-    expected = os.getenv("RELEASE_BOOTSTRAP_TOKEN", "").strip()
-    supplied = request.headers.get("x-release-bootstrap-token", "").strip()
-    if (
-        not _production_runtime()
-        or not expected
-        or not supplied
-        or not secrets.compare_digest(supplied, expected)
-    ):
-        raise HTTPException(status_code=404, detail="Not found")
-    apply_startup_bootstrap()
-    return {
-        "status": "ok",
-        "release_git_sha": os.getenv("RELEASE_GIT_SHA", "").strip(),
-    }
-
 @app.get("/health")
 def health():
     return {"status":"ok","service":"science-education-platform","version":app.version,"storage_backend":STORAGE_BACKEND}

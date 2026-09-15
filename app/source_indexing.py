@@ -14,7 +14,7 @@ from .research_engine import GEMINI_API_KEY
 from .security import require_admin
 from .services.ai_budget import enforce_ai_budget
 from .services.ai_telemetry import record_ai_usage
-from .services.provider_http import request_with_retries
+from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 MAX_INDEX_CHARS = 4_000_000
 
@@ -235,12 +235,14 @@ def _operation(name: str) -> dict:
         record_ai_usage(
             provider='gemini',task='source_indexing_status',model=None,status='error',
             latency_ms=round((time.perf_counter()-started)*1000),error_code='network',
+            metadata={'provider_attempts': provider_error_attempts(exc)},
         )
         raise HTTPException(502,'Gemini operation status is temporarily unavailable') from exc
     if r.status_code >= 400:
         record_ai_usage(
             provider='gemini',task='source_indexing_status',model=None,status='error',
             latency_ms=round((time.perf_counter()-started)*1000),error_code=str(r.status_code),
+            metadata={'provider_attempts': provider_attempts(r)},
         )
         raise HTTPException(502, {
             'message':'Gemini operation status failed',
@@ -252,11 +254,13 @@ def _operation(name: str) -> dict:
         record_ai_usage(
             provider='gemini',task='source_indexing_status',model=None,status='error',
             latency_ms=round((time.perf_counter()-started)*1000),error_code='invalid_json',
+            metadata={'provider_attempts': provider_attempts(r)},
         )
         raise HTTPException(502,'Gemini operation status returned invalid JSON') from exc
     record_ai_usage(
         provider='gemini',task='source_indexing_status',model=None,status='success',
         latency_ms=round((time.perf_counter()-started)*1000),
+        metadata={'provider_attempts': provider_attempts(r)},
     )
     return payload
 

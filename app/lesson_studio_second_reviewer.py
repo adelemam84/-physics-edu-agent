@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 
 import httpx
 from fastapi import Depends, HTTPException, Request
@@ -16,6 +17,7 @@ from .services.ai_governance import model_settings
 from .services.ai_telemetry import record_ai_usage
 from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
+from .services.provider_http import request_with_retries
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '').strip()
 _AI_MODELS = model_settings()
@@ -88,16 +90,23 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
     body = {
         'model': REVIEW_MODEL,
         'reasoning': {'effort': REVIEW_REASONING_EFFORT},
+        'store': False,
         'input': [
             {'role': 'developer', 'content': [{'type': 'input_text', 'text': developer}]},
             {'role': 'user', 'content': [{'type': 'input_text', 'text': user}]},
         ],
     }
     started = time.perf_counter()
+    client_request_id = str(uuid.uuid4())
     try:
-        response = httpx.post(
+        response = request_with_retries(
+            'POST',
             'https://api.openai.com/v1/responses',
-            headers={'Authorization': f'Bearer {OPENAI_API_KEY}', 'Content-Type': 'application/json'},
+            headers={
+                'Authorization': f'Bearer {OPENAI_API_KEY}',
+                'Content-Type': 'application/json',
+                'X-Client-Request-Id': client_request_id,
+            },
             json=body,
             timeout=120,
         )
@@ -122,11 +131,11 @@ def _openai_review(transcript: str, structured: dict, subject: str, grade_label:
             error_code=str(response.status_code),
             metadata={'job_id': job_id} if job_id else {},
         )
-        try:
-            detail = response.json()
-        except ValueError:
-            detail = response.text[:500]
-        raise HTTPException(502, {'message': 'OpenAI reviewer request failed', 'provider_status': response.status_code, 'provider_detail': detail})
+        raise HTTPException(502, {
+            'message': 'OpenAI reviewer request failed',
+            'provider_status': response.status_code,
+            'client_request_id': client_request_id,
+        })
     payload = response.json()
     text = _extract_output_text(payload)
     if not text:

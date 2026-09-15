@@ -14,6 +14,7 @@ from .research_engine import GEMINI_API_KEY
 from .security import require_admin
 from .services.ai_budget import enforce_ai_budget
 from .services.ai_telemetry import record_ai_usage
+from .services.provider_http import request_with_retries
 
 MAX_INDEX_CHARS = 4_000_000
 
@@ -224,8 +225,12 @@ def _operation(name: str) -> dict:
     url=f'https://generativelanguage.googleapis.com/v1beta/{name}'
     started=time.perf_counter()
     try:
-        with httpx.Client(timeout=30) as client:
-            r=client.get(url,headers={'x-goog-api-key':GEMINI_API_KEY})
+        r=request_with_retries(
+            'GET',
+            url,
+            headers={'x-goog-api-key':GEMINI_API_KEY},
+            timeout=30,
+        )
     except httpx.HTTPError as exc:
         record_ai_usage(
             provider='gemini',task='source_indexing_status',model=None,status='error',
@@ -237,7 +242,10 @@ def _operation(name: str) -> dict:
             provider='gemini',task='source_indexing_status',model=None,status='error',
             latency_ms=round((time.perf_counter()-started)*1000),error_code=str(r.status_code),
         )
-        raise HTTPException(502, {'message':'Gemini operation status failed','provider_status':r.status_code,'provider_detail':r.text[:500]})
+        raise HTTPException(502, {
+            'message':'Gemini operation status failed',
+            'provider_status':r.status_code,
+        })
     try:
         payload=r.json()
     except ValueError as exc:

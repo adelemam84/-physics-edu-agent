@@ -71,3 +71,6 @@ uvicorn app.main:app --reload
 - Grading, adaptive question selection and validated scientific diagram rendering remain deterministic.
 - No generative provider can write directly to the question bank, auto-approve scientific content, or publish it.
 - Model names and review reasoning effort remain environment-configurable without code edits.
+- Transient provider failures use bounded retries against the same provider only; model roles never fail over across scientific responsibilities.
+- Provider resource creation/upload calls are not auto-replayed, avoiding duplicate durable resources.
+- OpenAI scientific review requests set `store=false`; only privacy-preserving aggregate telemetry is persisted by this application.

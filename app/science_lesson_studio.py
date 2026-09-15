@@ -22,6 +22,7 @@ from .services.science_diagrams import DiagramSpec, render as render_science_dia
 from .services.ai_telemetry import record_ai_usage
 from .services.ai_budget import enforce_ai_budget
 from .services.rate_limit import enforce_request_policy
+from .services.provider_http import request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 GEMINI_MODEL = os.getenv('LESSON_STUDIO_GEMINI_MODEL', os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash')).strip()
@@ -100,7 +101,13 @@ def _gemini_text(
     url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
     started = time.perf_counter()
     try:
-        r = httpx.post(url, headers={'x-goog-api-key': GEMINI_API_KEY}, json=body, timeout=90)
+        r = request_with_retries(
+            'POST',
+            url,
+            headers={'x-goog-api-key': GEMINI_API_KEY},
+            json=body,
+            timeout=90,
+        )
     except httpx.HTTPError as exc:
         record_ai_usage(
             provider='gemini',
@@ -120,7 +127,7 @@ def _gemini_text(
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code=str(r.status_code),
         )
-        raise HTTPException(502, {'message': 'Gemini request failed', 'status': r.status_code, 'detail': r.text[:500]})
+        raise HTTPException(502, {'message': 'Gemini request failed', 'status': r.status_code})
     payload = r.json()
     texts = [p.get('text', '') for item in payload.get('candidates', []) for p in item.get('content', {}).get('parts', []) if p.get('text')]
     if not texts:
@@ -159,7 +166,13 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
     }
     started = time.perf_counter()
     try:
-        r = httpx.post('https://api.mathpix.com/v3/text', headers={'app_id': MATHPIX_APP_ID, 'app_key': MATHPIX_APP_KEY}, json=payload, timeout=60)
+        r = request_with_retries(
+            'POST',
+            'https://api.mathpix.com/v3/text',
+            headers={'app_id': MATHPIX_APP_ID, 'app_key': MATHPIX_APP_KEY},
+            json=payload,
+            timeout=60,
+        )
     except httpx.HTTPError as exc:
         record_ai_usage(
             provider='mathpix',
@@ -179,7 +192,7 @@ def _mathpix_ocr(data: bytes, content_type: str) -> tuple[str, float | None]:
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code=str(r.status_code),
         )
-        raise HTTPException(502, {'message': 'Mathpix OCR failed', 'status': r.status_code, 'detail': r.text[:500]})
+        raise HTTPException(502, {'message': 'Mathpix OCR failed', 'status': r.status_code})
     x = r.json()
     record_ai_usage(
         provider='mathpix',

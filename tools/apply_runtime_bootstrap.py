@@ -10,22 +10,17 @@ if str(ROOT) not in sys.path:
 
 
 def main() -> int:
-    env_path = Path(
-        os.getenv("PRODUCTION_ENV_FILE", ".vercel/.env.production.local")
-    )
-    if env_path.is_file():
-        try:
-            from dotenv import load_dotenv
-        except ImportError as exc:
-            raise SystemExit(
-                "python-dotenv is required when loading a production env file"
-            ) from exc
-        load_dotenv(env_path, override=True)
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        raise SystemExit(
+            "DATABASE_URL is required; run through 'vercel env run -e production -- ...'"
+        )
+    if database_url == "[SENSITIVE]":
+        raise SystemExit(
+            "DATABASE_URL is masked; production bootstrap must use 'vercel env run'"
+        )
 
-    if not os.getenv("DATABASE_URL", "").strip():
-        raise SystemExit("DATABASE_URL is required for explicit runtime bootstrap")
-
-    # Import only after production environment variables are loaded.
+    # Import only after production environment variables are injected.
     from app.startup_bootstrap import apply_startup_bootstrap
 
     apply_startup_bootstrap()

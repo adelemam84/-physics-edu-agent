@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "6cfbc913b1fc02c99a04b632da3cbc439552b2d2",
+  "requested_code_sha": "1bb797065dc9397659e1a9d885f14e01e4dbc46c",
   "requested_at": "2026-09-15",
-  "reason": "Promote clean controlled-release provenance hardening after green CI",
+  "reason": "Run fail-closed provenance diagnostics on the green controlled-release workflow",
   "content_ingestion": "deferred",
   "scope": "technical_runtime_only"
 }

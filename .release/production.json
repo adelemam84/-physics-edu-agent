@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "9971415f9ebcb7a66c1b91135b7e2d41c10a49db",
+  "requested_code_sha": "56be0fd23dcd82959879056985ab0bfe5b4839c2",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.6 printable student handout after green CI and security audit",
+  "reason": "Release Lesson Pack Studio 1.8.7 professional printable student handout after green CI and security audit",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

@@ -170,7 +170,7 @@ def _toc_entries(structured: dict) -> list[tuple[str, str]]:
         entries.append(('equations', 'القوانين والمعادلات'))
     if structured.get('diagram_specs'):
         entries.append(('diagrams', 'الرسومات التوضيحية'))
-    entries.append(('summary', 'الملخص'))
+    entries.append(('summary', 'خلاصة الحصة'))
     return entries
 
 

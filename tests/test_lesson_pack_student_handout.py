@@ -79,6 +79,11 @@ class LessonPackStudentHandoutTests(unittest.TestCase):
         finally:
             doc.close()
 
+    def _normalized_text(self, data: bytes) -> str:
+        # PDF layout engines may split a value and its unit across visual lines.
+        # Normalize whitespace so the contract tests content, not extraction layout.
+        return " ".join(self._text(data).split())
+
     def test_student_handout_is_valid_a4_pdf(self):
         data = render_student_handout_pdf(self._pack())
         self.assertTrue(data.startswith(b"%PDF"))
@@ -91,7 +96,7 @@ class LessonPackStudentHandoutTests(unittest.TestCase):
             doc.close()
 
     def test_student_sees_fully_solved_worked_example_but_not_practice_answer(self):
-        text = self._text(render_student_handout_pdf(self._pack()))
+        text = self._normalized_text(render_student_handout_pdf(self._pack()))
         self.assertIn("12 V", text)
         self.assertNotIn("PRACTICE_SECRET_5_OHM", text)
 
@@ -101,7 +106,7 @@ class LessonPackStudentHandoutTests(unittest.TestCase):
         self.assertNotIn("ملف 1", text)
 
     def test_student_copy_contains_study_and_practice_surfaces(self):
-        text = self._text(render_student_handout_pdf(self._pack()))
+        text = self._normalized_text(render_student_handout_pdf(self._pack()))
         self.assertIn("V = I R", text)
         self.assertIn("12 V", text)
         self.assertIn("10 V", text)

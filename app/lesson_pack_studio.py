@@ -49,6 +49,57 @@ def _clean_cover_value(value: str | None) -> str:
     return text[:120]
 
 
+def _queue_pdf_cleanup(pack: dict, keys: list[str | None]) -> None:
+    pending = [str(x) for x in (pack.get("storage_cleanup_pending") or []) if str(x).strip()]
+    for key in keys:
+        value = str(key or "").strip()
+        if value and value not in pending:
+            pending.append(value)
+    if pending:
+        pack["storage_cleanup_pending"] = pending
+    else:
+        pack.pop("storage_cleanup_pending", None)
+
+
+def _drain_pdf_cleanup(job_id: str) -> dict:
+    with connect() as con:
+        row = con.execute(
+            "SELECT pack_json FROM lesson_pack_jobs WHERE id=%s", (job_id,)
+        ).fetchone()
+    if not row:
+        return {"deleted": 0, "pending": 0}
+    pack = dict(row["pack_json"] or {})
+    pending = [str(x) for x in (pack.get("storage_cleanup_pending") or []) if str(x).strip()]
+    deleted: list[str] = []
+    for key in pending:
+        try:
+            delete_object(key)
+        except Exception:
+            continue
+        deleted.append(key)
+    if deleted:
+        with connect() as con:
+            locked = con.execute(
+                "SELECT pack_json FROM lesson_pack_jobs WHERE id=%s FOR UPDATE", (job_id,)
+            ).fetchone()
+            if locked:
+                current = dict(locked["pack_json"] or {})
+                remaining = [
+                    str(x)
+                    for x in (current.get("storage_cleanup_pending") or [])
+                    if str(x).strip() and str(x) not in deleted
+                ]
+                if remaining:
+                    current["storage_cleanup_pending"] = remaining
+                else:
+                    current.pop("storage_cleanup_pending", None)
+                con.execute(
+                    "UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,updated_at=now() WHERE id=%s",
+                    (json.dumps(current, ensure_ascii=False), job_id),
+                )
+    return {"deleted": len(deleted), "pending": max(0, len(pending) - len(deleted))}
+
+
 def _lesson_pack_preview_bytes(job_id: str, edition: str) -> bytes:
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
@@ -919,40 +970,46 @@ def update_lesson_pack_cover(
     academic_term: str = Form(""),
 ):
     job, _ = _job(job_id)
-    pack = job.get("pack_json")
-    if not pack:
+    if not job.get("pack_json"):
         raise HTTPException(409, "Generate the Lesson Pack before editing the cover")
-    pack["cover"] = {
-        "student_name": _clean_cover_value(student_name),
-        "class_label": _clean_cover_value(class_label),
-        "teacher_name": _clean_cover_value(teacher_name),
-        "school_name": _clean_cover_value(school_name),
-        "academic_term": _clean_cover_value(academic_term),
-    }
     next_status = (
         "scientific_review_required"
         if reviewer_status()["configured"] and not job.get("scientific_review_json")
         else "teacher_approval_required"
     )
-    for key in ("pdf_student_object_key", "pdf_teacher_object_key"):
-        old_key = job.get(key)
-        if old_key:
-            try:
-                delete_object(str(old_key))
-            except Exception:
-                pass
     with connect() as con:
+        locked = con.execute(
+            """SELECT pack_json,pdf_student_object_key,pdf_teacher_object_key
+              FROM lesson_pack_jobs WHERE id=%s FOR UPDATE""",
+            (job_id,),
+        ).fetchone()
+        if not locked or not locked["pack_json"]:
+            raise HTTPException(409, "Generate the Lesson Pack before editing the cover")
+        pack = dict(locked["pack_json"] or {})
+        pack["cover"] = {
+            "student_name": _clean_cover_value(student_name),
+            "class_label": _clean_cover_value(class_label),
+            "teacher_name": _clean_cover_value(teacher_name),
+            "school_name": _clean_cover_value(school_name),
+            "academic_term": _clean_cover_value(academic_term),
+        }
+        _queue_pdf_cleanup(
+            pack,
+            [locked["pdf_student_object_key"], locked["pdf_teacher_object_key"]],
+        )
         con.execute(
             """UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,teacher_approved=FALSE,
               pdf_student_object_key=NULL,pdf_teacher_object_key=NULL,status=%s,updated_at=now()
               WHERE id=%s""",
             (json.dumps(pack, ensure_ascii=False), next_status, job_id),
         )
+    cleanup = _drain_pdf_cleanup(job_id)
     return {
         "id": job_id,
         "cover": pack["cover"],
         "status": next_status,
         "teacher_reapproval_required": True,
+        "storage_cleanup_pending": cleanup["pending"],
     }
 
 
@@ -1087,7 +1144,7 @@ def export_lesson_pack_pdf(job_id: str, edition: str = "student"):
         )
 
     data = render_pdf(pack, edition)
-    key = f"lesson-pack/{job_id}/lesson-pack-{edition}.pdf"
+    key = f"lesson-pack/{job_id}/exports/{edition}-{uuid.uuid4().hex}.pdf"
     put_bytes(key, data, "application/pdf")
     column = (
         "pdf_student_object_key"
@@ -1095,10 +1152,20 @@ def export_lesson_pack_pdf(job_id: str, edition: str = "student"):
         else "pdf_teacher_object_key"
     )
     with connect() as con:
+        locked = con.execute(
+            f"SELECT pack_json,{column} FROM lesson_pack_jobs WHERE id=%s FOR UPDATE",
+            (job_id,),
+        ).fetchone()
+        current_pack = dict((locked and locked["pack_json"]) or pack)
+        old_key = locked[column] if locked else None
+        if old_key and str(old_key) != key:
+            _queue_pdf_cleanup(current_pack, [old_key])
         con.execute(
-            f"UPDATE lesson_pack_jobs SET {column}=%s,status='pdf_ready',updated_at=now() WHERE id=%s",
-            (key, job_id),
+            f"""UPDATE lesson_pack_jobs SET {column}=%s,pack_json=%s::jsonb,
+              status='pdf_ready',updated_at=now() WHERE id=%s""",
+            (key, json.dumps(current_pack, ensure_ascii=False), job_id),
         )
+    _drain_pdf_cleanup(job_id)
 
     return Response(
         data,

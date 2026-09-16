@@ -252,8 +252,11 @@ def _cover_html(pack: dict) -> str:
     title = _esc(pack.get("title") or "ملزمة الدرس")
     subject = _esc(pack.get("subject") or "")
     grade = _esc(pack.get("grade_label") or "")
-    cover = pack.get("cover") if isinstance(pack.get("cover"), dict) else {}
-    class_label = _cover_field(cover, "class_label", str(pack.get("grade_label") or ""))
+    has_cover = isinstance(pack.get("cover"), dict)
+    cover = pack.get("cover") if has_cover else {}
+    class_label = _cover_field(
+        cover, "class_label", "" if has_cover else str(pack.get("grade_label") or "")
+    )
     return f'''<header class="cover">
         <div class="cover-top">
           <div class="brand">{_esc(BRAND_NAME)}</div>

@@ -146,6 +146,18 @@ class LessonPackSourceVisualTests(unittest.TestCase):
         )
         self.assertEqual(len(lesson_pack_studio._clean_cover_value("x" * 200)), 120)
 
+    def test_pdf_cleanup_queue_is_deduplicated(self):
+        pack = {"storage_cleanup_pending": ["old-a.pdf"]}
+        lesson_pack_studio._queue_pdf_cleanup(pack, ["old-a.pdf", "old-b.pdf", None])
+        self.assertEqual(pack["storage_cleanup_pending"], ["old-a.pdf", "old-b.pdf"])
+
+    def test_export_uses_unique_keys_and_durable_cleanup(self):
+        import inspect
+        source = inspect.getsource(lesson_pack_studio.export_lesson_pack_pdf)
+        self.assertIn("uuid.uuid4().hex", source)
+        self.assertIn("_queue_pdf_cleanup", source)
+        self.assertIn("_drain_pdf_cleanup", source)
+
     def test_new_preview_and_visual_routes_are_registered(self):
         paths = {route.path for route in lesson_pack_studio.app.routes}
         required = {

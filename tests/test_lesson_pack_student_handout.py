@@ -109,6 +109,13 @@ class LessonPackStudentHandoutTests(unittest.TestCase):
         finally:
             doc.close()
 
+    def test_explicit_empty_cover_class_stays_blank(self):
+        pack = self._pack()
+        pack["cover"] = {"class_label": ""}
+        html = lesson_pack_student_renderer._document_html(pack)
+        self.assertIn("الصف / الفصل", html)
+        self.assertIn("blank-field", html)
+
     def test_cover_values_are_html_escaped(self):
         pack = self._pack()
         pack["cover"] = {"student_name": "<script>bad()</script>"}

@@ -52,7 +52,7 @@ def _job(job_id: str):
 
 
 def _status_after_ocr(pages: list[dict]) -> str:
-    if any(not page.get("extracted_text") for page in pages):
+    if any(not page.get("ocr_confidence_band") for page in pages):
         return "transcribing"
     if any(page.get("requires_review") for page in pages):
         return "ocr_review_required"
@@ -205,7 +205,7 @@ def process_next_lesson_pack_page(job_id: str, request: Request):
         default_window_seconds=3600,
     )
     _, pages = _job(job_id)
-    pending = next((page for page in pages if not page.get("extracted_text")), None)
+    pending = next((page for page in pages if not page.get("ocr_confidence_band")), None)
     if not pending:
         status = _status_after_ocr(pages)
         with connect() as con:
@@ -263,11 +263,11 @@ def process_next_lesson_pack_page(job_id: str, request: Request):
         )
 
     _, refreshed = _job(job_id)
-    remaining = sum(1 for page in refreshed if not page.get("extracted_text"))
+    remaining = sum(1 for page in refreshed if not page.get("ocr_confidence_band"))
     review_pages = sum(
         1
         for page in refreshed
-        if page.get("requires_review") and page.get("extracted_text")
+        if page.get("requires_review") and page.get("ocr_confidence_band")
     )
     return {
         "id": job_id,
@@ -351,7 +351,7 @@ def generate_lesson_pack(
         default_window_seconds=3600,
     )
     job, pages = _job(job_id)
-    missing = [page for page in pages if not page.get("extracted_text")]
+    missing = [page for page in pages if not page.get("ocr_confidence_band")]
     if missing:
         raise HTTPException(
             409,
@@ -456,7 +456,7 @@ def approve_lesson_pack(
     unresolved = [
         page
         for page in pages
-        if page.get("requires_review") or not page.get("extracted_text")
+        if page.get("requires_review") or not page.get("ocr_confidence_band")
     ]
     if unresolved:
         raise HTTPException(
@@ -529,12 +529,12 @@ def get_lesson_pack_job(job_id: str):
         "progress": {
             "total_pages": len(pages),
             "transcribed_pages": sum(
-                1 for page in pages if page.get("extracted_text")
+                1 for page in pages if page.get("ocr_confidence_band")
             ),
             "review_pages": sum(
                 1
                 for page in pages
-                if page.get("requires_review") and page.get("extracted_text")
+                if page.get("requires_review") and page.get("ocr_confidence_band")
             ),
         },
     }

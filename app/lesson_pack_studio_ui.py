@@ -40,7 +40,7 @@ textarea{width:100%;min-height:180px;font:inherit;padding:10px}button,input{font
 .ok{color:#067647}.warn{color:#b54708}.bad{color:#b42318}.muted{color:#667085;white-space:pre-wrap}.q{border:1px solid #e4e7ec;border-radius:10px;padding:10px;margin:8px 0}details{margin-top:8px}
 </style><main><div class=box><a href="/admin/lesson-pack-studio">Lesson Pack Studio</a> · <a href="/admin/dashboard">لوحة التحكم</a></div>
 <div id=head class=box>جارٍ التحميل...</div><div id=pack class=box></div><div class=box><h2>مراجعة صفحات المصدر</h2><div id=pages class=grid></div></div>
-<div class=box><h2>إجراءات الجودة</h2><div class=grid><button id=regen>إعادة توليد الملزمة</button><button id=sci>المراجعة العلمية المستقلة</button><button id=approve class=primary>اعتماد نهائي</button></div><p id=action class=muted></p><p><a id=studentPdf href="#">Student PDF</a> · <a id=teacherPdf href="#">Teacher PDF</a></p></div>
+<div class=box><h2>إجراءات الجودة</h2><div class=grid><button id=regen>إعادة توليد الملزمة</button><button id=sci>المراجعة العلمية المستقلة</button><button id=approve class=primary>اعتماد نهائي</button></div><p><label><input id=confirmSource type=checkbox> راجعت المصدر وأؤكد أن الملزمة مرتبطة به</label></p><p><label><input id=acceptFindings type=checkbox> قرأت ملاحظات المراجع العلمي وأقبلها عند وجود findings تحتاج مراجعة</label></p><p id=action class=muted></p><p><a id=studentPdf href="#">Student PDF</a> · <a id=teacherPdf href="#">Teacher PDF</a></p></div>
 <script>
 const id=""" + safe_id + r"""; const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let data;
@@ -52,7 +52,7 @@ pages.querySelectorAll('button[data-page]').forEach(b=>b.onclick=async()=>{let f
 studentPdf.href='/api/admin/lesson-pack-studio/jobs/'+id+'/export-pdf?edition=student';teacherPdf.href='/api/admin/lesson-pack-studio/jobs/'+id+'/export-pdf?edition=teacher';}
 regen.onclick=async()=>{let fd=new FormData();fd.append('question_count','12');let r=await fetch('/api/admin/lesson-pack-studio/jobs/'+id+'/generate',{method:'POST',body:fd});let x=await r.json();action.textContent=r.ok?'تمت إعادة التوليد.':JSON.stringify(x.detail||x);await load()};
 sci.onclick=async()=>{let r=await fetch('/api/admin/lesson-pack-studio/jobs/'+id+'/scientific-review',{method:'POST'});let x=await r.json();action.textContent=r.ok?'اكتملت المراجعة العلمية: '+JSON.stringify(x.review):JSON.stringify(x.detail||x);await load()};
-approve.onclick=async()=>{let fd=new FormData();fd.append('confirm_source_grounded','true');fd.append('accept_reviewer_findings','true');fd.append('notes','Approved from Lesson Pack Studio workspace');let r=await fetch('/api/admin/lesson-pack-studio/jobs/'+id+'/approve',{method:'POST',body:fd});let x=await r.json();action.textContent=r.ok?'✅ تم الاعتماد النهائي. يمكن تنزيل نسختي PDF.':JSON.stringify(x.detail||x);await load()};load();
+approve.onclick=async()=>{let fd=new FormData();fd.append('confirm_source_grounded',confirmSource.checked?'true':'false');fd.append('accept_reviewer_findings',acceptFindings.checked?'true':'false');fd.append('notes','Approved from Lesson Pack Studio workspace');let r=await fetch('/api/admin/lesson-pack-studio/jobs/'+id+'/approve',{method:'POST',body:fd});let x=await r.json();action.textContent=r.ok?'✅ تم الاعتماد النهائي. يمكن تنزيل نسختي PDF.':JSON.stringify(x.detail||x);await load()};load();
 </script></main></html>"""
 
 

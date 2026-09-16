@@ -135,13 +135,13 @@ def _source_visual_prompt(title: str, description: str) -> str:
 def _preview_stamp(data: bytes, edition: str) -> bytes:
     doc = fitz.open(stream=data, filetype="pdf")
     try:
-        label = "معاينة غير معتمدة — لا تستخدم كنسخة نهائية"
+        label = "PREVIEW · UNAPPROVED · NOT FOR FINAL DISTRIBUTION"
         for page in doc:
             box = fitz.Rect(42, 21, page.rect.width - 42, 39)
             page.draw_rect(box, color=(0.55, 0.18, 0.10), width=0.8)
             page.insert_textbox(
                 box,
-                label + (" · نسخة الطالب" if edition == "student" else " · نسخة المدرس"),
+                label + (" · STUDENT" if edition == "student" else " · TEACHER"),
                 fontsize=8.5,
                 align=fitz.TEXT_ALIGN_CENTER,
                 color=(0.45, 0.12, 0.08),
@@ -670,9 +670,22 @@ def suggest_lesson_pack_source_visuals(job_id: str, request: Request):
     pack = job.get("pack_json")
     if not pack:
         raise HTTPException(409, "Generate the Lesson Pack before detecting source visuals")
-    targets = _source_visual_targets(pack, pages)
+    approved_existing = [
+        item
+        for item in (pack.get("source_visuals") or [])
+        if isinstance(item, dict) and item.get("approved") and item.get("object_key")
+    ]
+    targets = [
+        target
+        for target in _source_visual_targets(pack, pages)
+        if not any(
+            item.get("source_ref") == target["source_ref"]
+            and str(item.get("title") or "") == target["title"]
+            for item in approved_existing
+        )
+    ]
     if not targets:
-        pack["source_visuals"] = []
+        pack["source_visuals"] = approved_existing
         with connect() as con:
             con.execute(
                 "UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,updated_at=now() WHERE id=%s",
@@ -708,7 +721,7 @@ def suggest_lesson_pack_source_visuals(job_id: str, request: Request):
             payload = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if not payload.get("found"):
+        if payload.get("found") is not True:
             continue
         try:
             bbox = _normalize_visual_bbox(payload)
@@ -717,7 +730,7 @@ def suggest_lesson_pack_source_visuals(job_id: str, request: Request):
             continue
         suggestions.append(
             {
-                "id": f"source-visual-{index}",
+                "id": f"source-visual-{int(page['id'])}-{index}",
                 "title": target["title"],
                 "description": str(payload.get("caption") or target["description"] or "").strip(),
                 "source_ref": target["source_ref"],
@@ -734,11 +747,6 @@ def suggest_lesson_pack_source_visuals(job_id: str, request: Request):
             }
         )
 
-    approved_existing = [
-        item
-        for item in (pack.get("source_visuals") or [])
-        if isinstance(item, dict) and item.get("approved") and item.get("object_key")
-    ]
     pack["source_visuals"] = approved_existing + suggestions
     with connect() as con:
         con.execute(
@@ -837,12 +845,17 @@ def review_lesson_pack_source_visual(
         )
 
     pack["source_visuals"] = visuals
+    next_status = (
+        "scientific_review_required"
+        if reviewer_status()["configured"] and not job.get("scientific_review_json")
+        else "teacher_approval_required"
+    )
     with connect() as con:
         con.execute(
             """UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,teacher_approved=FALSE,
               pdf_student_object_key=NULL,pdf_teacher_object_key=NULL,
-              status='teacher_approval_required',updated_at=now() WHERE id=%s""",
-            (json.dumps(pack, ensure_ascii=False), job_id),
+              status=%s,updated_at=now() WHERE id=%s""",
+            (json.dumps(pack, ensure_ascii=False), next_status, job_id),
         )
     return {
         "id": visual_id,

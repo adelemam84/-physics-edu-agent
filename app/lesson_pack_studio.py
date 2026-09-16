@@ -223,6 +223,8 @@ def lesson_pack_status():
             "official_question_bank_write": False,
             "teacher_approval_required_for_final_export": True,
             "source_page_provenance_required": True,
+            "original_source_visuals_teacher_review_required": True,
+            "pre_export_pdf_preview": True,
             "generated_questions_labeled": True,
             "curriculum_content_gate_unchanged": True,
         },

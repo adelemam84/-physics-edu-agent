@@ -125,13 +125,37 @@ class LessonPackSourceVisualTests(unittest.TestCase):
         finally:
             doc.close()
 
+    def test_page_preview_renders_single_png_and_reports_total(self):
+        base = render_student_handout_pdf({**self._pack(), "source_visuals": []})
+        preview = lesson_pack_studio._preview_stamp(base, "student")
+        png, total = lesson_pack_studio._preview_page_png(preview, 1)
+        self.assertTrue(png.startswith(b"\x89PNG"))
+        self.assertGreaterEqual(total, 2)
+
+    def test_page_preview_rejects_out_of_range_page(self):
+        base = render_student_handout_pdf({**self._pack(), "source_visuals": []})
+        preview = lesson_pack_studio._preview_stamp(base, "student")
+        with self.assertRaises(Exception) as ctx:
+            lesson_pack_studio._preview_page_png(preview, 999)
+        self.assertEqual(getattr(ctx.exception, "status_code", None), 404)
+
+    def test_cover_value_is_normalized_and_bounded(self):
+        self.assertEqual(
+            lesson_pack_studio._clean_cover_value("  ADEL   EMAM  "),
+            "ADEL EMAM",
+        )
+        self.assertEqual(len(lesson_pack_studio._clean_cover_value("x" * 200)), 120)
+
     def test_new_preview_and_visual_routes_are_registered(self):
         paths = {route.path for route in lesson_pack_studio.app.routes}
         required = {
             "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/suggest",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/{visual_id}/preview",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/{visual_id}/review",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/cover",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-pdf",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-manifest",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-page/{page_number}",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 

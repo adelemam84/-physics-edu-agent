@@ -19,11 +19,17 @@ from .services.lesson_pack_core import (
     build_pack,
     render_pdf,
     source_ref,
+    validate_pack_provenance,
 )
 from .services.rate_limit import enforce_request_policy
-from .services.storage import get_bytes, put_bytes, storage_configured
+from .services.storage import delete_object, get_bytes, put_bytes, storage_configured
 
 ALLOWED_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
+IMAGE_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
 PACK_MODES = {"balanced", "exam_revision", "concept_mastery"}
 MAX_FILE_BYTES = int(os.getenv("LESSON_PACK_MAX_FILE_BYTES", str(12 * 1024 * 1024)))
 MAX_FILES = int(os.getenv("LESSON_PACK_MAX_FILES", "6"))
@@ -66,6 +72,23 @@ def _media_type_for_page(page: dict) -> str:
     if key.endswith(".webp"):
         return "image/webp"
     return "image/jpeg"
+
+
+def _image_page_key(job_id: str, position: int, filename: str, content_type: str) -> str:
+    safe = _safe_filename(filename)
+    stem = safe.rsplit(".", 1)[0] if "." in safe else safe
+    extension = IMAGE_EXTENSIONS[content_type]
+    return f"lesson-pack/{job_id}/pages/{position:04d}-{stem}{extension}"
+
+
+def _cleanup_staged_objects(keys: list[str]) -> None:
+    for key in reversed(keys):
+        try:
+            delete_object(key)
+        except Exception:
+            # Preserve the original upload/database exception. Orphan cleanup can be
+            # retried operationally without masking the failure that caused rollback.
+            pass
 
 
 @app.get("/api/admin/lesson-pack-studio/status", dependencies=[Depends(require_admin)])
@@ -115,75 +138,83 @@ async def create_lesson_pack_job(
 
     job_id = str(uuid.uuid4())
     staged_pages: list[tuple] = []
+    written_keys: list[str] = []
     position = 0
     total_pages = 0
 
-    for file_index, upload in enumerate(files, 1):
-        content_type = (upload.content_type or "").lower()
-        if content_type not in ALLOWED_TYPES:
-            raise HTTPException(415, f"Unsupported source type: {content_type}")
-        data = await upload.read()
-        if not data or len(data) > MAX_FILE_BYTES:
-            raise HTTPException(413, f"{upload.filename}: file is empty or exceeds limit")
-        filename = upload.filename or f"source-{file_index}"
-        original_key = (
-            f"lesson-pack/{job_id}/original/{file_index}-{_safe_filename(filename)}"
-        )
-        put_bytes(original_key, data, content_type)
+    try:
+        for file_index, upload in enumerate(files, 1):
+            content_type = (upload.content_type or "").lower()
+            if content_type not in ALLOWED_TYPES:
+                raise HTTPException(415, f"Unsupported source type: {content_type}")
+            data = await upload.read()
+            if not data or len(data) > MAX_FILE_BYTES:
+                raise HTTPException(413, f"{upload.filename}: file is empty or exceeds limit")
+            filename = upload.filename or f"source-{file_index}"
+            original_key = (
+                f"lesson-pack/{job_id}/original/{file_index}-{_safe_filename(filename)}"
+            )
+            put_bytes(original_key, data, content_type)
+            written_keys.append(original_key)
 
-        if content_type == "application/pdf":
-            try:
-                doc = fitz.open(stream=data, filetype="pdf")
-            except Exception as exc:
-                raise HTTPException(415, f"{filename}: invalid PDF") from exc
-            try:
-                total_pages += doc.page_count
+            if content_type == "application/pdf":
+                try:
+                    doc = fitz.open(stream=data, filetype="pdf")
+                except Exception as exc:
+                    raise HTTPException(415, f"{filename}: invalid PDF") from exc
+                try:
+                    total_pages += doc.page_count
+                    if total_pages > MAX_PAGES:
+                        raise HTTPException(413, f"Lesson Pack exceeds {MAX_PAGES} pages")
+                    matrix = fitz.Matrix(RENDER_DPI / 72.0, RENDER_DPI / 72.0)
+                    for page_number, page in enumerate(doc, 1):
+                        position += 1
+                        png = page.get_pixmap(matrix=matrix, alpha=False).tobytes("png")
+                        page_key = f"lesson-pack/{job_id}/pages/{position:04d}.png"
+                        put_bytes(page_key, png, "image/png")
+                        written_keys.append(page_key)
+                        staged_pages.append(
+                            (position, file_index, filename, page_number, page_key)
+                        )
+                finally:
+                    doc.close()
+            else:
+                total_pages += 1
                 if total_pages > MAX_PAGES:
                     raise HTTPException(413, f"Lesson Pack exceeds {MAX_PAGES} pages")
-                matrix = fitz.Matrix(RENDER_DPI / 72.0, RENDER_DPI / 72.0)
-                for page_number, page in enumerate(doc, 1):
-                    position += 1
-                    png = page.get_pixmap(matrix=matrix, alpha=False).tobytes("png")
-                    page_key = f"lesson-pack/{job_id}/pages/{position:04d}.png"
-                    put_bytes(page_key, png, "image/png")
-                    staged_pages.append(
-                        (position, file_index, filename, page_number, page_key)
-                    )
-            finally:
-                doc.close()
-        else:
-            total_pages += 1
-            if total_pages > MAX_PAGES:
-                raise HTTPException(413, f"Lesson Pack exceeds {MAX_PAGES} pages")
-            position += 1
-            page_key = (
-                f"lesson-pack/{job_id}/pages/{position:04d}-{_safe_filename(filename)}"
-            )
-            put_bytes(page_key, data, content_type)
-            staged_pages.append((position, file_index, filename, 1, page_key))
+                position += 1
+                page_key = _image_page_key(
+                    job_id, position, filename, content_type
+                )
+                put_bytes(page_key, data, content_type)
+                written_keys.append(page_key)
+                staged_pages.append((position, file_index, filename, 1, page_key))
 
-    with connect() as con:
-        con.execute(
-            """INSERT INTO lesson_pack_jobs(
-              id,title,subject,grade_label,pack_mode,status,source_file_count,source_page_count
-            ) VALUES(%s,%s,%s,%s,%s,'uploaded',%s,%s)""",
-            (
-                job_id,
-                title.strip(),
-                subject,
-                grade_label.strip(),
-                pack_mode,
-                len(files),
-                len(staged_pages),
-            ),
-        )
-        for pos, file_index, filename, page_number, page_key in staged_pages:
+        with connect() as con:
             con.execute(
-                """INSERT INTO lesson_pack_pages(
-                  job_id,position,file_index,original_filename,original_page,object_key
-                ) VALUES(%s,%s,%s,%s,%s,%s)""",
-                (job_id, pos, file_index, filename, page_number, page_key),
+                """INSERT INTO lesson_pack_jobs(
+                  id,title,subject,grade_label,pack_mode,status,source_file_count,source_page_count
+                ) VALUES(%s,%s,%s,%s,%s,'uploaded',%s,%s)""",
+                (
+                    job_id,
+                    title.strip(),
+                    subject,
+                    grade_label.strip(),
+                    pack_mode,
+                    len(files),
+                    len(staged_pages),
+                ),
             )
+            for pos, file_index, filename, page_number, page_key in staged_pages:
+                con.execute(
+                    """INSERT INTO lesson_pack_pages(
+                      job_id,position,file_index,original_filename,original_page,object_key
+                    ) VALUES(%s,%s,%s,%s,%s,%s)""",
+                    (job_id, pos, file_index, filename, page_number, page_key),
+                )
+    except Exception:
+        _cleanup_staged_objects(written_keys)
+        raise
 
     return {
         "id": job_id,
@@ -467,7 +498,7 @@ def approve_lesson_pack(
             },
         )
 
-    provenance = pack.get("provenance_validation") or {}
+    provenance = validate_pack_provenance(pack, allowed_source_refs(pages))
     if not provenance.get("passed"):
         raise HTTPException(
             409,
@@ -564,7 +595,7 @@ def export_lesson_pack_pdf(job_id: str, edition: str = "student"):
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
 
-    job, _ = _job(job_id)
+    job, pages = _job(job_id)
     if not job.get("teacher_approved"):
         raise HTTPException(
             409, "Teacher approval is required before final PDF export"
@@ -572,6 +603,15 @@ def export_lesson_pack_pdf(job_id: str, edition: str = "student"):
     pack = job.get("pack_json")
     if not pack:
         raise HTTPException(409, "Lesson Pack has not been generated")
+    provenance = validate_pack_provenance(pack, allowed_source_refs(pages))
+    if not provenance.get("passed"):
+        raise HTTPException(
+            409,
+            {
+                "message": "Source provenance validation must pass before export",
+                "provenance": provenance,
+            },
+        )
 
     data = render_pdf(pack, edition)
     key = f"lesson-pack/{job_id}/lesson-pack-{edition}.pdf"

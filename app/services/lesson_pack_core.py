@@ -182,13 +182,20 @@ def build_pack(
         "summary": "string",
     }
     developer = (
-        "أنت محرر ملزمة تعليمية عربية من مصدر مغلق. استخدم فقط النص المرفق ولا تضف حقيقة علمية "
+        "أنت مصمم ومحرر ملزمة طالب عربية احترافية للحصة من مصدر مغلق. المنتج النهائي سيُطبع على A4 "
+        "ويذاكر منه الطالب الدرس بعد الحصة؛ لذلك لا تكتب تقريرًا عن المصدر ولا ملخصًا آليًا جافًا. "
+        "اكتب شرحًا تدريجيًا واضحًا ومريحًا للمذاكرة، بفقرات قصيرة وترتيب منطقي من الفكرة إلى القانون إلى التطبيق. "
+        "استخدم فقط النص المرفق ولا تضف حقيقة علمية "
         "من الذاكرة أو الإنترنت. يجوز إعادة الشرح بأسلوب أوضح ومبتكر ما دام كل ادعاء مدعومًا بالمصدر. "
         "كل قسم وكل مثال وكل سؤال وكل قانون وكل رسم وكل خطأ شائع وكل نقطة مراجعة يجب أن يحمل "
         "source_refs من القائمة المسموح بها حرفيًا فقط. "
         "أنشئ أسئلة تدريبية جديدة مبنية على الدرس، لكنها ليست أسئلة رسمية ولا يجوز الادعاء أنها وردت "
         "بالنص الأصلي. لا تغيّر القوانين أو الوحدات. وإذا استخدمت أرقامًا تدريبية جديدة فاذكر داخل "
         "explanation أنها أرقام تدريبية مولدة وأن العلاقة المستخدمة مدعومة بالمصدر. "
+        "اجعل learning_objectives بين 3 و6 أهداف عملية، واجعل sections تغطي الدرس كاملًا بعناوين قصيرة واضحة. "
+        "استخرج أهم المصطلحات والقوانين، وأنشئ أمثلة محلولة عند وجود أساس علمي كافٍ في المصدر. "
+        "اجعل التدريبات متدرجة من السهل إلى المتوسط ثم المتقدم ومناسبة للمذاكرة بعد الحصة. "
+        "اجعل quick_revision نقاطًا شديدة الاختصار تصلح للمراجعة قبل الامتحان، وsummary خلاصة مركزة للحصة. "
         "أي معلومة غير واضحة أو متعارضة ضعها في uncertain_items بدل التخمين. "
         "الرسومات المقترحة تقتصر على العلاقات والرموز الظاهرة في المصدر. أخرج JSON صالحًا فقط."
     )
@@ -224,6 +231,14 @@ def build_pack(
     pack = normalize_generated_questions(pack)
     pack["source_map"] = [{"ref": ref} for ref in refs]
     pack["provenance_validation"] = validate_pack_provenance(pack, refs)
+    pack["student_pack_profile"] = {
+        "primary_artifact": "printable_student_handout",
+        "paper": "A4",
+        "purpose": "study_after_lesson_and_revision",
+        "student_answer_key": False,
+        "teacher_answer_key": True,
+        "clean_student_copy": True,
+    }
     pack["artifact_policy"] = {
         "artifact_kind": "lesson_pack",
         "source_grounded_only": True,
@@ -255,7 +270,10 @@ def render_payload(pack: dict, edition: str) -> dict:
             )
             answer = f"\nالإجابة: {item.get('answer') or ''}" if edition == "teacher" else ""
             item_refs = [str(x) for x in (item.get("source_refs") or [])]
-            ref_line = "\nالمصدر: " + "، ".join(item_refs) if item_refs else ""
+            ref_line = (
+                "\nالمصدر: " + "، ".join(item_refs)
+                if edition == "teacher" and item_refs else ""
+            )
             body.append(
                 f"مثال {i}: {item.get('title') or ''}\n{item.get('problem') or ''}\n{steps}{answer}{ref_line}"
             )
@@ -285,15 +303,35 @@ def render_payload(pack: dict, edition: str) -> dict:
         refs: list[str] = []
         for i, question in enumerate(questions, 1):
             options = question.get("options") or []
+            letters = ["أ", "ب", "ج", "د", "هـ", "و"]
             option_text = (
-                "\n" + "\n".join(f"   {n}. {x}" for n, x in enumerate(options, 1))
+                "\n" + "\n".join(
+                    f"   {letters[n] if n < len(letters) else n + 1}) {x}"
+                    for n, x in enumerate(options)
+                )
                 if options else ""
             )
             item_refs = [str(x) for x in (question.get("source_refs") or [])]
-            ref_line = "\nالمصدر: " + "، ".join(item_refs) if item_refs else ""
+            ref_line = (
+                "\nالمصدر: " + "، ".join(item_refs)
+                if edition == "teacher" and item_refs else ""
+            )
+            difficulty_map = {"easy": "سهل", "medium": "متوسط", "hard": "متقدم"}
+            difficulty = difficulty_map.get(str(question.get("difficulty") or "medium"), "متوسط")
+            internal_note = (
+                "\n— تدريب مولد من المصدر، وليس سؤالًا منقولًا حرفيًا."
+                if edition == "teacher" else ""
+            )
+            answer_space = ""
+            if edition == "student" and not options:
+                answer_space = (
+                    "\n\nمساحة الحل:\n"
+                    "................................................................................\n"
+                    "................................................................................"
+                )
             rows.append(
-                f"{i}) [{question.get('difficulty','medium')}] {question.get('prompt') or ''}{option_text}\n"
-                f"— تدريب مولد من المصدر، وليس سؤالًا منقولًا حرفيًا.{ref_line}"
+                f"{i}) [{difficulty}] {question.get('prompt') or ''}{option_text}"
+                f"{answer_space}{internal_note}{ref_line}"
             )
             refs.extend(item_refs)
         sections.append(
@@ -329,7 +367,7 @@ def render_payload(pack: dict, edition: str) -> dict:
         if not isinstance(equation, dict):
             continue
         refs = [str(x) for x in (equation.get("source_refs") or [])]
-        if refs:
+        if refs and edition == "teacher":
             existing = str(equation.get("notes") or "").strip()
             source_line = "المصدر: " + "، ".join(refs)
             equation["notes"] = (existing + "\n" + source_line).strip()
@@ -338,7 +376,7 @@ def render_payload(pack: dict, edition: str) -> dict:
         if not isinstance(diagram, dict):
             continue
         refs = [str(x) for x in (diagram.get("source_refs") or [])]
-        if refs:
+        if refs and edition == "teacher":
             existing = str(diagram.get("description") or "").strip()
             source_line = "المصدر: " + "، ".join(refs)
             diagram["description"] = (existing + "\n" + source_line).strip()
@@ -351,5 +389,5 @@ def render_pdf(pack: dict, edition: str) -> bytes:
     return render_lesson_pdf(
         render_payload(pack, edition),
         preset="a4",
-        theme="modern_classroom",
+        theme="student_handout" if edition == "student" else "modern_classroom",
     )

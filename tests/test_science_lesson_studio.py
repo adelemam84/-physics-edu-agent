@@ -21,7 +21,7 @@ class ScienceLessonStudioTests(unittest.TestCase):
         self.assertTrue(name.endswith('.png'))
 
     def test_pdf_themes_are_available(self):
-        self.assertEqual(set(PDF_THEMES), {'classic_academic', 'modern_classroom', 'exam_revision'})
+        self.assertEqual(set(PDF_THEMES), {'classic_academic', 'modern_classroom', 'exam_revision', 'student_handout'})
 
     def test_all_pdf_themes_render_valid_pdf(self):
         structured = {

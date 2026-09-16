@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "baseline_name": "pre-content-technical-closure-2026-09-17",
+  "captured_at_utc": "2026-09-16T21:09:28Z",
+  "application_version": "1.8.4",
+  "technical_complete": true,
+  "content_complete": false,
+  "content_ingestion": "locked",
+  "content_phase": "deferred",
+  "production": {
+    "canonical_url": "https://physics-edu-agent.vercel.app",
+    "requested_code_sha": "142b83abda35ebd81d7b193f5bc1d2b9ec2eb51e",
+    "release_marker_sha": "826816da6d0b568fd5cf21a1333f2f0dc7344292",
+    "deployment_id": "dpl_9mDWha7dx8PUMfLe4T9ABfGH9Mg6",
+    "deployment_url": "https://physics-edu-agent-362m6v2c7-farida13.vercel.app",
+    "region": "iad1"
+  },
+  "evidence": {
+    "controlled_production_release_run": 35037466069,
+    "ci_run": 35037466037,
+    "security_audit_run": 35037466109,
+    "final_technical_readiness_run": 35037412004,
+    "final_technical_readiness_attempt": 2,
+    "final_technical_readiness_job": 104977878580
+  },
+  "database_recovery": {
+    "provider": "neon",
+    "project_id": "bitter-flower-09482349",
+    "production_branch_id": "br-round-dream-a5km73up",
+    "recovery_branch_id": "br-floral-king-a5kk9k17",
+    "recovery_branch_name": "pre-content-handoff-2026-09-17",
+    "parent_timestamp": "2026-09-16T21:09:15Z",
+    "no_compute": true,
+    "state": "ready"
+  },
+  "remaining_work": {
+    "technical_issues_open": 0,
+    "content_gates": [
+      "EDU-001",
+      "EDU-003"
+    ],
+    "github_issue_scope": "Content evidence inventory for current 10 physics lessons"
+  },
+  "guardrails": {
+    "curriculum_source_uploads_allowed": false,
+    "question_file_uploads_allowed": false,
+    "automatic_scientific_approval_allowed": false,
+    "model_memory_substitution_allowed": false,
+    "reopening_requires_explicit_environment_switch": "CONTENT_INGESTION_ENABLED=true"
+  }
+}

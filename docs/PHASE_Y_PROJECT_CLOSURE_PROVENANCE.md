@@ -49,3 +49,15 @@ No GitHub or Vercel API call is made from the closure endpoint. Matching the dep
 4. A Preview deployment never impersonates Production.
 5. The application reports only its own deployed SHA; latest-main equality is verified externally.
 6. Phase X hash-bound teacher approval and PDF freshness remain the authoritative Lesson Studio acceptance contract.
+
+## Pre-content handoff baseline — 2026-09-17
+
+The repository now carries a machine-readable closure artifact at `.release/pre-content-baseline.json`. It is deliberately stricter than a prose status note:
+
+- `technical_complete=true` while `content_complete=false`.
+- `content_ingestion=locked` and `content_phase=deferred`.
+- The artifact records the requested code SHA, release-marker SHA, production deployment id/URL, release evidence run ids, and the Neon recovery checkpoint.
+- Contract tests fail if the baseline claims content completion, if intake is not locked, if the release marker drifts from the requested code SHA, or if the recovery checkpoint is not a ready no-compute handoff branch.
+- The current unresolved work is limited to the external/human content gates `EDU-001` and `EDU-003`; there are zero open technical issues in the handoff manifest.
+
+This baseline does not approve any source, lesson, question, diagram, answer, mapping, or scientific correction. It only records the verified technical state from which the future content phase may begin.

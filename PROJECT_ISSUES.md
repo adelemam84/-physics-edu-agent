@@ -2,6 +2,13 @@
 
 This file records non-blocking or deferred issues discovered during implementation. Keep shipping safe work; resolve these in a dedicated hardening pass.
 
+## Technical handoff status
+
+- Open technical issues at the pre-content handoff baseline: **0**.
+- Runtime: **1.8.4** with Production intake drift monitoring enabled.
+- Production content/source intake remains locked; this backlog must not be interpreted as permission to upload or auto-approve curriculum material.
+- The machine-readable handoff record is `.release/pre-content-baseline.json`.
+
 ## Open
 
 ### EDU-001 — Dedicated theory/textbook source coverage is not yet approved

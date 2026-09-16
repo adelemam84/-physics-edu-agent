@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "b32301b5c264ddda05e40c8389298a8fca5d59ca",
+  "requested_code_sha": "b3221ed18cbe69352b48713c25f85ae5587b8d77",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.8 source visuals, print-safe A4, and pre-export preview after green CI and security audit",
+  "reason": "Release Lesson Pack Studio 1.8.9 professional cover, student identity fields, page-by-page preview, and resilient PDF cleanup after green CI and security audit",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

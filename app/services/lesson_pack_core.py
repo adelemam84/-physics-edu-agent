@@ -252,10 +252,12 @@ def render_payload(pack: dict, edition: str) -> dict:
                 f"{n}. {step}" for n, step in enumerate(item.get("solution_steps") or [], 1)
             )
             answer = f"\nالإجابة: {item.get('answer') or ''}" if edition == "teacher" else ""
+            item_refs = [str(x) for x in (item.get("source_refs") or [])]
+            ref_line = "\nالمصدر: " + "، ".join(item_refs) if item_refs else ""
             body.append(
-                f"مثال {i}: {item.get('title') or ''}\n{item.get('problem') or ''}\n{steps}{answer}"
+                f"مثال {i}: {item.get('title') or ''}\n{item.get('problem') or ''}\n{steps}{answer}{ref_line}"
             )
-            refs.extend(str(x) for x in (item.get("source_refs") or []))
+            refs.extend(item_refs)
         sections.append(
             {"heading": "أمثلة وتطبيقات", "body": "\n\n".join(body), "source_refs": list(dict.fromkeys(refs))}
         )
@@ -284,17 +286,23 @@ def render_payload(pack: dict, edition: str) -> dict:
                 "\n" + "\n".join(f"   {n}. {x}" for n, x in enumerate(options, 1))
                 if options else ""
             )
+            item_refs = [str(x) for x in (question.get("source_refs") or [])]
+            ref_line = "\nالمصدر: " + "، ".join(item_refs) if item_refs else ""
             rows.append(
                 f"{i}) [{question.get('difficulty','medium')}] {question.get('prompt') or ''}{option_text}\n"
-                "— تدريب مولد من المصدر، وليس سؤالًا منقولًا حرفيًا."
+                f"— تدريب مولد من المصدر، وليس سؤالًا منقولًا حرفيًا.{ref_line}"
             )
-            refs.extend(str(x) for x in (question.get("source_refs") or []))
+            refs.extend(item_refs)
         sections.append(
             {"heading": "تدريبات الدرس", "body": "\n\n".join(rows), "source_refs": list(dict.fromkeys(refs))}
         )
         if edition == "teacher":
             answers = [
-                f"{i}) الإجابة: {q.get('answer') or ''}\nالتفسير: {q.get('explanation') or ''}"
+                (
+                    f"{i}) الإجابة: {q.get('answer') or ''}\n"
+                    f"التفسير: {q.get('explanation') or ''}\n"
+                    f"المصدر: {'، '.join(str(x) for x in (q.get('source_refs') or []))}"
+                )
                 for i, q in enumerate(questions, 1)
             ]
             sections.append(
@@ -314,6 +322,20 @@ def render_payload(pack: dict, edition: str) -> dict:
         sections.append(
             {"heading": "مراجعة في دقيقة", "body": "\n".join(rows), "source_refs": list(dict.fromkeys(refs))}
         )
+    for equation in payload.get("equations_or_rules") or []:
+        refs = [str(x) for x in (equation.get("source_refs") or [])]
+        if refs:
+            existing = str(equation.get("notes") or "").strip()
+            source_line = "المصدر: " + "، ".join(refs)
+            equation["notes"] = (existing + "\n" + source_line).strip()
+
+    for diagram in payload.get("diagram_specs") or []:
+        refs = [str(x) for x in (diagram.get("source_refs") or [])]
+        if refs:
+            existing = str(diagram.get("description") or "").strip()
+            source_line = "المصدر: " + "، ".join(refs)
+            diagram["description"] = (existing + "\n" + source_line).strip()
+
     payload["sections"] = sections
     return payload
 

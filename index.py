@@ -99,3 +99,5 @@ from app import canva_diagnostics  # noqa: F401,E402
 from app import lesson_studio_external_artifacts  # noqa: F401,E402
 from app import lesson_studio_integrations_ui  # noqa: F401,E402
 from app import release_hardening  # noqa: F401,E402
+from app import lesson_pack_studio  # noqa: F401,E402
+from app import lesson_pack_studio_ui  # noqa: F401,E402

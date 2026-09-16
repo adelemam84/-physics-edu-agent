@@ -484,3 +484,6 @@ def init_db():
     # statements out of request handlers avoids repeated ACCESS EXCLUSIVE locks.
     from .services.lesson_release_state import ensure_release_state_schema
     ensure_release_state_schema()
+
+    from .services.lesson_pack_schema import ensure_lesson_pack_schema
+    ensure_lesson_pack_schema()

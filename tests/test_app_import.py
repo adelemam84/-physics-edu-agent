@@ -8,7 +8,7 @@ class VercelEntrypointTests(unittest.TestCase):
         return importlib.import_module("index").app
 
     def test_vercel_entrypoint_imports_without_runtime_import_errors(self):
-        self.assertEqual(self._app().version, "1.8.4")
+        self.assertEqual(self._app().version, "1.8.5")
 
     def test_status_plane_uses_the_same_canonical_version(self):
         import status
@@ -56,6 +56,13 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/lesson-studio/integrations/summary",
             "/api/admin/lesson-studio/jobs/{job_id}/external-artifacts",
             "/api/admin/lesson-studio/jobs/{job_id}/external-artifacts/{provider}",
+            "/api/admin/lesson-pack-studio/status",
+            "/api/admin/lesson-pack-studio/jobs",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/process-next",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/generate",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/scientific-review",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/approve",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/export-pdf",
         }
         self.assertTrue(required.issubset(paths), required - paths)
 
@@ -72,6 +79,8 @@ class VercelEntrypointTests(unittest.TestCase):
             "/admin/lesson-studio/acceptance",
             "/admin/lesson-studio/release-readiness",
             "/admin/lesson-studio/integrations",
+            "/admin/lesson-pack-studio",
+            "/admin/lesson-pack-studio/jobs/{job_id}/preview",
             "/admin/completion-audit",
             "/admin/project-closure",
         }

@@ -29,6 +29,7 @@ def _provenance_refs(pack: dict) -> list[tuple[str, str]]:
         ("key_terms", "key_terms"),
         ("equations_or_rules", "equations_or_rules"),
         ("diagram_specs", "diagram_specs"),
+        ("source_visuals", "source_visuals"),
         ("common_mistakes", "common_mistakes"),
         ("quick_revision", "quick_revision"),
     )
@@ -63,6 +64,7 @@ def validate_pack_provenance(pack: dict, refs: list[str]) -> dict:
         "key_terms",
         "equations_or_rules",
         "diagram_specs",
+        "source_visuals",
         "common_mistakes",
         "quick_revision",
     ):

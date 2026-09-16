@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import uuid
+from functools import lru_cache
 
 import fitz
 from fastapi import Depends, File, Form, HTTPException, Request, UploadFile
@@ -49,6 +50,12 @@ def _clean_cover_value(value: str | None) -> str:
     return text[:120]
 
 
+@lru_cache(maxsize=12)
+def _cached_preview_pdf(pack_json: str, edition: str) -> bytes:
+    pack = json.loads(pack_json)
+    return _preview_stamp(render_pdf(pack, edition), edition)
+
+
 def _lesson_pack_preview_bytes(job_id: str, edition: str) -> bytes:
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
@@ -65,7 +72,8 @@ def _lesson_pack_preview_bytes(job_id: str, edition: str) -> bytes:
                 "provenance": provenance,
             },
         )
-    return _preview_stamp(render_pdf(pack, edition), edition)
+    pack_json = json.dumps(pack, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _cached_preview_pdf(pack_json, edition)
 
 
 def _preview_page_png(data: bytes, page_number: int) -> tuple[bytes, int]:

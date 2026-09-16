@@ -74,3 +74,16 @@ uvicorn app.main:app --reload
 - Transient provider failures use bounded retries against the same provider only; model roles never fail over across scientific responsibilities.
 - Provider resource creation/upload calls are not auto-replayed, avoiding duplicate durable resources.
 - OpenAI scientific review requests set `store=false`; only privacy-preserving aggregate telemetry is persisted by this application.
+
+
+## Lesson Pack Studio (v1.8.5)
+
+- `/admin/lesson-pack-studio` accepts standalone lesson PDF or scan files without opening official curriculum ingestion.
+- PDF files are rasterized page-by-page so OCR, review, and citations preserve exact source-page provenance.
+- OCR runs incrementally per page to avoid long serverless requests on large scanned lessons.
+- Gemini creates source-grounded explanations, examples, deterministic diagram specifications, and clearly labeled generated practice.
+- Every generated practice question is explicitly barred from the official question bank and requires teacher review.
+- GPT-5.6 Sol can perform the independent advisory scientific review before teacher approval.
+- Final export is blocked until OCR review, page provenance validation, scientific review (when configured), and teacher approval are complete.
+- Two final editions are available: Student PDF without answers and Teacher PDF with answers and explanations.
+- `LESSON_PACK_INGESTION_ENABLED` controls this auxiliary workspace independently from `CONTENT_INGESTION_ENABLED`.

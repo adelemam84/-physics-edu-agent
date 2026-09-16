@@ -34,6 +34,20 @@ def _provenance_refs(pack: dict) -> list[tuple[str, str]]:
     for i, term in enumerate(pack.get("key_terms") or [], 1):
         for ref in term.get("source_refs") or []:
             refs.append((f"key_terms[{i}]", str(ref)))
+    for i, item in enumerate(pack.get("equations_or_rules") or [], 1):
+        for ref in item.get("source_refs") or []:
+            refs.append((f"equations_or_rules[{i}]", str(ref)))
+    for i, item in enumerate(pack.get("diagram_specs") or [], 1):
+        for ref in item.get("source_refs") or []:
+            refs.append((f"diagram_specs[{i}]", str(ref)))
+    for i, item in enumerate(pack.get("common_mistakes") or [], 1):
+        if isinstance(item, dict):
+            for ref in item.get("source_refs") or []:
+                refs.append((f"common_mistakes[{i}]", str(ref)))
+    for i, item in enumerate(pack.get("quick_revision") or [], 1):
+        if isinstance(item, dict):
+            for ref in item.get("source_refs") or []:
+                refs.append((f"quick_revision[{i}]", str(ref)))
     return refs
 
 
@@ -48,6 +62,17 @@ def validate_pack_provenance(pack: dict, refs: list[str]) -> dict:
     for i, section in enumerate(pack.get("sections") or [], 1):
         if not section.get("source_refs"):
             missing.append(f"sections[{i}]")
+    for field in (
+        "worked_examples",
+        "key_terms",
+        "equations_or_rules",
+        "diagram_specs",
+        "common_mistakes",
+        "quick_revision",
+    ):
+        for i, item in enumerate(pack.get(field) or [], 1):
+            if isinstance(item, dict) and not item.get("source_refs"):
+                missing.append(f"{field}[{i}]")
     return {
         "passed": not invalid and not missing,
         "allowed_ref_count": len(allowed),
@@ -109,7 +134,14 @@ def build_pack(
         "key_terms": [
             {"term": "string", "definition": "string", "source_refs": ["EXACT_ALLOWED_SOURCE_REF"]}
         ],
-        "equations_or_rules": [{"label": "string", "expression": "string", "notes": "string"}],
+        "equations_or_rules": [
+            {
+                "label": "string",
+                "expression": "string",
+                "notes": "string",
+                "source_refs": ["EXACT_ALLOWED_SOURCE_REF"],
+            }
+        ],
         "worked_examples": [
             {
                 "title": "string",
@@ -119,7 +151,9 @@ def build_pack(
                 "source_refs": ["EXACT_ALLOWED_SOURCE_REF"],
             }
         ],
-        "common_mistakes": ["string"],
+        "common_mistakes": [
+            {"text": "string", "source_refs": ["EXACT_ALLOWED_SOURCE_REF"]}
+        ],
         "diagram_specs": [
             {
                 "kind": "simple_circuit|graph|process|comparison|classification|vector|apparatus|ray_diagram|other",
@@ -128,6 +162,7 @@ def build_pack(
                 "scientific_labels": ["string"],
                 "parameters": {"source_explicit_only": True},
                 "deterministic_required": True,
+                "source_refs": ["EXACT_ALLOWED_SOURCE_REF"],
             }
         ],
         "practice_questions": [
@@ -142,14 +177,17 @@ def build_pack(
                 "source_refs": ["EXACT_ALLOWED_SOURCE_REF"],
             }
         ],
-        "quick_revision": ["string"],
+        "quick_revision": [
+            {"text": "string", "source_refs": ["EXACT_ALLOWED_SOURCE_REF"]}
+        ],
         "uncertain_items": ["string"],
         "summary": "string",
     }
     developer = (
         "أنت محرر ملزمة تعليمية عربية من مصدر مغلق. استخدم فقط النص المرفق ولا تضف حقيقة علمية "
         "من الذاكرة أو الإنترنت. يجوز إعادة الشرح بأسلوب أوضح ومبتكر ما دام كل ادعاء مدعومًا بالمصدر. "
-        "كل قسم وكل مثال وكل سؤال يجب أن يحمل source_refs من القائمة المسموح بها حرفيًا فقط. "
+        "كل قسم وكل مثال وكل سؤال وكل قانون وكل رسم وكل خطأ شائع وكل نقطة مراجعة يجب أن يحمل "
+        "source_refs من القائمة المسموح بها حرفيًا فقط. "
         "أنشئ أسئلة تدريبية جديدة مبنية على الدرس، لكنها ليست أسئلة رسمية ولا يجوز الادعاء أنها وردت "
         "بالنص الأصلي. لا تغيّر القوانين أو الوحدات. وإذا استخدمت أرقامًا تدريبية جديدة فاذكر داخل "
         "explanation أنها أرقام تدريبية مولدة وأن العلاقة المستخدمة مدعومة بالمصدر. "
@@ -224,8 +262,16 @@ def render_payload(pack: dict, edition: str) -> dict:
 
     mistakes = payload.get("common_mistakes") or []
     if mistakes:
+        rows: list[str] = []
+        refs: list[str] = []
+        for item in mistakes:
+            if isinstance(item, dict):
+                rows.append(f"• {item.get('text') or ''}")
+                refs.extend(str(x) for x in (item.get("source_refs") or []))
+            else:
+                rows.append(f"• {item}")
         sections.append(
-            {"heading": "أخطاء شائعة", "body": "\n".join(f"• {x}" for x in mistakes), "source_refs": []}
+            {"heading": "أخطاء شائعة", "body": "\n".join(rows), "source_refs": list(dict.fromkeys(refs))}
         )
 
     questions = payload.get("practice_questions") or []
@@ -257,8 +303,16 @@ def render_payload(pack: dict, edition: str) -> dict:
 
     quick = payload.get("quick_revision") or []
     if quick:
+        rows: list[str] = []
+        refs: list[str] = []
+        for item in quick:
+            if isinstance(item, dict):
+                rows.append(f"• {item.get('text') or ''}")
+                refs.extend(str(x) for x in (item.get("source_refs") or []))
+            else:
+                rows.append(f"• {item}")
         sections.append(
-            {"heading": "مراجعة في دقيقة", "body": "\n".join(f"• {x}" for x in quick), "source_refs": []}
+            {"heading": "مراجعة في دقيقة", "body": "\n".join(rows), "source_refs": list(dict.fromkeys(refs))}
         )
     payload["sections"] = sections
     return payload

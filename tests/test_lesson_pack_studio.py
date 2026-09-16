@@ -114,6 +114,23 @@ class LessonPackStudioTests(unittest.TestCase):
         self.assertIn("نموذج الإجابة والتفسير", teacher_headings)
         self.assertIn("الإجابة: V = IR", teacher_text)
 
+    def test_blank_page_is_not_reprocessed_after_ocr_attempt(self):
+        pages = [
+            {
+                "extracted_text": "",
+                "ocr_confidence_band": "yellow",
+                "requires_review": True,
+            }
+        ]
+        self.assertEqual(
+            lesson_pack_studio._status_after_ocr(pages),
+            "ocr_review_required",
+        )
+
+    def test_request_paths_do_not_create_schema(self):
+        self.assertNotIn("_schema()", inspect.getsource(lesson_pack_studio._job))
+        self.assertNotIn("_schema()", inspect.getsource(lesson_pack_studio.create_lesson_pack_job))
+
     def test_teacher_and_student_editions_render_valid_pdf(self):
         pack = {
             "title": "درس تجريبي",

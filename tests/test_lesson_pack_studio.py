@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from unittest.mock import patch
+
+from fastapi import HTTPException
 
 from app import content_phase_guard, lesson_pack_guard, lesson_pack_studio
 from app.services import lesson_pack_core
@@ -72,6 +75,46 @@ class LessonPackStudioTests(unittest.TestCase):
         self.assertEqual(len(result["invalid_refs"]), 1)
         self.assertIn("practice_questions[2]", result["missing_refs"])
 
+    def test_provenance_validation_rejects_empty_pack(self):
+        result = lesson_pack_core.validate_pack_provenance({}, ["ملف 1: a.pdf · صفحة 1"])
+        self.assertFalse(result["passed"])
+        self.assertIn("sections", result["missing_refs"])
+        self.assertIn("practice_questions", result["missing_refs"])
+
+    def test_provenance_validation_tolerates_malformed_collection_items(self):
+        good = "ملف 1: a.pdf · صفحة 1"
+        pack = {
+            "sections": ["bad", {"heading": "سليم", "source_refs": [good]}],
+            "practice_questions": [{"prompt": "س", "source_refs": [good]}],
+        }
+        result = lesson_pack_core.validate_pack_provenance(pack, [good])
+        self.assertFalse(result["passed"])
+        self.assertIn("sections[1]", result["missing_refs"])
+
+    def test_generator_rejects_non_object_json(self):
+        with patch.object(lesson_pack_core, "_gemini_text", return_value="[]"):
+            with self.assertRaises(HTTPException) as ctx:
+                lesson_pack_core.build_pack(
+                    "source",
+                    title="درس",
+                    subject="physics",
+                    grade_label="الثالث الثانوي",
+                    pack_mode="balanced",
+                    refs=["ملف 1: a.pdf · صفحة 1"],
+                    question_count=6,
+                )
+        self.assertEqual(ctx.exception.status_code, 502)
+
+    def test_image_page_key_replaces_untrusted_filename_extension(self):
+        key = lesson_pack_studio._image_page_key(
+            "job", 3, "scan.png", "image/jpeg"
+        )
+        self.assertTrue(key.endswith("0003-scan.jpg"))
+        self.assertEqual(
+            lesson_pack_studio._media_type_for_page({"object_key": key}),
+            "image/jpeg",
+        )
+
     def test_student_pdf_payload_hides_answers(self):
         pack = {
             "title": "قانون أوم",
@@ -130,6 +173,11 @@ class LessonPackStudioTests(unittest.TestCase):
     def test_request_paths_do_not_create_schema(self):
         self.assertNotIn("_schema()", inspect.getsource(lesson_pack_studio._job))
         self.assertNotIn("_schema()", inspect.getsource(lesson_pack_studio.create_lesson_pack_job))
+
+    def test_upload_failure_cleanup_is_present(self):
+        source = inspect.getsource(lesson_pack_studio.create_lesson_pack_job)
+        self.assertIn("written_keys", source)
+        self.assertIn("_cleanup_staged_objects(written_keys)", source)
 
     def test_teacher_and_student_editions_render_valid_pdf(self):
         pack = {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import html
 import io
 import os
@@ -7,6 +8,7 @@ import os
 import fitz
 
 from .science_notation_presentation import notation_html
+from .storage import get_bytes
 
 
 BRAND_NAME = os.getenv("LESSON_STUDIO_BRAND_NAME", "Science Education Platform").strip() or "Science Education Platform"
@@ -102,6 +104,39 @@ def _equations_html(pack: dict) -> str:
             '</div>'
         )
     return '<section class="laws"><h2>القوانين والعلاقات المهمة</h2>' + "".join(rows) + '</section>'
+
+
+
+def _source_visuals_html(pack: dict) -> str:
+    """Render only teacher-approved crops from the original uploaded source pages."""
+    items = [x for x in (pack.get("source_visuals") or []) if isinstance(x, dict)]
+    cards: list[str] = []
+    for item in items:
+        if not item.get("approved") or not item.get("object_key"):
+            continue
+        try:
+            raw = get_bytes(str(item["object_key"]))
+        except Exception:
+            # A missing source crop must not break the whole handout export.
+            continue
+        if not raw:
+            continue
+        media_type = str(item.get("media_type") or "image/png")
+        data_uri = f"data:{media_type};base64,{base64.b64encode(raw).decode('ascii')}"
+        title = _esc(item.get("title") or "شكل من المصدر الأصلي")
+        description = _lines(item.get("description") or "")
+        description_html = f'<div class="source-visual-description">{description}</div>' if description else ""
+        cards.append(
+            '<figure class="source-visual-card">'
+            f'<figcaption><b>{title}</b></figcaption>'
+            f'{description_html}'
+            f'<img src="{data_uri}" alt="{title}">'
+            '<div class="visual-note">شكل أصلي محفوظ من الملف المرفوع بعد مراجعة المدرس.</div>'
+            '</figure>'
+        )
+    if not cards:
+        return ""
+    return '<section class="source-visuals"><h2>من المصدر الأصلي</h2>' + "".join(cards) + '</section>'
 
 
 def _diagrams_html(pack: dict) -> str:
@@ -226,6 +261,7 @@ def _document_html(pack: dict) -> str:
       {_key_terms_html(pack)}
       {_sections_html(pack)}
       {_equations_html(pack)}
+      {_source_visuals_html(pack)}
       {_diagrams_html(pack)}
       {_worked_examples_html(pack)}
       {_mistakes_html(pack)}
@@ -238,7 +274,11 @@ def _document_html(pack: dict) -> str:
 
 def _css() -> str:
     return '''
-      body { font-family:sans-serif; font-size:11.7pt; line-height:1.72; color:#172033; }
+      @page { size:A4; margin:0; }
+      body { font-family:sans-serif; font-size:11.5pt; line-height:1.68; color:#172033; widows:3; orphans:3; }
+      h1,h2,h3 { break-after:avoid-page; }
+      img,svg { max-width:100%; }
+      .lesson-section,.law-card,.source-visual-card,.diagram-card,.example-card,.question-card,.revision { break-inside:avoid-page; }
       article { direction:rtl; }
       h1 { font-size:27pt; line-height:1.2; margin:8px 0 10px; }
       h2 { font-size:15.5pt; margin:17px 0 8px; padding-bottom:5px; border-bottom:1.4px solid #98a2b3; }
@@ -272,7 +312,11 @@ def _css() -> str:
       .law-title { text-align:right; font-weight:700; }
       .law-expression { font-size:17pt; font-weight:700; padding:8px; }
       .law-note { text-align:right; color:#475467; }
-      .diagram-card { border:1px solid #d0d5dd; padding:10px; margin:10px 0; page-break-inside:avoid; }
+      .source-visual-card,.diagram-card { border:1px solid #d0d5dd; padding:10px; margin:10px 0; page-break-inside:avoid; text-align:center; }
+      .source-visual-card img { display:block; max-height:420px; margin:8px auto; object-fit:contain; }
+      .source-visual-card figcaption { text-align:right; font-size:12.5pt; }
+      .source-visual-description { text-align:right; color:#475467; margin:4px 0 8px; }
+      .diagram-card { text-align:right; }
       .svgbox { text-align:center; margin:8px auto; }
       .svgbox svg { max-width:100%; height:auto; }
       .diagram-labels,.visual-note { color:#667085; font-size:8.8pt; }

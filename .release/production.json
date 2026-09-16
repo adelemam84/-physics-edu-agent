@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "142b83abda35ebd81d7b193f5bc1d2b9ec2eb51e",
-  "requested_at": "2026-09-16",
-  "reason": "Promote pre-content intake drift monitoring after green CI, readiness, and security audit",
+  "requested_code_sha": "9971415f9ebcb7a66c1b91135b7e2d41c10a49db",
+  "requested_at": "2026-09-17",
+  "reason": "Release Lesson Pack Studio 1.8.6 printable student handout after green CI and security audit",
   "content_ingestion": "locked",
-  "scope": "technical_runtime_only"
+  "scope": "lesson_pack_runtime"
 }

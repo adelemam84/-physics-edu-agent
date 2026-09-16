@@ -40,6 +40,96 @@ DEFAULT_QUESTION_COUNT = max(
     6, min(30, int(os.getenv("LESSON_PACK_DEFAULT_QUESTION_COUNT", "12")))
 )
 MAX_SOURCE_VISUALS = max(1, min(12, int(os.getenv("LESSON_PACK_MAX_SOURCE_VISUALS", "8"))))
+PREVIEW_DPI = max(96, min(160, int(os.getenv("LESSON_PACK_PREVIEW_DPI", "120"))))
+COVER_FIELDS = ("student_name", "class_label", "teacher_name", "school_name", "academic_term")
+
+
+def _clean_cover_value(value: str | None) -> str:
+    text = " ".join(str(value or "").strip().split())
+    return text[:120]
+
+
+def _queue_pdf_cleanup(pack: dict, keys: list[str | None]) -> None:
+    pending = [str(x) for x in (pack.get("storage_cleanup_pending") or []) if str(x).strip()]
+    for key in keys:
+        value = str(key or "").strip()
+        if value and value not in pending:
+            pending.append(value)
+    if pending:
+        pack["storage_cleanup_pending"] = pending
+    else:
+        pack.pop("storage_cleanup_pending", None)
+
+
+def _drain_pdf_cleanup(job_id: str) -> dict:
+    with connect() as con:
+        row = con.execute(
+            "SELECT pack_json FROM lesson_pack_jobs WHERE id=%s", (job_id,)
+        ).fetchone()
+    if not row:
+        return {"deleted": 0, "pending": 0}
+    pack = dict(row["pack_json"] or {})
+    pending = [str(x) for x in (pack.get("storage_cleanup_pending") or []) if str(x).strip()]
+    deleted: list[str] = []
+    for key in pending:
+        try:
+            delete_object(key)
+        except Exception:
+            continue
+        deleted.append(key)
+    if deleted:
+        with connect() as con:
+            locked = con.execute(
+                "SELECT pack_json FROM lesson_pack_jobs WHERE id=%s FOR UPDATE", (job_id,)
+            ).fetchone()
+            if locked:
+                current = dict(locked["pack_json"] or {})
+                remaining = [
+                    str(x)
+                    for x in (current.get("storage_cleanup_pending") or [])
+                    if str(x).strip() and str(x) not in deleted
+                ]
+                if remaining:
+                    current["storage_cleanup_pending"] = remaining
+                else:
+                    current.pop("storage_cleanup_pending", None)
+                con.execute(
+                    "UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,updated_at=now() WHERE id=%s",
+                    (json.dumps(current, ensure_ascii=False), job_id),
+                )
+    return {"deleted": len(deleted), "pending": max(0, len(pending) - len(deleted))}
+
+
+def _lesson_pack_preview_bytes(job_id: str, edition: str) -> bytes:
+    if edition not in {"student", "teacher"}:
+        raise HTTPException(400, "edition must be student or teacher")
+    job, pages = _job(job_id)
+    pack = job.get("pack_json")
+    if not pack:
+        raise HTTPException(409, "Generate the Lesson Pack before preview")
+    provenance = validate_pack_provenance(pack, allowed_source_refs(pages))
+    if not provenance.get("passed"):
+        raise HTTPException(
+            409,
+            {
+                "message": "Source provenance validation must pass before preview",
+                "provenance": provenance,
+            },
+        )
+    return _preview_stamp(render_pdf(pack, edition), edition)
+
+
+def _preview_page_png(data: bytes, page_number: int) -> tuple[bytes, int]:
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        total = doc.page_count
+        if page_number < 1 or page_number > total:
+            raise HTTPException(404, f"Preview page must be between 1 and {total}")
+        matrix = fitz.Matrix(PREVIEW_DPI / 72.0, PREVIEW_DPI / 72.0)
+        png = doc[page_number - 1].get_pixmap(matrix=matrix, alpha=False).tobytes("png")
+        return png, total
+    finally:
+        doc.close()
 
 
 def _normalize_visual_bbox(raw: dict) -> dict:
@@ -225,6 +315,8 @@ def lesson_pack_status():
             "source_page_provenance_required": True,
             "original_source_visuals_teacher_review_required": True,
             "pre_export_pdf_preview": True,
+            "page_by_page_preview": True,
+            "configurable_student_cover": True,
             "generated_questions_labeled": True,
             "curriculum_content_gate_unchanged": True,
         },
@@ -865,27 +957,68 @@ def review_lesson_pack_source_visual(
     }
 
 
+@app.post(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/cover",
+    dependencies=[Depends(require_admin)],
+)
+def update_lesson_pack_cover(
+    job_id: str,
+    student_name: str = Form(""),
+    class_label: str = Form(""),
+    teacher_name: str = Form(""),
+    school_name: str = Form(""),
+    academic_term: str = Form(""),
+):
+    job, _ = _job(job_id)
+    if not job.get("pack_json"):
+        raise HTTPException(409, "Generate the Lesson Pack before editing the cover")
+    next_status = (
+        "scientific_review_required"
+        if reviewer_status()["configured"] and not job.get("scientific_review_json")
+        else "teacher_approval_required"
+    )
+    with connect() as con:
+        locked = con.execute(
+            """SELECT pack_json,pdf_student_object_key,pdf_teacher_object_key
+              FROM lesson_pack_jobs WHERE id=%s FOR UPDATE""",
+            (job_id,),
+        ).fetchone()
+        if not locked or not locked["pack_json"]:
+            raise HTTPException(409, "Generate the Lesson Pack before editing the cover")
+        pack = dict(locked["pack_json"] or {})
+        pack["cover"] = {
+            "student_name": _clean_cover_value(student_name),
+            "class_label": _clean_cover_value(class_label),
+            "teacher_name": _clean_cover_value(teacher_name),
+            "school_name": _clean_cover_value(school_name),
+            "academic_term": _clean_cover_value(academic_term),
+        }
+        _queue_pdf_cleanup(
+            pack,
+            [locked["pdf_student_object_key"], locked["pdf_teacher_object_key"]],
+        )
+        con.execute(
+            """UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,teacher_approved=FALSE,
+              pdf_student_object_key=NULL,pdf_teacher_object_key=NULL,status=%s,updated_at=now()
+              WHERE id=%s""",
+            (json.dumps(pack, ensure_ascii=False), next_status, job_id),
+        )
+    cleanup = _drain_pdf_cleanup(job_id)
+    return {
+        "id": job_id,
+        "cover": pack["cover"],
+        "status": next_status,
+        "teacher_reapproval_required": True,
+        "storage_cleanup_pending": cleanup["pending"],
+    }
+
+
 @app.get(
     "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-pdf",
     dependencies=[Depends(require_admin)],
 )
 def preview_lesson_pack_pdf(job_id: str, edition: str = "student"):
-    if edition not in {"student", "teacher"}:
-        raise HTTPException(400, "edition must be student or teacher")
-    job, pages = _job(job_id)
-    pack = job.get("pack_json")
-    if not pack:
-        raise HTTPException(409, "Generate the Lesson Pack before preview")
-    provenance = validate_pack_provenance(pack, allowed_source_refs(pages))
-    if not provenance.get("passed"):
-        raise HTTPException(
-            409,
-            {
-                "message": "Source provenance validation must pass before preview",
-                "provenance": provenance,
-            },
-        )
-    data = _preview_stamp(render_pdf(pack, edition), edition)
+    data = _lesson_pack_preview_bytes(job_id, edition)
     return Response(
         data,
         media_type="application/pdf",
@@ -893,6 +1026,48 @@ def preview_lesson_pack_pdf(job_id: str, edition: str = "student"):
             "Content-Disposition": f'inline; filename="lesson-pack-preview-{edition}-{job_id}.pdf"',
             "Cache-Control": "private, no-store",
             "X-Lesson-Pack-Preview": "unapproved",
+        },
+    )
+
+
+@app.get(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-manifest",
+    dependencies=[Depends(require_admin)],
+)
+def lesson_pack_preview_manifest(job_id: str, edition: str = "student"):
+    data = _lesson_pack_preview_bytes(job_id, edition)
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        total = doc.page_count
+    finally:
+        doc.close()
+    return {
+        "edition": edition,
+        "page_count": total,
+        "preview": True,
+        "approved": False,
+        "page_url_template": (
+            f"/api/admin/lesson-pack-studio/jobs/{job_id}/preview-page/{{page_number}}"
+            f"?edition={edition}"
+        ),
+    }
+
+
+@app.get(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-page/{page_number}",
+    dependencies=[Depends(require_admin)],
+)
+def lesson_pack_preview_page(job_id: str, page_number: int, edition: str = "student"):
+    data = _lesson_pack_preview_bytes(job_id, edition)
+    png, total = _preview_page_png(data, page_number)
+    return Response(
+        png,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Lesson-Pack-Preview": "unapproved",
+            "X-Lesson-Pack-Page": str(page_number),
+            "X-Lesson-Pack-Page-Count": str(total),
         },
     )
 
@@ -969,7 +1144,7 @@ def export_lesson_pack_pdf(job_id: str, edition: str = "student"):
         )
 
     data = render_pdf(pack, edition)
-    key = f"lesson-pack/{job_id}/lesson-pack-{edition}.pdf"
+    key = f"lesson-pack/{job_id}/exports/{edition}-{uuid.uuid4().hex}.pdf"
     put_bytes(key, data, "application/pdf")
     column = (
         "pdf_student_object_key"
@@ -977,10 +1152,20 @@ def export_lesson_pack_pdf(job_id: str, edition: str = "student"):
         else "pdf_teacher_object_key"
     )
     with connect() as con:
+        locked = con.execute(
+            f"SELECT pack_json,{column} FROM lesson_pack_jobs WHERE id=%s FOR UPDATE",
+            (job_id,),
+        ).fetchone()
+        current_pack = dict((locked and locked["pack_json"]) or pack)
+        old_key = locked[column] if locked else None
+        if old_key and str(old_key) != key:
+            _queue_pdf_cleanup(current_pack, [old_key])
         con.execute(
-            f"UPDATE lesson_pack_jobs SET {column}=%s,status='pdf_ready',updated_at=now() WHERE id=%s",
-            (key, job_id),
+            f"""UPDATE lesson_pack_jobs SET {column}=%s,pack_json=%s::jsonb,
+              status='pdf_ready',updated_at=now() WHERE id=%s""",
+            (key, json.dumps(current_pack, ensure_ascii=False), job_id),
         )
+    _drain_pdf_cleanup(job_id)
 
     return Response(
         data,

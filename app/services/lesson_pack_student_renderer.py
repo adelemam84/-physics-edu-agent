@@ -309,7 +309,7 @@ def _css() -> str:
       h3 { font-size:13pt; margin:5px 0 7px; }
       p { margin:5px 0 9px; }
       ul,ol { margin:6px 20px 10px 0; }
-      .cover { min-height:705px; border:1.5px solid #344054; border-right:8px solid #1d4ed8; padding:22px 24px; margin:0; background:#ffffff; page-break-inside:avoid; page-break-after:always; display:flex; flex-direction:column; }
+      .cover { box-sizing:border-box; min-height:705px; border:1.5px solid #344054; border-right:8px solid #1d4ed8; padding:22px 24px; margin:0; background:#ffffff; page-break-inside:avoid; page-break-after:always; display:flex; flex-direction:column; }
       .cover-top { display:flex; justify-content:space-between; align-items:center; gap:14px; }
       .brand { color:#344054; font-size:9.5pt; font-weight:700; }
       .cover-badge { display:inline-block; padding:4px 10px; border:1px solid #98a2b3; border-radius:14px; font-size:9pt; font-weight:700; }

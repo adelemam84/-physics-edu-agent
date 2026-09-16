@@ -243,19 +243,43 @@ def _notes_html() -> str:
     )
 
 
-def _document_html(pack: dict) -> str:
+def _cover_field(cover: dict, key: str, fallback: str = "") -> str:
+    value = str(cover.get(key) or fallback or "").strip()
+    return _esc(value) if value else '<span class="blank-field">................................</span>'
+
+
+def _cover_html(pack: dict) -> str:
     title = _esc(pack.get("title") or "ملزمة الدرس")
     subject = _esc(pack.get("subject") or "")
     grade = _esc(pack.get("grade_label") or "")
+    cover = pack.get("cover") if isinstance(pack.get("cover"), dict) else {}
+    class_label = _cover_field(cover, "class_label", str(pack.get("grade_label") or ""))
+    return f'''<header class="cover">
+        <div class="cover-top">
+          <div class="brand">{_esc(BRAND_NAME)}</div>
+          <div class="cover-badge">ملزمة الطالب للحصة</div>
+        </div>
+        <div class="cover-main">
+          <div class="cover-kicker">مذكرة مذاكرة وتدريب</div>
+          <h1>{title}</h1>
+          <div class="meta">{subject}{(' · ' + grade) if grade else ''}</div>
+          <div class="cover-copy">شرح منظم للمذاكرة + قوانين ورسومات + أمثلة محلولة + تدريبات متدرجة</div>
+        </div>
+        <div class="identity-grid">
+          <div><span class="identity-label">اسم الطالب</span><span class="identity-value">{_cover_field(cover, "student_name")}</span></div>
+          <div><span class="identity-label">الصف / الفصل</span><span class="identity-value">{class_label}</span></div>
+          <div><span class="identity-label">المدرس</span><span class="identity-value">{_cover_field(cover, "teacher_name")}</span></div>
+          <div><span class="identity-label">المدرسة / السنتر</span><span class="identity-value">{_cover_field(cover, "school_name")}</span></div>
+          <div><span class="identity-label">العام / الترم</span><span class="identity-value">{_cover_field(cover, "academic_term")}</span></div>
+          <div><span class="identity-label">التاريخ</span><span class="identity-value"><span class="blank-field">........ / ........ / ........</span></span></div>
+        </div>
+        <div class="cover-footer-note">هذه الملزمة مبنية على محتوى الدرس المرفوع والمراجع قبل التصدير النهائي.</div>
+      </header>'''
+
+
+def _document_html(pack: dict) -> str:
     return f'''<article dir="rtl" lang="ar">
-      <header class="cover">
-        <div class="brand">{_esc(BRAND_NAME)}</div>
-        <div class="cover-badge">ملزمة الطالب للحصة</div>
-        <h1>{title}</h1>
-        <div class="meta">{subject}{(' · ' + grade) if grade else ''}</div>
-        <div class="identity"><span>اسم الطالب: ...................................................</span><span>التاريخ: ........ / ........ / ........</span></div>
-        <div class="cover-copy">شرح منظم للمذاكرة + قوانين ورسومات + أمثلة محلولة + تدريبات متدرجة</div>
-      </header>
+      {_cover_html(pack)}
       {_lesson_map_html(pack)}
       {_objectives_html(pack)}
       {_key_terms_html(pack)}
@@ -285,13 +309,21 @@ def _css() -> str:
       h3 { font-size:13pt; margin:5px 0 7px; }
       p { margin:5px 0 9px; }
       ul,ol { margin:6px 20px 10px 0; }
-      .cover { border:1.5px solid #344054; border-right:7px solid #1d4ed8; padding:18px 20px; margin:0 0 16px; background:#ffffff; page-break-inside:avoid; }
-      .brand { color:#344054; font-size:9pt; font-weight:700; }
-      .cover-badge { display:inline-block; margin-top:8px; padding:3px 8px; border:1px solid #98a2b3; border-radius:12px; font-size:9pt; font-weight:700; }
-      .meta { color:#475467; font-weight:700; }
-      .identity { margin-top:16px; border-top:1px solid #d0d5dd; padding-top:10px; font-size:10pt; }
-      .identity span { display:block; margin:4px 0; }
-      .cover-copy { margin-top:10px; color:#475467; font-size:9.4pt; }
+      .cover { min-height:705px; border:1.5px solid #344054; border-right:8px solid #1d4ed8; padding:22px 24px; margin:0; background:#ffffff; page-break-inside:avoid; page-break-after:always; display:flex; flex-direction:column; }
+      .cover-top { display:flex; justify-content:space-between; align-items:center; gap:14px; }
+      .brand { color:#344054; font-size:9.5pt; font-weight:700; }
+      .cover-badge { display:inline-block; padding:4px 10px; border:1px solid #98a2b3; border-radius:14px; font-size:9pt; font-weight:700; }
+      .cover-main { margin:92px 0 46px; text-align:center; }
+      .cover-kicker { color:#475467; font-size:10pt; font-weight:700; letter-spacing:.2px; }
+      .cover h1 { font-size:31pt; margin:14px 0 12px; }
+      .meta { color:#475467; font-weight:700; font-size:12pt; }
+      .cover-copy { max-width:410px; margin:18px auto 0; color:#475467; font-size:10pt; }
+      .identity-grid { margin-top:auto; display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; border-top:1px solid #d0d5dd; padding-top:16px; }
+      .identity-grid > div { border:1px solid #e4e7ec; border-radius:6px; padding:8px 10px; min-height:52px; }
+      .identity-label { display:block; color:#667085; font-size:8.5pt; font-weight:700; margin-bottom:3px; }
+      .identity-value { display:block; font-weight:700; min-height:18px; }
+      .blank-field { color:#98a2b3; font-weight:400; letter-spacing:1px; }
+      .cover-footer-note { margin-top:14px; color:#667085; font-size:8.5pt; text-align:center; }
       .lesson-map,.panel,.terms,.laws,.diagrams,.examples,.practice,.revision,.notes { margin:14px 0; }
       .lesson-map { background:#f8fafc; border:1px solid #d0d5dd; padding:10px 13px; page-break-inside:avoid; }
       .lesson-map ol { list-style:none; margin-right:0; padding-right:0; }

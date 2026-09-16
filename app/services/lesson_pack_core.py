@@ -22,32 +22,22 @@ def allowed_source_refs(pages: list[dict]) -> list[str]:
 
 def _provenance_refs(pack: dict) -> list[tuple[str, str]]:
     refs: list[tuple[str, str]] = []
-    for i, section in enumerate(pack.get("sections") or [], 1):
-        for ref in section.get("source_refs") or []:
-            refs.append((f"sections[{i}]", str(ref)))
-    for i, example in enumerate(pack.get("worked_examples") or [], 1):
-        for ref in example.get("source_refs") or []:
-            refs.append((f"worked_examples[{i}]", str(ref)))
-    for i, item in enumerate(pack.get("practice_questions") or [], 1):
-        for ref in item.get("source_refs") or []:
-            refs.append((f"practice_questions[{i}]", str(ref)))
-    for i, term in enumerate(pack.get("key_terms") or [], 1):
-        for ref in term.get("source_refs") or []:
-            refs.append((f"key_terms[{i}]", str(ref)))
-    for i, item in enumerate(pack.get("equations_or_rules") or [], 1):
-        for ref in item.get("source_refs") or []:
-            refs.append((f"equations_or_rules[{i}]", str(ref)))
-    for i, item in enumerate(pack.get("diagram_specs") or [], 1):
-        for ref in item.get("source_refs") or []:
-            refs.append((f"diagram_specs[{i}]", str(ref)))
-    for i, item in enumerate(pack.get("common_mistakes") or [], 1):
-        if isinstance(item, dict):
+    collections = (
+        ("sections", "sections"),
+        ("worked_examples", "worked_examples"),
+        ("practice_questions", "practice_questions"),
+        ("key_terms", "key_terms"),
+        ("equations_or_rules", "equations_or_rules"),
+        ("diagram_specs", "diagram_specs"),
+        ("common_mistakes", "common_mistakes"),
+        ("quick_revision", "quick_revision"),
+    )
+    for field, label in collections:
+        for i, item in enumerate(pack.get(field) or [], 1):
+            if not isinstance(item, dict):
+                continue
             for ref in item.get("source_refs") or []:
-                refs.append((f"common_mistakes[{i}]", str(ref)))
-    for i, item in enumerate(pack.get("quick_revision") or [], 1):
-        if isinstance(item, dict):
-            for ref in item.get("source_refs") or []:
-                refs.append((f"quick_revision[{i}]", str(ref)))
+                refs.append((f"{label}[{i}]", str(ref)))
     return refs
 
 
@@ -56,11 +46,17 @@ def validate_pack_provenance(pack: dict, refs: list[str]) -> dict:
     seen = _provenance_refs(pack)
     invalid = [{"location": loc, "ref": ref} for loc, ref in seen if ref not in allowed]
     missing: list[str] = []
-    for i, question in enumerate(pack.get("practice_questions") or [], 1):
-        if not question.get("source_refs"):
+    sections = pack.get("sections") or []
+    questions = pack.get("practice_questions") or []
+    if not sections:
+        missing.append("sections")
+    if not questions:
+        missing.append("practice_questions")
+    for i, question in enumerate(questions, 1):
+        if not isinstance(question, dict) or not question.get("source_refs"):
             missing.append(f"practice_questions[{i}]")
-    for i, section in enumerate(pack.get("sections") or [], 1):
-        if not section.get("source_refs"):
+    for i, section in enumerate(sections, 1):
+        if not isinstance(section, dict) or not section.get("source_refs"):
             missing.append(f"sections[{i}]")
     for field in (
         "worked_examples",
@@ -71,10 +67,10 @@ def validate_pack_provenance(pack: dict, refs: list[str]) -> dict:
         "quick_revision",
     ):
         for i, item in enumerate(pack.get(field) or [], 1):
-            if isinstance(item, dict) and not item.get("source_refs"):
+            if not isinstance(item, dict) or not item.get("source_refs"):
                 missing.append(f"{field}[{i}]")
     return {
-        "passed": not invalid and not missing,
+        "passed": bool(sections) and bool(questions) and not invalid and not missing,
         "allowed_ref_count": len(allowed),
         "referenced_ref_count": len(seen),
         "invalid_refs": invalid,
@@ -86,6 +82,8 @@ def normalize_generated_questions(pack: dict) -> dict:
     out = dict(pack)
     normalized = []
     for index, raw in enumerate(pack.get("practice_questions") or [], 1):
+        if not isinstance(raw, dict):
+            continue
         item = dict(raw)
         item["id"] = str(item.get("id") or f"Q{index}")
         item["type"] = str(item.get("type") or "conceptual")
@@ -214,6 +212,8 @@ def build_pack(
         pack = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise HTTPException(502, "Lesson Pack generator returned invalid JSON") from exc
+    if not isinstance(pack, dict):
+        raise HTTPException(502, "Lesson Pack generator returned invalid JSON")
 
     pack.setdefault("title", title)
     pack.setdefault("subject", subject)
@@ -241,13 +241,15 @@ def render_payload(pack: dict, edition: str) -> dict:
         raise ValueError("edition must be student or teacher")
     payload = copy.deepcopy(pack)
     payload["mode"] = "student_simple" if edition == "student" else "teacher_notes"
-    sections = list(payload.get("sections") or [])
+    sections = [item for item in (payload.get("sections") or []) if isinstance(item, dict)]
 
     examples = payload.get("worked_examples") or []
     if examples:
         body: list[str] = []
         refs: list[str] = []
         for i, item in enumerate(examples, 1):
+            if not isinstance(item, dict):
+                continue
             steps = "\n".join(
                 f"{n}. {step}" for n, step in enumerate(item.get("solution_steps") or [], 1)
             )
@@ -258,9 +260,10 @@ def render_payload(pack: dict, edition: str) -> dict:
                 f"مثال {i}: {item.get('title') or ''}\n{item.get('problem') or ''}\n{steps}{answer}{ref_line}"
             )
             refs.extend(item_refs)
-        sections.append(
-            {"heading": "أمثلة وتطبيقات", "body": "\n\n".join(body), "source_refs": list(dict.fromkeys(refs))}
-        )
+        if body:
+            sections.append(
+                {"heading": "أمثلة وتطبيقات", "body": "\n\n".join(body), "source_refs": list(dict.fromkeys(refs))}
+            )
 
     mistakes = payload.get("common_mistakes") or []
     if mistakes:
@@ -276,7 +279,7 @@ def render_payload(pack: dict, edition: str) -> dict:
             {"heading": "أخطاء شائعة", "body": "\n".join(rows), "source_refs": list(dict.fromkeys(refs))}
         )
 
-    questions = payload.get("practice_questions") or []
+    questions = [item for item in (payload.get("practice_questions") or []) if isinstance(item, dict)]
     if questions:
         rows: list[str] = []
         refs: list[str] = []
@@ -323,6 +326,8 @@ def render_payload(pack: dict, edition: str) -> dict:
             {"heading": "مراجعة في دقيقة", "body": "\n".join(rows), "source_refs": list(dict.fromkeys(refs))}
         )
     for equation in payload.get("equations_or_rules") or []:
+        if not isinstance(equation, dict):
+            continue
         refs = [str(x) for x in (equation.get("source_refs") or [])]
         if refs:
             existing = str(equation.get("notes") or "").strip()
@@ -330,6 +335,8 @@ def render_payload(pack: dict, edition: str) -> dict:
             equation["notes"] = (existing + "\n" + source_line).strip()
 
     for diagram in payload.get("diagram_specs") or []:
+        if not isinstance(diagram, dict):
+            continue
         refs = [str(x) for x in (diagram.get("source_refs") or [])]
         if refs:
             existing = str(diagram.get("description") or "").strip()

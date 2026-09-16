@@ -28,6 +28,20 @@ This gate complements, rather than replaces:
 
 ## Database recovery note
 
-Neon currently reports no automatic snapshot schedule and rejected creation of an additional snapshot with `snapshots limit exceeded`. It also rejected protecting the production branch because the current plan's protected-branch limit is already reached. A fresh no-compute baseline (`pre-content-technical-complete-2026-09-16-v2`) now captures the current production HEAD, alongside the older recovery branch and manual provider snapshot. These plan limits are operational constraints, not content blockers; do not delete existing recovery assets merely to make room without an explicit recovery-plan decision.\n\nProduction content intake is additionally fail-closed by default. `CONTENT_INGESTION_ENABLED=true` is required to open source uploads deliberately; the technical readiness phase does not need or perform curriculum uploads.
+Neon currently reports no automatic snapshot schedule and rejected creation of an additional snapshot with `snapshots limit exceeded`. It also rejected protecting the production branch because the current plan's protected-branch limit is already reached. A fresh no-compute baseline (`pre-content-technical-complete-2026-09-16-v2`) now captures the current production HEAD, alongside the older recovery branch and manual provider snapshot. These plan limits are operational constraints, not content blockers; do not delete existing recovery assets merely to make room without an explicit recovery-plan decision.
+
+Production content intake is additionally fail-closed by default. `CONTENT_INGESTION_ENABLED=true` is required to open source uploads deliberately; the technical readiness phase does not need or perform curriculum uploads.
 
 Content ingestion remains deferred until the technical platform is deliberately handed over for that phase.
+
+## Pre-content technical closure baseline
+
+The current technical handoff baseline is recorded in `.release/pre-content-baseline.json`.
+
+- Runtime version: `1.8.4`.
+- Production deployment: `dpl_9mDWha7dx8PUMfLe4T9ABfGH9Mg6` in `iad1`.
+- Controlled production release, CI, security audit, and Final Technical Readiness all completed successfully.
+- Final Technical Readiness was re-run after Production reached 1.8.4, so the version-aware intake drift rule was actively enforced rather than skipped during rollout.
+- Production source intake remains `locked` and reopening still requires the explicit `CONTENT_INGESTION_ENABLED=true` switch.
+- Neon handoff recovery branch: `pre-content-handoff-2026-09-17` (`br-floral-king-a5kk9k17`), created no-compute from the Production database and ready at the handoff point.
+- No curriculum/question files were uploaded as part of this closure phase.

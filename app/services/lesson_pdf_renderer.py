@@ -19,6 +19,7 @@ PDF_THEMES = {
     'classic_academic': {'label':'Classic Academic','accent':'#344054','soft':'#f8fafc','cover':'#ffffff','summary':'#f2f4f7','border':'#d0d5dd'},
     'modern_classroom': {'label':'Modern Classroom','accent':'#175cd3','soft':'#eff8ff','cover':'#f5faff','summary':'#eef4ff','border':'#b2ccff'},
     'exam_revision': {'label':'Exam Revision','accent':'#7a2e0e','soft':'#fff7ed','cover':'#fffbeb','summary':'#fef3c7','border':'#fed7aa'},
+    'student_handout': {'label':'Student Handout','accent':'#1d4ed8','soft':'#f8fbff','cover':'#ffffff','summary':'#f8fafc','border':'#cbd5e1'},
 }
 
 DEFAULT_THEME = os.getenv('LESSON_STUDIO_PDF_THEME', 'classic_academic').strip() or 'classic_academic'
@@ -43,6 +44,8 @@ def _callout_role(heading: str) -> str:
         ('example', ('مثال', 'تطبيق', 'example', 'application')),
         ('warning', ('تنبيه', 'ملحوظة', 'ملاحظة', 'خطأ شائع', 'warning', 'note')),
         ('experiment', ('تجربة', 'نشاط', 'experiment', 'activity')),
+        ('practice', ('تدريبات', 'اختبر نفسك', 'أسئلة', 'practice', 'questions')),
+        ('revision', ('مراجعة في دقيقة', 'خلاصة الحصة', 'revision', 'recap')),
     ]
     for role, words in mapping:
         if any(w in text for w in words):
@@ -69,6 +72,54 @@ def _list_block(title: str, values: list, *, css_class: str = '') -> str:
     items = ''.join(f'<li>{_esc(x)}</li>' for x in values)
     extra = f' {css_class}' if css_class else ''
     return f'<section class="list-block{extra}"><h2>{_esc(title)}</h2><ul>{items}</ul></section>'
+
+
+
+def _lesson_map_html(structured: dict) -> str:
+    sections = [x for x in (structured.get('sections') or []) if isinstance(x, dict)]
+    if not sections:
+        return ''
+    items = ''.join(
+        f'<li><span class="map-num">{i}</span><span>{_esc(section.get("heading") or f"فكرة {i}")}</span></li>'
+        for i, section in enumerate(sections, 1)
+    )
+    return (
+        '<section class="lesson-map"><h2>خريطة الدرس</h2>'
+        '<p class="map-intro">امشِ مع الدرس بالترتيب التالي، ثم ارجع للتدريبات في النهاية.</p>'
+        '<ol>' + items + '</ol></section>'
+    )
+
+
+def _key_terms_html(items: list[dict], *, anchor_id: str = 'key-terms') -> str:
+    cards = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        refs = item.get('source_refs') or []
+        source_html = ''
+        if refs:
+            source_html = '<div class="source">المصدر: ' + '، '.join(_esc(x) for x in refs) + '</div>'
+        cards.append(
+            '<div class="term-card">'
+            f'<div class="term">{_esc(item.get("term"))}</div>'
+            f'<div class="definition">{_esc(item.get("definition"))}</div>'
+            f'{source_html}</div>'
+        )
+    if not cards:
+        return ''
+    return (
+        f'<section class="key-terms"><h2 id="{_esc(anchor_id)}">المفاهيم والمصطلحات الأساسية</h2>'
+        '<div class="term-grid">' + ''.join(cards) + '</div></section>'
+    )
+
+
+def _student_notes_html() -> str:
+    lines = ''.join('<div class="note-line"></div>' for _ in range(6))
+    return (
+        '<section class="student-notes"><h2>مساحة ملاحظاتي</h2>'
+        '<p>اكتب هنا نقطة تحتاج مراجعتها، سؤالًا للمدرس، أو ملحوظة تساعدك على التذكر.</p>'
+        + lines + '</section>'
+    )
 
 
 def _equations_html(items: list[dict], *, anchor_id: str = 'equations') -> str:
@@ -113,11 +164,13 @@ def _toc_entries(structured: dict) -> list[tuple[str, str]]:
         (f'section-{i}', str(section.get('heading') or f'قسم {i}'))
         for i, section in enumerate(sections, 1)
     ]
+    if structured.get('key_terms'):
+        entries.append(('key-terms', 'المفاهيم والمصطلحات الأساسية'))
     if structured.get('equations_or_rules'):
         entries.append(('equations', 'القوانين والمعادلات'))
     if structured.get('diagram_specs'):
         entries.append(('diagrams', 'الرسومات التوضيحية'))
-    entries.append(('summary', 'الملخص'))
+    entries.append(('summary', 'خلاصة الحصة'))
     return entries
 
 
@@ -145,20 +198,35 @@ def lesson_html(structured: dict, *, mode: str | None = None, theme: str = DEFAU
     if theme not in PDF_THEMES:
         raise ValueError('Unsupported PDF theme')
     toc = _toc_html(structured, page_map)
-    objectives = _list_block('أهداف التعلم', structured.get('learning_objectives') or [], css_class='objectives')
-    sections = ''.join(_section_html(x, anchor_id=f'section-{i}') for i, x in enumerate(structured.get('sections') or [], 1))
+    objectives = _list_block('أهداف الحصة', structured.get('learning_objectives') or [], css_class='objectives')
+    lesson_map = _lesson_map_html(structured)
+    key_terms = _key_terms_html(structured.get('key_terms') or [])
+    sections = ''.join(_section_html(x, anchor_id=f'section-{i}') for i, x in enumerate(structured.get('sections') or [], 1) if isinstance(x, dict))
     equations = _equations_html(structured.get('equations_or_rules') or [])
     diagrams = _diagrams_html(structured.get('diagram_specs') or [])
     warnings = _list_block('ملاحظات للمدرس', structured.get('teacher_warnings') or [], css_class='teacher-notes') if output_mode == 'teacher_notes' else ''
-    uncertain = _list_block('عناصر تحتاج مراجعة', structured.get('uncertain_items') or [], css_class='review-items')
+    uncertain = _list_block('عناصر تحتاج مراجعة', structured.get('uncertain_items') or [], css_class='review-items') if output_mode == 'teacher_notes' else ''
+    student_notes = _student_notes_html() if output_mode == 'student_simple' else ''
     summary = _esc(structured.get('summary') or '')
+    cover_kind = 'ملزمة الطالب للحصة' if output_mode == 'student_simple' else _esc(mode_label)
+    identity = (
+        '<div class="student-identity"><span>اسم الطالب: ........................................</span>'
+        '<span>التاريخ: ........ / ........ / ........</span></div>'
+        if output_mode == 'student_simple' else ''
+    )
+    footer_text = (
+        'ملزمة الطالب — شرح وتدريبات مبنية على مصدر الدرس المعتمد.'
+        if output_mode == 'student_simple'
+        else 'نسخة تعليمية مُنشأة من مصدر المدرس — المحتوى العلمي لا يُعدّل تلقائيًا.'
+    )
     return f'''<article class="mode-{_esc(output_mode)}" dir="rtl" lang="ar">
-      <header class="cover"><div class="brand">{_esc(BRAND_NAME)}</div><div class="eyebrow">{_esc(BRAND_TAGLINE)}</div><h1>{title}</h1>
-      <div class="meta">{subject} {('· ' + grade) if grade else ''} · {_esc(mode_label)}</div>
+      <header class="cover"><div class="brand">{_esc(BRAND_NAME)}</div><div class="eyebrow">{cover_kind}</div><h1>{title}</h1>
+      <div class="meta">{subject} {('· ' + grade) if grade else ''}</div>{identity}
       <div class="cover-rule"></div></header>
-      {toc}{objectives}{sections}{equations}{diagrams}{warnings}{uncertain}
-      <section class="summary"><h2 id="summary">الملخص</h2><p>{summary}</p></section>
-      <footer>نسخة تعليمية مُنشأة من مصدر المدرس — المحتوى العلمي لا يُعدّل تلقائيًا.</footer>
+      {lesson_map}{toc}{objectives}{key_terms}{sections}{equations}{diagrams}{warnings}{uncertain}
+      <section class="summary"><h2 id="summary">خلاصة الحصة</h2><p>{summary}</p></section>
+      {student_notes}
+      <footer>{footer_text}</footer>
     </article>'''
 
 

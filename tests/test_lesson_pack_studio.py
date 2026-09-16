@@ -7,7 +7,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app import content_phase_guard, lesson_pack_guard, lesson_pack_studio
-from app.services import lesson_pack_core
+from app.services import lesson_pack_core, lesson_pdf_renderer
 
 
 class LessonPackStudioTests(unittest.TestCase):
@@ -156,6 +156,51 @@ class LessonPackStudioTests(unittest.TestCase):
         self.assertNotIn("الإجابة: V = IR", student_text)
         self.assertIn("نموذج الإجابة والتفسير", teacher_headings)
         self.assertIn("الإجابة: V = IR", teacher_text)
+
+
+    def test_student_handout_is_clean_and_print_focused(self):
+        pack = {
+            "title": "قانون أوم",
+            "subject": "physics",
+            "grade_label": "الثالث الثانوي",
+            "learning_objectives": ["يفسر العلاقة بين فرق الجهد وشدة التيار"],
+            "key_terms": [
+                {
+                    "term": "المقاومة",
+                    "definition": "ممانعة مرور التيار.",
+                    "source_refs": ["ملف 1: a.pdf · صفحة 1"],
+                }
+            ],
+            "sections": [
+                {
+                    "heading": "فكرة الدرس",
+                    "body": "شرح واضح.",
+                    "source_refs": ["ملف 1: a.pdf · صفحة 1"],
+                }
+            ],
+            "practice_questions": [
+                {
+                    "prompt": "فسر العلاقة.",
+                    "answer": "إجابة",
+                    "explanation": "تفسير",
+                    "difficulty": "medium",
+                    "source_refs": ["ملف 1: a.pdf · صفحة 1"],
+                }
+            ],
+            "summary": "الخلاصة",
+        }
+        student = lesson_pack_core.render_payload(pack, "student")
+        text = "\n".join(str(x.get("body") or "") for x in student["sections"])
+        self.assertNotIn("المصدر:", text)
+        self.assertNotIn("تدريب مولد من المصدر", text)
+        self.assertIn("مساحة الحل", text)
+        page = lesson_pdf_renderer.lesson_html(
+            student, mode="student_simple", theme="student_handout"
+        )
+        self.assertIn("ملزمة الطالب للحصة", page)
+        self.assertIn("خريطة الدرس", page)
+        self.assertIn("المفاهيم والمصطلحات الأساسية", page)
+        self.assertIn("مساحة ملاحظاتي", page)
 
     def test_blank_page_is_not_reprocessed_after_ocr_attempt(self):
         pages = [

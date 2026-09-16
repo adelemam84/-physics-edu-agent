@@ -719,6 +719,7 @@ def suggest_lesson_pack_source_visuals(job_id: str, request: Request):
                 "title": target["title"],
                 "description": str(payload.get("caption") or target["description"] or "").strip(),
                 "source_ref": target["source_ref"],
+                "source_refs": [target["source_ref"]],
                 "page_id": int(page["id"]),
                 "bbox": bbox,
                 "confidence": round(confidence, 4),

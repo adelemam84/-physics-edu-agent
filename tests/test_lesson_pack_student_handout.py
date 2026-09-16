@@ -6,6 +6,7 @@ import unittest
 import fitz
 
 from app import lesson_pack_student_handout_runtime, lesson_pack_studio
+from app.services import lesson_pack_student_renderer
 from app.services.lesson_pack_student_renderer import render_student_handout_pdf
 
 
@@ -111,9 +112,10 @@ class LessonPackStudentHandoutTests(unittest.TestCase):
     def test_cover_values_are_html_escaped(self):
         pack = self._pack()
         pack["cover"] = {"student_name": "<script>bad()</script>"}
+        html = lesson_pack_student_renderer._document_html(pack)
+        self.assertIn("&lt;script&gt;bad()&lt;/script&gt;", html)
+        self.assertNotIn("<script>bad()</script>", html)
         data = render_student_handout_pdf(pack)
-        text = self._text(data)
-        self.assertIn("<script>bad()</script>", text)
         doc = fitz.open(stream=data, filetype="pdf")
         try:
             self.assertEqual(sum(len(page.get_links()) for page in doc), 0)

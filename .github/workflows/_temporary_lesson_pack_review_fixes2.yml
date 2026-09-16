@@ -1,0 +1,76 @@
+name: Temporary Lesson Pack Review Fixes 2
+on:
+  push:
+    branches: [work/lesson-pack-cover-page-preview]
+    paths: [.github/workflows/_temporary_lesson_pack_review_fixes2.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: work/lesson-pack-cover-page-preview
+          fetch-depth: 0
+      - name: Apply verified review fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'anchor missing in {path}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          path = 'app/lesson_pack_studio.py'
+          anchor = '''def _clean_cover_value(value: str | None) -> str:\n    text = " ".join(str(value or "").strip().split())\n    return text[:120]\n\n\n'''
+          helpers = '''def _clean_cover_value(value: str | None) -> str:\n    text = " ".join(str(value or "").strip().split())\n    return text[:120]\n\n\ndef _queue_pdf_cleanup(pack: dict, keys: list[str | None]) -> None:\n    pending = [str(x) for x in (pack.get("storage_cleanup_pending") or []) if str(x).strip()]\n    for key in keys:\n        value = str(key or "").strip()\n        if value and value not in pending:\n            pending.append(value)\n    if pending:\n        pack["storage_cleanup_pending"] = pending\n    else:\n        pack.pop("storage_cleanup_pending", None)\n\n\ndef _drain_pdf_cleanup(job_id: str) -> dict:\n    with connect() as con:\n        row = con.execute(\n            "SELECT pack_json FROM lesson_pack_jobs WHERE id=%s", (job_id,)\n        ).fetchone()\n    if not row:\n        return {"deleted": 0, "pending": 0}\n    pack = dict(row["pack_json"] or {})\n    pending = [str(x) for x in (pack.get("storage_cleanup_pending") or []) if str(x).strip()]\n    deleted: list[str] = []\n    for key in pending:\n        try:\n            delete_object(key)\n        except Exception:\n            continue\n        deleted.append(key)\n    if deleted:\n        with connect() as con:\n            locked = con.execute(\n                "SELECT pack_json FROM lesson_pack_jobs WHERE id=%s FOR UPDATE", (job_id,)\n            ).fetchone()\n            if locked:\n                current = dict(locked["pack_json"] or {})\n                remaining = [\n                    str(x)\n                    for x in (current.get("storage_cleanup_pending") or [])\n                    if str(x).strip() and str(x) not in deleted\n                ]\n                if remaining:\n                    current["storage_cleanup_pending"] = remaining\n                else:\n                    current.pop("storage_cleanup_pending", None)\n                con.execute(\n                    "UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,updated_at=now() WHERE id=%s",\n                    (json.dumps(current, ensure_ascii=False), job_id),\n                )\n    return {"deleted": len(deleted), "pending": max(0, len(pending) - len(deleted))}\n\n\n'''
+          replace(path, anchor, helpers)
+
+          old_cover = '''    job, _ = _job(job_id)\n    pack = job.get("pack_json")\n    if not pack:\n        raise HTTPException(409, "Generate the Lesson Pack before editing the cover")\n    pack["cover"] = {\n        "student_name": _clean_cover_value(student_name),\n        "class_label": _clean_cover_value(class_label),\n        "teacher_name": _clean_cover_value(teacher_name),\n        "school_name": _clean_cover_value(school_name),\n        "academic_term": _clean_cover_value(academic_term),\n    }\n    next_status = (\n        "scientific_review_required"\n        if reviewer_status()["configured"] and not job.get("scientific_review_json")\n        else "teacher_approval_required"\n    )\n    for key in ("pdf_student_object_key", "pdf_teacher_object_key"):\n        old_key = job.get(key)\n        if old_key:\n            try:\n                delete_object(str(old_key))\n            except Exception:\n                pass\n    with connect() as con:\n        con.execute(\n            """UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,teacher_approved=FALSE,\n              pdf_student_object_key=NULL,pdf_teacher_object_key=NULL,status=%s,updated_at=now()\n              WHERE id=%s""",\n            (json.dumps(pack, ensure_ascii=False), next_status, job_id),\n        )\n    return {\n        "id": job_id,\n        "cover": pack["cover"],\n        "status": next_status,\n        "teacher_reapproval_required": True,\n    }'''
+          new_cover = '''    job, _ = _job(job_id)\n    if not job.get("pack_json"):\n        raise HTTPException(409, "Generate the Lesson Pack before editing the cover")\n    next_status = (\n        "scientific_review_required"\n        if reviewer_status()["configured"] and not job.get("scientific_review_json")\n        else "teacher_approval_required"\n    )\n    with connect() as con:\n        locked = con.execute(\n            """SELECT pack_json,pdf_student_object_key,pdf_teacher_object_key\n              FROM lesson_pack_jobs WHERE id=%s FOR UPDATE""",\n            (job_id,),\n        ).fetchone()\n        if not locked or not locked["pack_json"]:\n            raise HTTPException(409, "Generate the Lesson Pack before editing the cover")\n        pack = dict(locked["pack_json"] or {})\n        pack["cover"] = {\n            "student_name": _clean_cover_value(student_name),\n            "class_label": _clean_cover_value(class_label),\n            "teacher_name": _clean_cover_value(teacher_name),\n            "school_name": _clean_cover_value(school_name),\n            "academic_term": _clean_cover_value(academic_term),\n        }\n        _queue_pdf_cleanup(\n            pack,\n            [locked["pdf_student_object_key"], locked["pdf_teacher_object_key"]],\n        )\n        con.execute(\n            """UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,teacher_approved=FALSE,\n              pdf_student_object_key=NULL,pdf_teacher_object_key=NULL,status=%s,updated_at=now()\n              WHERE id=%s""",\n            (json.dumps(pack, ensure_ascii=False), next_status, job_id),\n        )\n    cleanup = _drain_pdf_cleanup(job_id)\n    return {\n        "id": job_id,\n        "cover": pack["cover"],\n        "status": next_status,\n        "teacher_reapproval_required": True,\n        "storage_cleanup_pending": cleanup["pending"],\n    }'''
+          replace(path, old_cover, new_cover)
+
+          old_export = '''    data = render_pdf(pack, edition)\n    key = f"lesson-pack/{job_id}/lesson-pack-{edition}.pdf"\n    put_bytes(key, data, "application/pdf")\n    column = (\n        "pdf_student_object_key"\n        if edition == "student"\n        else "pdf_teacher_object_key"\n    )\n    with connect() as con:\n        con.execute(\n            f"UPDATE lesson_pack_jobs SET {column}=%s,status='pdf_ready',updated_at=now() WHERE id=%s",\n            (key, job_id),\n        )'''
+          new_export = '''    data = render_pdf(pack, edition)\n    key = f"lesson-pack/{job_id}/exports/{edition}-{uuid.uuid4().hex}.pdf"\n    put_bytes(key, data, "application/pdf")\n    column = (\n        "pdf_student_object_key"\n        if edition == "student"\n        else "pdf_teacher_object_key"\n    )\n    with connect() as con:\n        locked = con.execute(\n            f"SELECT pack_json,{column} FROM lesson_pack_jobs WHERE id=%s FOR UPDATE",\n            (job_id,),\n        ).fetchone()\n        current_pack = dict((locked and locked["pack_json"]) or pack)\n        old_key = locked[column] if locked else None\n        if old_key and str(old_key) != key:\n            _queue_pdf_cleanup(current_pack, [old_key])\n        con.execute(\n            f"""UPDATE lesson_pack_jobs SET {column}=%s,pack_json=%s::jsonb,\n              status='pdf_ready',updated_at=now() WHERE id=%s""",\n            (key, json.dumps(current_pack, ensure_ascii=False), job_id),\n        )\n    _drain_pdf_cleanup(job_id)'''
+          replace(path, old_export, new_export)
+
+          path = 'app/services/lesson_pack_student_renderer.py'
+          replace(path, '''    cover = pack.get("cover") if isinstance(pack.get("cover"), dict) else {}\n    class_label = _cover_field(cover, "class_label", str(pack.get("grade_label") or ""))''', '''    has_cover = isinstance(pack.get("cover"), dict)\n    cover = pack.get("cover") if has_cover else {}\n    class_label = _cover_field(\n        cover, "class_label", "" if has_cover else str(pack.get("grade_label") or "")\n    )''')
+
+          path = 'app/lesson_pack_studio_ui.py'
+          replace(path, "let data,previewEdition='student',previewPage=1,previewTotal=0;", "let data,previewEdition='student',previewPage=1,previewTotal=0,previewManifestCache={};\nfunction invalidatePreview(){previewManifestCache={};}")
+          replace(path, "let cv=p.cover||{};coverStudent.value=cv.student_name||'';coverClass.value=cv.class_label||data.grade_label||'';coverTeacher.value=cv.teacher_name||'';coverSchool.value=cv.school_name||'';coverTerm.value=cv.academic_term||'';", "let hasCover=!!p.cover&&typeof p.cover==='object';let cv=hasCover?p.cover:{};coverStudent.value=cv.student_name||'';coverClass.value=hasCover?(cv.class_label||''):(data.grade_label||'');coverTeacher.value=cv.teacher_name||'';coverSchool.value=cv.school_name||'';coverTerm.value=cv.academic_term||'';")
+          old_preview = "async function refreshPreview(edition=previewEdition,page=previewPage){previewEdition=edition;let r=await fetch('/api/admin/lesson-pack-studio/jobs/'+id+'/preview-manifest?edition='+encodeURIComponent(edition));let x=await r.json();if(!r.ok){pageCounter.textContent='تعذر إنشاء المعاينة';action.textContent=JSON.stringify(x.detail||x);return}previewTotal=Number(x.page_count||0);previewPage=Math.max(1,Math.min(Number(page||1),previewTotal||1));pageCounter.textContent='صفحة '+previewPage+' من '+previewTotal+' · '+(previewEdition==='student'?'نسخة الطالب':'نسخة المدرس');pagePreview.src='/api/admin/lesson-pack-studio/jobs/'+id+'/preview-page/'+previewPage+'?edition='+encodeURIComponent(previewEdition)+'&v='+Date.now();openFullPreview.href='/api/admin/lesson-pack-studio/jobs/'+id+'/preview-pdf?edition='+encodeURIComponent(previewEdition)+'&v='+Date.now();prevPage.disabled=previewPage<=1;nextPage.disabled=previewPage>=previewTotal}"
+          new_preview = "function showPreviewPage(page=previewPage){previewPage=Math.max(1,Math.min(Number(page||1),previewTotal||1));pageCounter.textContent='صفحة '+previewPage+' من '+previewTotal+' · '+(previewEdition==='student'?'نسخة الطالب':'نسخة المدرس');pagePreview.src='/api/admin/lesson-pack-studio/jobs/'+id+'/preview-page/'+previewPage+'?edition='+encodeURIComponent(previewEdition)+'&v='+Date.now();openFullPreview.href='/api/admin/lesson-pack-studio/jobs/'+id+'/preview-pdf?edition='+encodeURIComponent(previewEdition);prevPage.disabled=previewPage<=1;nextPage.disabled=previewPage>=previewTotal}\nasync function refreshPreview(edition=previewEdition,page=previewPage){previewEdition=edition;let x=previewManifestCache[edition];if(!x){let r=await fetch('/api/admin/lesson-pack-studio/jobs/'+id+'/preview-manifest?edition='+encodeURIComponent(edition));x=await r.json();if(!r.ok){pageCounter.textContent='تعذر إنشاء المعاينة';action.textContent=JSON.stringify(x.detail||x);return}previewManifestCache[edition]=x}previewTotal=Number(x.page_count||0);showPreviewPage(page)}"
+          replace(path, old_preview, new_preview)
+          replace(path, "prevPage.onclick=()=>refreshPreview(previewEdition,previewPage-1);\nnextPage.onclick=()=>refreshPreview(previewEdition,previewPage+1);", "prevPage.onclick=()=>showPreviewPage(previewPage-1);\nnextPage.onclick=()=>showPreviewPage(previewPage+1);")
+          replace(path, "if(r.ok){await load();await refreshPreview(previewEdition,1)}});", "if(r.ok){invalidatePreview();previewPage=1;await load()}});")
+          replace(path, "action.textContent=r.ok?(act==='approve'?'✅ تم اعتماد الصورة الأصلية. يلزم الاعتماد النهائي للملزمة.':'تم استبعاد القصاصة.'):JSON.stringify(x.detail||x);await load()}", "action.textContent=r.ok?(act==='approve'?'✅ تم اعتماد الصورة الأصلية. يلزم الاعتماد النهائي للملزمة.':'تم استبعاد القصاصة.'):JSON.stringify(x.detail||x);if(r.ok)invalidatePreview();await load()}")
+          replace(path, "action.textContent=r.ok?'تم اقتراح '+x.count+' شكل/صورة من المصدر. راجع القصاصات قبل اعتمادها.':JSON.stringify(x.detail||x);await load()};", "action.textContent=r.ok?'تم اقتراح '+x.count+' شكل/صورة من المصدر. راجع القصاصات قبل اعتمادها.':JSON.stringify(x.detail||x);if(r.ok)invalidatePreview();await load()};")
+          replace(path, "action.textContent=r.ok?'تمت إعادة التوليد.':JSON.stringify(x.detail||x);await load()};", "action.textContent=r.ok?'تمت إعادة التوليد.':JSON.stringify(x.detail||x);if(r.ok)invalidatePreview();await load()};")
+
+          path = 'tests/test_lesson_pack_student_handout.py'
+          anchor = '''    def test_cover_values_are_html_escaped(self):\n'''
+          extra = '''    def test_explicit_empty_cover_class_stays_blank(self):\n        pack = self._pack()\n        pack["cover"] = {"class_label": ""}\n        html = lesson_pack_student_renderer._document_html(pack)\n        self.assertIn("الصف / الفصل", html)\n        self.assertIn("blank-field", html)\n\n'''
+          replace(path, anchor, extra + anchor)
+
+          path = 'tests/test_lesson_pack_source_visuals.py'
+          anchor = '''    def test_new_preview_and_visual_routes_are_registered(self):\n'''
+          extra = '''    def test_pdf_cleanup_queue_is_deduplicated(self):\n        pack = {"storage_cleanup_pending": ["old-a.pdf"]}\n        lesson_pack_studio._queue_pdf_cleanup(pack, ["old-a.pdf", "old-b.pdf", None])\n        self.assertEqual(pack["storage_cleanup_pending"], ["old-a.pdf", "old-b.pdf"])\n\n    def test_export_uses_unique_keys_and_durable_cleanup(self):\n        import inspect\n        source = inspect.getsource(lesson_pack_studio.export_lesson_pack_pdf)\n        self.assertIn("uuid.uuid4().hex", source)\n        self.assertIn("_queue_pdf_cleanup", source)\n        self.assertIn("_drain_pdf_cleanup", source)\n\n'''
+          replace(path, anchor, extra + anchor)
+          PY
+      - name: Remove temporary workflows and commit fixes
+        shell: bash
+        run: |
+          rm -f .github/workflows/_temporary_lesson_pack_review_fixes.yml
+          rm -f .github/workflows/_temporary_lesson_pack_review_fixes2.yml
+          git config user.name "lesson-pack-review-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Address Lesson Pack cover preview review findings"
+          git push origin HEAD:work/lesson-pack-cover-page-preview

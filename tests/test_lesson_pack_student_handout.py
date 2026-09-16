@@ -84,6 +84,42 @@ class LessonPackStudentHandoutTests(unittest.TestCase):
         # Normalize whitespace so the contract tests content, not extraction layout.
         return " ".join(self._text(data).split())
 
+    def test_student_cover_is_a_dedicated_first_page_with_configurable_identity(self):
+        pack = self._pack()
+        pack["cover"] = {
+            "student_name": "STUDENT_ADEL",
+            "class_label": "CLASS_3A",
+            "teacher_name": "TEACHER_NAME",
+            "school_name": "SCHOOL_NAME",
+            "academic_term": "TERM_2026",
+        }
+        data = render_student_handout_pdf(pack)
+        doc = fitz.open(stream=data, filetype="pdf")
+        try:
+            self.assertGreaterEqual(doc.page_count, 2)
+            first = " ".join(doc[0].get_text().split())
+            rest = " ".join(page.get_text() for page in doc[1:]).replace("\n", " ")
+            self.assertIn("STUDENT_ADEL", first)
+            self.assertIn("CLASS_3A", first)
+            self.assertIn("TEACHER_NAME", first)
+            self.assertIn("SCHOOL_NAME", first)
+            self.assertIn("TERM_2026", first)
+            self.assertIn("V = I R", rest)
+        finally:
+            doc.close()
+
+    def test_cover_values_are_html_escaped(self):
+        pack = self._pack()
+        pack["cover"] = {"student_name": "<script>bad()</script>"}
+        data = render_student_handout_pdf(pack)
+        text = self._text(data)
+        self.assertIn("<script>bad()</script>", text)
+        doc = fitz.open(stream=data, filetype="pdf")
+        try:
+            self.assertEqual(sum(len(page.get_links()) for page in doc), 0)
+        finally:
+            doc.close()
+
     def test_student_handout_is_valid_a4_pdf(self):
         data = render_student_handout_pdf(self._pack())
         self.assertTrue(data.startswith(b"%PDF"))

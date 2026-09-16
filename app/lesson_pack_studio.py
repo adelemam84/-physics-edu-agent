@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import uuid
@@ -12,7 +13,7 @@ from .db import connect
 from .lesson_pack_guard import lesson_pack_ingestion_enabled, require_lesson_pack_ingestion_enabled
 from .lesson_studio_second_reviewer import _openai_review, reviewer_status
 from .main import app
-from .science_lesson_studio import SUBJECTS, _provider, _safe_filename, _verified_ocr
+from .science_lesson_studio import SUBJECTS, _gemini_text, _provider, _safe_filename, _verified_ocr
 from .security import require_admin
 from .services.lesson_pack_core import (
     allowed_source_refs,
@@ -38,6 +39,116 @@ RENDER_DPI = max(96, min(200, int(os.getenv("LESSON_PACK_RENDER_DPI", "144"))))
 DEFAULT_QUESTION_COUNT = max(
     6, min(30, int(os.getenv("LESSON_PACK_DEFAULT_QUESTION_COUNT", "12")))
 )
+MAX_SOURCE_VISUALS = max(1, min(12, int(os.getenv("LESSON_PACK_MAX_SOURCE_VISUALS", "8"))))
+
+
+def _normalize_visual_bbox(raw: dict) -> dict:
+    box = raw.get("bbox") if isinstance(raw.get("bbox"), dict) else raw
+    try:
+        x = float(box.get("x", 0))
+        y = float(box.get("y", 0))
+        width = float(box.get("width", 0))
+        height = float(box.get("height", 0))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise HTTPException(422, "Invalid source-visual crop coordinates") from exc
+    x = max(0.0, min(0.97, x))
+    y = max(0.0, min(0.97, y))
+    width = max(0.03, min(1.0 - x, width))
+    height = max(0.03, min(1.0 - y, height))
+    return {
+        "x": round(x, 5),
+        "y": round(y, 5),
+        "width": round(width, 5),
+        "height": round(height, 5),
+    }
+
+
+def _crop_page_image(page: dict, bbox: dict) -> bytes:
+    data = get_bytes(page["object_key"])
+    media = _media_type_for_page(page)
+    filetype = {"image/png": "png", "image/webp": "webp"}.get(media, "jpeg")
+    try:
+        doc = fitz.open(stream=data, filetype=filetype)
+    except Exception as exc:
+        raise HTTPException(503, "Source page image is temporarily unavailable") from exc
+    try:
+        source_page = doc[0]
+        rect = source_page.rect
+        clip = fitz.Rect(
+            rect.x0 + bbox["x"] * rect.width,
+            rect.y0 + bbox["y"] * rect.height,
+            rect.x0 + (bbox["x"] + bbox["width"]) * rect.width,
+            rect.y0 + (bbox["y"] + bbox["height"]) * rect.height,
+        )
+        if clip.width < 12 or clip.height < 12:
+            raise HTTPException(422, "Source-visual crop is too small")
+        pix = source_page.get_pixmap(matrix=fitz.Matrix(1.35, 1.35), clip=clip, alpha=False)
+        return pix.tobytes("png")
+    finally:
+        doc.close()
+
+
+def _source_visual_targets(pack: dict, pages: list[dict]) -> list[dict]:
+    page_by_ref = {source_ref(page): page for page in pages}
+    targets: list[dict] = []
+    seen: set[tuple[int, str]] = set()
+    for index, spec in enumerate(pack.get("diagram_specs") or [], 1):
+        if not isinstance(spec, dict):
+            continue
+        title = str(spec.get("title") or f"شكل توضيحي {index}").strip()
+        description = str(spec.get("description") or "").strip()
+        for ref in spec.get("source_refs") or []:
+            page = page_by_ref.get(str(ref))
+            if not page:
+                continue
+            key = (int(page["id"]), title)
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(
+                {
+                    "title": title,
+                    "description": description,
+                    "source_ref": str(ref),
+                    "page": page,
+                }
+            )
+            break
+        if len(targets) >= MAX_SOURCE_VISUALS:
+            break
+    return targets
+
+
+def _source_visual_prompt(title: str, description: str) -> str:
+    return (
+        "افحص الصفحة المرفقة فقط وحدد هل يوجد داخلها شكل/رسم/صورة/مخطط أصلي واضح "
+        "يدعم الهدف المحدد. لا تنشئ رسما ولا تستنتج شكلا غير ظاهر. إذا لم يوجد شكل واضح "
+        "أعد found=false. إذا وجد، أعد أصغر مستطيل يشمل الشكل وعناوينه/محاوره الضرورية فقط، "
+        "بإحداثيات نسبية من 0 إلى 1 بالنسبة للصفحة: x,y,width,height. "
+        "تجنب تضمين فقرات نصية طويلة خارج الشكل. أخرج JSON فقط بالشكل "
+        '{"found":true,"bbox":{"x":0.1,"y":0.2,"width":0.5,"height":0.3},'
+        '"caption":"string","confidence":0.0}. '
+        f"الهدف: {title}. الوصف: {description}"
+    )
+
+
+def _preview_stamp(data: bytes, edition: str) -> bytes:
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        label = "معاينة غير معتمدة — لا تستخدم كنسخة نهائية"
+        for page in doc:
+            box = fitz.Rect(42, 21, page.rect.width - 42, 39)
+            page.draw_rect(box, color=(0.55, 0.18, 0.10), width=0.8)
+            page.insert_textbox(
+                box,
+                label + (" · نسخة الطالب" if edition == "student" else " · نسخة المدرس"),
+                fontsize=8.5,
+                align=fitz.TEXT_ALIGN_CENTER,
+                color=(0.45, 0.12, 0.08),
+            )
+        return doc.tobytes(garbage=3, deflate=True)
+    finally:
+        doc.close()
 
 
 def _job(job_id: str):
@@ -540,6 +651,234 @@ def approve_lesson_pack(
         "status": "approved",
         "official_question_bank_write": False,
     }
+
+
+@app.post(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/suggest",
+    dependencies=[Depends(require_admin)],
+)
+def suggest_lesson_pack_source_visuals(job_id: str, request: Request):
+    enforce_request_policy(
+        request,
+        name="admin_lesson_pack_source_visuals",
+        default_limit=8,
+        default_window_seconds=3600,
+    )
+    job, pages = _job(job_id)
+    pack = job.get("pack_json")
+    if not pack:
+        raise HTTPException(409, "Generate the Lesson Pack before detecting source visuals")
+    targets = _source_visual_targets(pack, pages)
+    if not targets:
+        pack["source_visuals"] = []
+        with connect() as con:
+            con.execute(
+                "UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,updated_at=now() WHERE id=%s",
+                (json.dumps(pack, ensure_ascii=False), job_id),
+            )
+        return {"count": 0, "items": [], "message": "No source-linked diagram targets were found"}
+
+    suggestions: list[dict] = []
+    for index, target in enumerate(targets, 1):
+        page = target["page"]
+        image = get_bytes(page["object_key"])
+        raw = _gemini_text(
+            [
+                {
+                    "text": (
+                        f"Source: {target['source_ref']}\n"
+                        f"Target title: {target['title']}\n"
+                        f"Target description: {target['description']}"
+                    )
+                },
+                {
+                    "inlineData": {
+                        "mimeType": _media_type_for_page(page),
+                        "data": base64.b64encode(image).decode("ascii"),
+                    }
+                },
+            ],
+            _source_visual_prompt(target["title"], target["description"]),
+            json_mode=True,
+            task="lesson_pack_source_visual",
+        )
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not payload.get("found"):
+            continue
+        try:
+            bbox = _normalize_visual_bbox(payload)
+            confidence = max(0.0, min(1.0, float(payload.get("confidence") or 0.0)))
+        except (HTTPException, TypeError, ValueError):
+            continue
+        suggestions.append(
+            {
+                "id": f"source-visual-{index}",
+                "title": target["title"],
+                "description": str(payload.get("caption") or target["description"] or "").strip(),
+                "source_ref": target["source_ref"],
+                "page_id": int(page["id"]),
+                "bbox": bbox,
+                "confidence": round(confidence, 4),
+                "approved": False,
+                "rejected": False,
+                "review_required": True,
+                "object_key": None,
+                "media_type": "image/png",
+                "policy": "original_source_crop_teacher_review_required",
+            }
+        )
+
+    approved_existing = [
+        item
+        for item in (pack.get("source_visuals") or [])
+        if isinstance(item, dict) and item.get("approved") and item.get("object_key")
+    ]
+    pack["source_visuals"] = approved_existing + suggestions
+    with connect() as con:
+        con.execute(
+            "UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,updated_at=now() WHERE id=%s",
+            (json.dumps(pack, ensure_ascii=False), job_id),
+        )
+    return {
+        "count": len(suggestions),
+        "items": suggestions,
+        "auto_approved": False,
+        "policy": "original_source_crop_teacher_review_required",
+    }
+
+
+@app.get(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/{visual_id}/preview",
+    dependencies=[Depends(require_admin)],
+)
+def preview_lesson_pack_source_visual(job_id: str, visual_id: str):
+    job, pages = _job(job_id)
+    pack = job.get("pack_json") or {}
+    item = next(
+        (x for x in (pack.get("source_visuals") or []) if isinstance(x, dict) and x.get("id") == visual_id),
+        None,
+    )
+    if not item:
+        raise HTTPException(404, "Source visual not found")
+    page = next((x for x in pages if int(x["id"]) == int(item["page_id"])), None)
+    if not page:
+        raise HTTPException(404, "Source page not found")
+    data = _crop_page_image(page, _normalize_visual_bbox(item))
+    return Response(
+        data,
+        media_type="image/png",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@app.post(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/{visual_id}/review",
+    dependencies=[Depends(require_admin)],
+)
+def review_lesson_pack_source_visual(
+    job_id: str,
+    visual_id: str,
+    action: str = Form(...),
+    x: float | None = Form(None),
+    y: float | None = Form(None),
+    width: float | None = Form(None),
+    height: float | None = Form(None),
+):
+    if action not in {"approve", "reject"}:
+        raise HTTPException(400, "action must be approve or reject")
+    job, pages = _job(job_id)
+    pack = job.get("pack_json") or {}
+    visuals = [x for x in (pack.get("source_visuals") or []) if isinstance(x, dict)]
+    item = next((v for v in visuals if v.get("id") == visual_id), None)
+    if not item:
+        raise HTTPException(404, "Source visual not found")
+
+    if action == "approve":
+        raw_bbox = item.get("bbox") or {}
+        if None not in (x, y, width, height):
+            raw_bbox = {"x": x, "y": y, "width": width, "height": height}
+        bbox = _normalize_visual_bbox(raw_bbox)
+        page = next((p for p in pages if int(p["id"]) == int(item["page_id"])), None)
+        if not page:
+            raise HTTPException(404, "Source page not found")
+        crop = _crop_page_image(page, bbox)
+        key = f"lesson-pack/{job_id}/source-visuals/{visual_id}.png"
+        put_bytes(key, crop, "image/png")
+        item.update(
+            {
+                "bbox": bbox,
+                "approved": True,
+                "rejected": False,
+                "review_required": False,
+                "object_key": key,
+                "media_type": "image/png",
+            }
+        )
+    else:
+        old_key = item.get("object_key")
+        if old_key:
+            try:
+                delete_object(str(old_key))
+            except Exception:
+                pass
+        item.update(
+            {
+                "approved": False,
+                "rejected": True,
+                "review_required": False,
+                "object_key": None,
+            }
+        )
+
+    pack["source_visuals"] = visuals
+    with connect() as con:
+        con.execute(
+            """UPDATE lesson_pack_jobs SET pack_json=%s::jsonb,teacher_approved=FALSE,
+              pdf_student_object_key=NULL,pdf_teacher_object_key=NULL,
+              status='teacher_approval_required',updated_at=now() WHERE id=%s""",
+            (json.dumps(pack, ensure_ascii=False), job_id),
+        )
+    return {
+        "id": visual_id,
+        "action": action,
+        "approved": bool(item.get("approved")),
+        "teacher_reapproval_required": True,
+    }
+
+
+@app.get(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-pdf",
+    dependencies=[Depends(require_admin)],
+)
+def preview_lesson_pack_pdf(job_id: str, edition: str = "student"):
+    if edition not in {"student", "teacher"}:
+        raise HTTPException(400, "edition must be student or teacher")
+    job, pages = _job(job_id)
+    pack = job.get("pack_json")
+    if not pack:
+        raise HTTPException(409, "Generate the Lesson Pack before preview")
+    provenance = validate_pack_provenance(pack, allowed_source_refs(pages))
+    if not provenance.get("passed"):
+        raise HTTPException(
+            409,
+            {
+                "message": "Source provenance validation must pass before preview",
+                "provenance": provenance,
+            },
+        )
+    data = _preview_stamp(render_pdf(pack, edition), edition)
+    return Response(
+        data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="lesson-pack-preview-{edition}-{job_id}.pdf"',
+            "Cache-Control": "private, no-store",
+            "X-Lesson-Pack-Preview": "unapproved",
+        },
+    )
 
 
 @app.get(

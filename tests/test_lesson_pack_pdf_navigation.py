@@ -60,6 +60,9 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
                 if link.get("kind") == fitz.LINK_GOTO
             ]
             self.assertGreaterEqual(len(links), 3)
+            extracted = "\n".join(page.get_text() for page in doc)
+            self.assertNotIn("LPNS", extracted)
+            self.assertNotIn("LPNT", extracted)
         finally:
             doc.close()
 

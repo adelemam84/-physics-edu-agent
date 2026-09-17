@@ -17,7 +17,7 @@ def _lines(value) -> str:
 @dataclass(frozen=True)
 class NavigationItem:
     label: str
-    target: str
+    anchor: str
     level: int = 1
 
 
@@ -25,21 +25,20 @@ def navigation_items(pack: dict) -> list[NavigationItem]:
     items: list[NavigationItem] = []
     sections = [x for x in (pack.get("sections") or []) if isinstance(x, dict)]
     if sections:
-        items.append(NavigationItem("شرح الدرس", str(sections[0].get("heading") or "فكرة 1")))
+        items.append(NavigationItem("شرح الدرس", "nav-lessons"))
         for index, section in enumerate(sections, 1):
             heading = str(section.get("heading") or f"فكرة {index}").strip()
             if heading:
-                items.append(NavigationItem(heading, heading, 2))
+                items.append(NavigationItem(heading, f"nav-section-{index}", 2))
     if pack.get("equations_or_rules"):
-        items.append(NavigationItem("القوانين والعلاقات", "القوانين والعلاقات المهمة"))
+        items.append(NavigationItem("القوانين والعلاقات", "nav-laws"))
     if pack.get("source_visuals") or pack.get("diagram_specs"):
-        target = "من المصدر الأصلي" if pack.get("source_visuals") else "افهمها بالرسم"
-        items.append(NavigationItem("الرسومات والأشكال", target))
+        items.append(NavigationItem("الرسومات والأشكال", "nav-visuals"))
     if pack.get("worked_examples"):
-        items.append(NavigationItem("الأمثلة المحلولة", "أمثلة محلولة خطوة بخطوة"))
+        items.append(NavigationItem("الأمثلة المحلولة", "nav-examples"))
     if pack.get("practice_questions"):
-        items.append(NavigationItem("تدريبات الدرس", "تدريبات الدرس"))
-    items.append(NavigationItem("المراجعة النهائية", "المراجعة النهائية"))
+        items.append(NavigationItem("تدريبات الدرس", "nav-practice"))
+    items.append(NavigationItem("المراجعة النهائية", "nav-final-review"))
     return items
 
 
@@ -48,8 +47,9 @@ def navigation_index_html(pack: dict) -> str:
     for item in navigation_items(pack):
         cls = "toc-item toc-subitem" if item.level > 1 else "toc-item"
         rows.append(
-            f'<div class="{cls}"><span class="toc-label">{_esc(item.label)}</span>'
-            '<span class="toc-dots">................................</span></div>'
+            f'<div class="{cls}"><a class="toc-link" href="#{_esc(item.anchor)}">'
+            f'<span class="toc-label">{_esc(item.label)}</span>'
+            '<span class="toc-dots">................................</span></a></div>'
         )
     return (
         '<section class="toc-page page-break-before page-break-after">'
@@ -99,7 +99,7 @@ def final_review_html(pack: dict) -> str:
         '<div>□ راجعت الأخطاء الشائعة مرة أخيرة.</div></div>'
     )
     return (
-        '<section class="final-review page-break-before">'
+        '<section class="final-review page-break-before" id="nav-final-review">'
         '<div class="review-kicker">آخر صفحة للمذاكرة</div>'
         '<h2>المراجعة النهائية</h2>'
         '<p class="review-lead">استخدم الصفحة دي كمراجعة سريعة قبل الحل أو الاختبار.</p>'
@@ -115,8 +115,9 @@ def navigation_css() -> str:
       .toc-kicker,.review-kicker { color:#667085; font-size:9pt; font-weight:700; }
       .toc-page h2,.final-review h2 { font-size:20pt; margin-top:8px; }
       .toc-note,.review-lead { color:#667085; font-size:9.5pt; }
-      .toc-item { display:flex; align-items:center; gap:8px; margin:10px 0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
+      .toc-item { margin:10px 0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
       .toc-subitem { margin-right:22px; font-weight:500; font-size:10.5pt; }
+      .toc-link { display:flex; align-items:center; gap:8px; color:#172033; text-decoration:none; }
       .toc-label { white-space:nowrap; }
       .toc-dots { color:#d0d5dd; overflow:hidden; direction:ltr; flex:1; }
       .final-review { min-height:680px; border:1.5px solid #667085; padding:16px 19px; box-sizing:border-box; background:#fbfcfe; }
@@ -128,52 +129,87 @@ def navigation_css() -> str:
     '''
 
 
-def _find_target_page(doc: fitz.Document, text: str, start: int = 0) -> int | None:
-    needle = str(text or "").strip()
-    if not needle:
-        return None
-    for page_index in range(max(0, start), doc.page_count):
-        try:
-            if doc[page_index].search_for(needle):
-                return page_index
-        except Exception:
-            continue
-    return None
+def enhance_document_html(base_html: str, pack: dict) -> str:
+    """Inject same-document anchors, index and final review before rendering."""
+    out = str(base_html)
+    cover_end = out.find("</header>")
+    if cover_end < 0:
+        raise RuntimeError("Lesson Pack cover marker is missing")
+    cover_end += len("</header>")
+    out = out[:cover_end] + navigation_index_html(pack) + out[cover_end:]
+
+    sections = [x for x in (pack.get("sections") or []) if isinstance(x, dict)]
+    if sections:
+        out = out.replace(
+            '<section class="lesson-section">',
+            '<section class="lesson-section" id="nav-lessons">',
+            1,
+        )
+        for index, section in enumerate(sections, 1):
+            heading = _esc(section.get("heading") or f"فكرة {index}")
+            old = f'<h2>{heading}</h2>'
+            new = f'<h2 id="nav-section-{index}">{heading}</h2>'
+            out = out.replace(old, new, 1)
+
+    if pack.get("equations_or_rules"):
+        out = out.replace(
+            '<section class="laws"><h2>',
+            '<section class="laws"><h2 id="nav-laws">',
+            1,
+        )
+    if pack.get("source_visuals"):
+        out = out.replace(
+            '<section class="source-visuals"><h2>',
+            '<section class="source-visuals"><h2 id="nav-visuals">',
+            1,
+        )
+    elif pack.get("diagram_specs"):
+        out = out.replace(
+            '<section class="diagrams"><h2>',
+            '<section class="diagrams"><h2 id="nav-visuals">',
+            1,
+        )
+    if pack.get("worked_examples"):
+        out = out.replace(
+            '<section class="examples"><h2>',
+            '<section class="examples"><h2 id="nav-examples">',
+            1,
+        )
+    if pack.get("practice_questions"):
+        out = out.replace(
+            '<section class="practice page-break-before"><h2>',
+            '<section class="practice page-break-before"><h2 id="nav-practice">',
+            1,
+        )
+
+    notes_marker = '<section class="notes">'
+    notes_pos = out.find(notes_marker)
+    if notes_pos >= 0:
+        out = out[:notes_pos] + final_review_html(pack) + out[notes_pos:]
+    else:
+        footer_pos = out.find("<footer>")
+        insertion = footer_pos if footer_pos >= 0 else len(out)
+        out = out[:insertion] + final_review_html(pack) + out[insertion:]
+    return out
 
 
 def add_pdf_navigation(data: bytes, pack: dict) -> bytes:
-    """Add PDF outline/bookmarks and internal GoTo links without changing scientific content."""
+    """Build PDF outline from native same-document GoTo links; never text-search Arabic glyphs."""
+    expected = navigation_items(pack)
     doc = fitz.open(stream=data, filetype="pdf")
     try:
-        index_page = _find_target_page(doc, "فهرس الملزمة")
-        if index_page is None:
+        internal_links: list[dict] = []
+        for page in doc:
+            for link in page.get_links():
+                if link.get("kind") == fitz.LINK_GOTO and isinstance(link.get("page"), int):
+                    internal_links.append(link)
+        if not internal_links:
             return data
 
         outline: list[list] = [[1, str(pack.get("title") or "ملزمة الدرس"), 1]]
-        seen_targets: set[tuple[int, str]] = set()
-        for item in navigation_items(pack):
-            target_page = _find_target_page(doc, item.target, start=index_page + 1)
-            if target_page is None:
-                continue
-            target_key = (target_page, item.target)
-            if target_key not in seen_targets:
-                outline.append([item.level, item.label, target_page + 1])
-                seen_targets.add(target_key)
-
-            rects = doc[index_page].search_for(item.label)
-            for rect in rects:
-                try:
-                    doc[index_page].insert_link(
-                        {
-                            "kind": fitz.LINK_GOTO,
-                            "from": rect,
-                            "page": target_page,
-                            "to": fitz.Point(0, 0),
-                        }
-                    )
-                except Exception:
-                    continue
-
+        for item, link in zip(expected, internal_links):
+            target_page = int(link["page"]) + 1
+            outline.append([item.level, item.label, target_page])
         if len(outline) > 1:
             doc.set_toc(outline)
         return doc.tobytes(garbage=3, deflate=True)

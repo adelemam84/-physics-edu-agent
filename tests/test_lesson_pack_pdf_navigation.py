@@ -89,7 +89,7 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
 
     def test_question_map_html_is_visible_and_has_every_question(self):
         html = question_navigation_html(self._pack())
-        self.assertIn("خريطة الأسئلة", html)
+        self.assertIn("انتقل مباشرة إلى سؤال:", html)
         self.assertIn("سؤال 1", html)
         self.assertIn("سؤال 2", html)
         self.assertIn("سؤال 3", html)

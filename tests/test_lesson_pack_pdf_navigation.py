@@ -2,8 +2,16 @@ import unittest
 
 import fitz
 
-from app.services.lesson_pack_pdf_navigation import final_review_html, navigation_index_html
-from app.services.lesson_pack_student_handout_v2 import render_enhanced_student_handout_pdf
+from app.services.lesson_pack_pdf_navigation import (
+    _marker_token,
+    final_review_html,
+    navigation_index_html,
+    navigation_items,
+)
+from app.services.lesson_pack_student_handout_v2 import (
+    _render_enhanced,
+    render_enhanced_student_handout_pdf,
+)
 
 
 class LessonPackPdfNavigationTests(unittest.TestCase):
@@ -42,6 +50,22 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
         self.assertIn("V = I × R", review)
         self.assertIn("خلط وحدة المقاومة", review)
         self.assertIn("قانون أوم يربط الجهد", review)
+
+    def test_raw_pdf_contains_every_source_and_target_marker(self):
+        pack = self._pack()
+        raw, _positions = _render_enhanced(pack)
+        doc = fitz.open(stream=raw, filetype="pdf")
+        try:
+            extracted = "\n".join(page.get_text() for page in doc)
+            missing = []
+            for item in navigation_items(pack):
+                for role in ("S", "T"):
+                    token = _marker_token(role, item.anchor)
+                    if token not in extracted:
+                        missing.append(token)
+            self.assertEqual(missing, [], f"Missing raw navigation markers: {missing}")
+        finally:
+            doc.close()
 
     def test_student_pdf_has_outline_and_internal_links(self):
         data = render_enhanced_student_handout_pdf(self._pack())

@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "14df909a85612e87e75f7b9dc963c1369741e244",
+  "requested_code_sha": "d2b6a1e6733f61f98547e069a81d6c531a314ed3",
   "requested_at": "2026-09-17",
-  "reason": "Release Physics Education AI Agent 1.8.16 with interactive Presentation Studio preview, fullscreen/keyboard navigation, Teacher Speaker Notes, structured visual diagrams, editable PPTX shapes, and smart tables after green CI and Security Audit",
+  "reason": "Release Physics Education AI Agent 1.8.17 with guarded in-browser Presentation Slide Editor, slide reorder/hide-show, editable titles/text/notes/diagram labels, mandatory server-side pre-export validation, stale-base protection, and automatic teacher re-approval invalidation after green CI and Security Audit",
   "content_ingestion": "locked",
   "scope": "lesson_presentation_studio"
 }

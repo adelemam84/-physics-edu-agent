@@ -1,4 +1,7 @@
 import unittest
+from io import BytesIO
+
+from pptx import Presentation
 
 from app.lesson_presentation_studio_ui import _enhance_pack_preview, _workspace
 from app.services.lesson_presentation_blueprint import build_presentation_blueprint
@@ -23,7 +26,14 @@ class LessonPresentationWorkspaceTests(unittest.TestCase):
             ],
             "worked_examples": [],
             "source_visuals": [],
-            "diagram_specs": [],
+            "diagram_specs": [
+                {
+                    "kind": "formula_relationship",
+                    "title": "علاقة قانون أوم",
+                    "description": "فرق الجهد → شدة التيار → المقاومة",
+                    "source_refs": [self.REF],
+                }
+            ],
             "practice_questions": [
                 {"id": "Q1", "prompt": "اختر العلاقة الصحيحة", "answer": "V = IR", "explanation": "مدعومة بالمصدر", "source_refs": [self.REF]}
             ],
@@ -31,12 +41,15 @@ class LessonPresentationWorkspaceTests(unittest.TestCase):
             "quick_revision": [{"text": "V = IR", "source_refs": [self.REF]}],
         }
 
-    def test_student_pptx_is_valid_and_matches_blueprint_slide_count(self):
-        blueprint = build_presentation_blueprint(
+    def _blueprint(self, audience="student"):
+        return build_presentation_blueprint(
             self._pack(),
-            {"mode": "lesson_explanation", "audience": "student", "language": "ar", "length": "medium"},
+            {"mode": "lesson_explanation", "audience": audience, "language": "ar", "length": "medium"},
             source_lesson_pack_id="pack-1",
         )
+
+    def test_student_pptx_is_valid_and_matches_blueprint_slide_count(self):
+        blueprint = self._blueprint("student")
         data = render_presentation_pptx(blueprint, "student")
         report = pptx_preflight(data, len(blueprint["slides"]))
         self.assertTrue(report["ready"], report)
@@ -52,12 +65,29 @@ class LessonPresentationWorkspaceTests(unittest.TestCase):
         report = pptx_preflight(data, len(blueprint["slides"]))
         self.assertTrue(report["ready"], report)
 
-    def test_workspace_exposes_blueprint_and_both_exports(self):
+    def test_diagram_slide_uses_editable_shapes_in_pptx(self):
+        blueprint = self._blueprint("student")
+        diagram_index = next(i for i, slide in enumerate(blueprint["slides"]) if slide.get("visual_specs"))
+        data = render_presentation_pptx(blueprint, "student")
+        prs = Presentation(BytesIO(data))
+        slide = prs.slides[diagram_index]
+        self.assertGreaterEqual(len(slide.shapes), 5)
+        all_text = "\n".join(getattr(shape, "text", "") for shape in slide.shapes)
+        self.assertIn("فرق الجهد", all_text)
+        self.assertIn("generated_visual", all_text)
+
+    def test_workspace_exposes_interactive_preview_and_both_exports(self):
         html = _workspace("job-1")
         self.assertIn("Lesson Presentation Studio", html)
         self.assertIn("presentation/blueprint", html)
         self.assertIn("export-pptx/'+edition", html)
         self.assertIn("20 بطاقة", html)
+        self.assertIn("معاينة تفاعلية", html)
+        self.assertIn("requestFullscreen", html)
+        self.assertIn("ArrowLeft", html)
+        self.assertIn("filmstrip", html)
+        self.assertIn("Speaker Notes", html)
+        self.assertIn("renderDiagram", html)
 
     def test_lesson_pack_preview_gets_presentation_link(self):
         source = '<div class=box><a href="/admin/lesson-pack-studio">Lesson Pack Studio</a> · <a href="/admin/dashboard">لوحة التحكم</a></div>'

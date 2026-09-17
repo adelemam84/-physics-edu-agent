@@ -52,7 +52,7 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
         self.assertIn("خلط وحدة المقاومة", review)
         self.assertIn("قانون أوم يربط الجهد", review)
 
-    def test_raw_pdf_contains_index_and_every_target_marker(self):
+    def test_raw_pdf_contains_index_and_in_story_target_markers(self):
         pack = self._pack()
         raw, _positions = _render_enhanced(pack)
         doc = fitz.open(stream=raw, filetype="pdf")
@@ -63,6 +63,8 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
             if index_token not in extracted:
                 missing.append(index_token)
             for item in navigation_items(pack):
+                if item.anchor == "nav-final-review":
+                    continue
                 token = _marker_token("T", item.anchor)
                 if token not in extracted:
                     missing.append(token)
@@ -94,7 +96,7 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
         finally:
             doc.close()
 
-    def test_final_review_destination_is_after_index_page(self):
+    def test_final_review_is_the_last_page_and_navigation_targets_it(self):
         data = render_enhanced_student_handout_pdf(self._pack())
         doc = fitz.open(stream=data, filetype="pdf")
         try:
@@ -107,7 +109,12 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
             toc = doc.get_toc()
             final_rows = [row for row in toc if row[1] == "المراجعة النهائية"]
             self.assertEqual(len(final_rows), 1)
-            final_page_zero_based = int(final_rows[0][2]) - 1
-            self.assertGreater(final_page_zero_based, index_pages[0])
+            self.assertEqual(int(final_rows[0][2]), doc.page_count)
+            final_link_targets = [
+                int(link.get("page"))
+                for link in doc[index_pages[0]].get_links()
+                if link.get("kind") == fitz.LINK_GOTO and int(link.get("page")) == doc.page_count - 1
+            ]
+            self.assertEqual(final_link_targets, [doc.page_count - 1])
         finally:
             doc.close()

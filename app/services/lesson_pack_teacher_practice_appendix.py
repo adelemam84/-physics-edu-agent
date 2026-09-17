@@ -8,6 +8,9 @@ from .lesson_pack_practice_layout import practice_suite_css, teacher_self_test_k
 from .lesson_pack_student_renderer import MARGIN_X, MARGIN_Y, PAGE_HEIGHT, PAGE_WIDTH, _css
 
 
+TEACHER_SELF_TEST_BOOKMARK = "نموذج إجابة «اختبر نفسك»"
+
+
 def _render_appendix(pack: dict) -> bytes:
     fragment = teacher_self_test_key_html(pack)
     if not fragment:
@@ -49,7 +52,11 @@ def append_teacher_practice_key(base_data: bytes, pack: dict) -> bytes:
     base = fitz.open(stream=base_data, filetype="pdf")
     appendix = fitz.open(stream=appendix_data, filetype="pdf")
     try:
+        appendix_start_page = base.page_count + 1
+        toc = base.get_toc(simple=True)
         base.insert_pdf(appendix)
+        toc.append([1, TEACHER_SELF_TEST_BOOKMARK, appendix_start_page])
+        base.set_toc(toc)
         return base.tobytes(garbage=3, deflate=True)
     finally:
         appendix.close()

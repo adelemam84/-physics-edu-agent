@@ -29,6 +29,7 @@ _IMMUTABLE_BLOCK_FIELDS = (
     "generated",
     "objective_id",
 )
+_EDITABLE_BLOCK_FIELDS = {"text", "notes"}
 
 _IMMUTABLE_VISUAL_FIELDS = (
     "kind",
@@ -38,6 +39,21 @@ _IMMUTABLE_VISUAL_FIELDS = (
     "generated",
     "label",
 )
+_EDITABLE_VISUAL_FIELDS = {"title", "description", "nodes", "steps", "items", "labels"}
+_EDITABLE_SLIDE_FIELDS = {
+    "slide_id",
+    "order",
+    "kind",
+    "title",
+    "content_blocks",
+    "source_refs",
+    "objective_ids",
+    "visual_specs",
+    "table_specs",
+    "speaker_notes",
+    "hidden",
+    "translation_required",
+}
 
 
 def _canonical(value: Any) -> str:
@@ -61,11 +77,6 @@ def presentation_edit_digest(base_hash: str, edited_blueprint: dict) -> str:
 
 def _same(left: Any, right: Any) -> bool:
     return _canonical(left) == _canonical(right)
-
-
-def _editable_visual_payload(value: dict) -> dict:
-    allowed = {"title", "description", "nodes", "steps", "items", "labels"}
-    return {key: copy.deepcopy(value.get(key)) for key in allowed if key in value}
 
 
 def validate_presentation_edits(
@@ -112,7 +123,10 @@ def validate_presentation_edits(
         original = base_by_id.get(sid)
         if not original:
             continue
-        for key in ("kind", "source_refs", "objective_ids"):
+        for key in slide:
+            if key not in _EDITABLE_SLIDE_FIELDS and not _same(original.get(key), slide.get(key)):
+                blockers.append(f"unsupported_slide_edit_{key}")
+        for key in ("kind", "source_refs", "objective_ids", "translation_required"):
             if not _same(original.get(key), slide.get(key)):
                 blockers.append(f"immutable_slide_{key}")
 
@@ -125,6 +139,11 @@ def validate_presentation_edits(
                 for key in _IMMUTABLE_BLOCK_FIELDS:
                     if not _same(before.get(key), after.get(key)):
                         blockers.append(f"immutable_block_{key}")
+                for key in after:
+                    if key in _IMMUTABLE_BLOCK_FIELDS or key in _EDITABLE_BLOCK_FIELDS:
+                        continue
+                    if not _same(before.get(key), after.get(key)):
+                        blockers.append(f"unsupported_block_edit_{key}")
 
         base_visuals = [x for x in (original.get("visual_specs") or []) if isinstance(x, dict)]
         new_visuals = [x for x in (slide.get("visual_specs") or []) if isinstance(x, dict)]
@@ -135,10 +154,8 @@ def validate_presentation_edits(
                 for key in _IMMUTABLE_VISUAL_FIELDS:
                     if not _same(before.get(key), after.get(key)):
                         blockers.append(f"immutable_visual_{key}")
-                # Only presentation-oriented visual text/labels are editable.
-                allowed = _editable_visual_payload(after)
                 for key in after:
-                    if key in _IMMUTABLE_VISUAL_FIELDS or key in allowed:
+                    if key in _IMMUTABLE_VISUAL_FIELDS or key in _EDITABLE_VISUAL_FIELDS:
                         continue
                     if not _same(before.get(key), after.get(key)):
                         blockers.append(f"unsupported_visual_edit_{key}")
@@ -175,7 +192,7 @@ def validate_presentation_edits(
         warnings.append("teacher_reapproval_required")
 
     digest = presentation_edit_digest(base_hash, edited_blueprint)
-    report = {
+    return {
         "ready": not blockers,
         "blocking_failures": list(dict.fromkeys(blockers)),
         "warnings": list(dict.fromkeys(warnings)),
@@ -189,4 +206,3 @@ def validate_presentation_edits(
         "official_question_bank_write": False,
         "content_ingestion_unchanged": True,
     }
-    return report

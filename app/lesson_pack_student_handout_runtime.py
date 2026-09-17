@@ -56,7 +56,7 @@ def _render_lesson_pack_pdf(pack: dict, edition: str) -> bytes:
     dependencies=[Depends(require_admin)],
 )
 def lesson_pack_export_preflight(job_id: str, edition: str = "student"):
-    """Return an explicit, non-mutating preflight report before teacher export."""
+    """Return non-mutating technical and final-export readiness for one edition."""
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
 
@@ -65,12 +65,17 @@ def lesson_pack_export_preflight(job_id: str, edition: str = "student"):
     if not pack:
         raise HTTPException(409, "Generate the Lesson Pack before preflight")
 
+    teacher_approved = bool(job.get("teacher_approved"))
     pack_report = pack_preflight(pack, lesson_pack_studio.allowed_source_refs(pages))
     result = {
         "id": job_id,
         "edition": edition,
         "pack": pack_report,
         "pdf": None,
+        "preflight_ready": False,
+        "teacher_approved": teacher_approved,
+        "export_ready": False,
+        # Backward-compatible alias: `ready` remains technical preflight readiness.
         "ready": False,
         "official_question_bank_write": False,
         "content_ingestion_unchanged": True,
@@ -80,8 +85,11 @@ def lesson_pack_export_preflight(job_id: str, edition: str = "student"):
 
     data = _render_lesson_pack_pdf_unchecked(pack, edition)
     pdf_report = pdf_preflight(data, pack, edition)
+    preflight_ready = bool(pdf_report["ready"])
     result["pdf"] = pdf_report
-    result["ready"] = bool(pdf_report["ready"])
+    result["preflight_ready"] = preflight_ready
+    result["ready"] = preflight_ready
+    result["export_ready"] = bool(preflight_ready and teacher_approved)
     return result
 
 

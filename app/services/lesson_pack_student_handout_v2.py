@@ -13,8 +13,10 @@ from .lesson_pack_pdf_navigation import (
 )
 from .lesson_pack_practice_layout import (
     decorate_practice_html,
+    practice_layout_settings,
     practice_suite_css,
     prepare_practice_pack,
+    self_test_items,
 )
 from .lesson_pack_student_renderer import (
     MARGIN_X,
@@ -59,8 +61,11 @@ def _render_story(html: str, css: str, *, max_pages: int) -> bytes:
 
 
 def _render_enhanced(pack: dict) -> tuple[bytes, list]:
-    base_html = decorate_practice_html(_document_html(pack), pack)
-    html = enhance_document_html(base_html, pack)
+    # Navigation markers must be attached to the canonical practice cards before
+    # the practice-suite decorator inserts level dividers and the self-test pages.
+    # This keeps question bookmarks stable for minimal and full Lesson Packs alike.
+    navigable_html = enhance_document_html(_document_html(pack), pack)
+    html = decorate_practice_html(navigable_html, pack)
     css = _css() + navigation_css() + practice_suite_css()
     return _render_story(html, css, max_pages=240), []
 
@@ -84,10 +89,34 @@ def _append_final_review(base_data: bytes, review_data: bytes) -> bytes:
         base.close()
 
 
+def _stamp_export_contract(data: bytes, pack: dict) -> bytes:
+    """Attach machine-readable, non-content export evidence for PDF preflight."""
+    settings = practice_layout_settings(pack)
+    selected = self_test_items(pack)
+    questions = [q for q in (pack.get("practice_questions") or []) if isinstance(q, dict)]
+    tokens = [
+        "lesson-pack-student-v2",
+        f"practice-questions={len(questions)}",
+        f"self-test={len(selected)}",
+        f"answer-sheet={1 if settings['show_answer_sheet'] and selected else 0}",
+        "final-review-last=1",
+    ]
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        metadata = dict(doc.metadata or {})
+        existing = str(metadata.get("keywords") or "").strip()
+        metadata["keywords"] = ";".join(([existing] if existing else []) + tokens)
+        doc.set_metadata(metadata)
+        return doc.tobytes(garbage=3, deflate=True)
+    finally:
+        doc.close()
+
+
 def render_enhanced_student_handout_pdf(pack: dict) -> bytes:
     """Render the grouped practice suite, append final review, then add PDF navigation."""
     render_pack = prepare_practice_pack(pack)
     data, positions = _render_enhanced(render_pack)
     data = _append_final_review(data, _render_final_review(render_pack))
     data = add_pdf_navigation(data, render_pack, positions)
-    return _stamp(data, str(render_pack.get("title") or "ملزمة الدرس"))
+    data = _stamp(data, str(render_pack.get("title") or "ملزمة الدرس"))
+    return _stamp_export_contract(data, render_pack)

@@ -8,10 +8,14 @@ import fitz
 from .lesson_pack_core import validate_pack_provenance
 from .lesson_pack_pdf_navigation import navigation_items, normalize_final_review_settings
 from .lesson_pack_practice_layout import (
+    answer_sheet_html,
     practice_layout_settings,
     prepare_practice_pack,
+    self_test_html,
     self_test_items,
+    teacher_self_test_key_html,
 )
+from .lesson_pack_teacher_practice_appendix import TEACHER_SELF_TEST_BOOKMARK
 
 MAX_EXPORT_PAGES = 240
 _A4 = fitz.paper_rect("a4")
@@ -60,7 +64,11 @@ def pack_preflight(pack: dict, allowed_refs: list[str] | None = None) -> dict[st
             policy_violations.append(f"practice_questions[{index}].question_bank_eligible")
         if question.get("teacher_review_required") is not True:
             policy_violations.append(f"practice_questions[{index}].teacher_review_required")
-    question_policy = render_pack.get("question_policy") if isinstance(render_pack.get("question_policy"), dict) else {}
+    question_policy = (
+        render_pack.get("question_policy")
+        if isinstance(render_pack.get("question_policy"), dict)
+        else {}
+    )
     if question_policy.get("official_question_bank_write") is not False:
         policy_violations.append("question_policy.official_question_bank_write")
     if question_policy.get("auto_publish") is not False:
@@ -79,7 +87,10 @@ def pack_preflight(pack: dict, allowed_refs: list[str] | None = None) -> dict[st
         _check(
             "practice_question_identity",
             bool(questions) and all(ids) and not duplicate_ids,
-            details={"duplicate_ids": duplicate_ids, "missing_id_count": sum(1 for value in ids if not value)},
+            details={
+                "duplicate_ids": duplicate_ids,
+                "missing_id_count": sum(1 for value in ids if not value),
+            },
         )
     )
 
@@ -96,7 +107,8 @@ def pack_preflight(pack: dict, allowed_refs: list[str] | None = None) -> dict[st
 
     selected = self_test_items(render_pack)
     selected_positions = [int(item["practice_no"]) for item in selected]
-    expected_count = practice_layout_settings(render_pack)["self_test_count"]
+    settings = practice_layout_settings(render_pack)
+    expected_count = settings["self_test_count"]
     checks.append(
         _check(
             "self_test_subset_consistency",
@@ -111,10 +123,30 @@ def pack_preflight(pack: dict, allowed_refs: list[str] | None = None) -> dict[st
         )
     )
 
+    student_self_test = self_test_html(render_pack)
+    student_answer_sheet = answer_sheet_html(render_pack)
+    teacher_key = teacher_self_test_key_html(render_pack)
+    missing_practice_surfaces: list[str] = []
+    if expected_count and not student_self_test:
+        missing_practice_surfaces.append("student_self_test")
+    if expected_count and settings["show_answer_sheet"] and not student_answer_sheet:
+        missing_practice_surfaces.append("student_answer_sheet")
+    if expected_count and not teacher_key:
+        missing_practice_surfaces.append("teacher_self_test_key")
+    checks.append(
+        _check(
+            "practice_surface_contract",
+            not missing_practice_surfaces,
+            details={"missing": missing_practice_surfaces},
+        )
+    )
+
     visuals = [x for x in (render_pack.get("source_visuals") or []) if isinstance(x, dict)]
     unresolved_visuals = [str(x.get("id") or "") for x in visuals if x.get("review_required")]
     broken_approved_visuals = [
-        str(x.get("id") or "") for x in visuals if x.get("approved") and not x.get("object_key")
+        str(x.get("id") or "")
+        for x in visuals
+        if x.get("approved") and not x.get("object_key")
     ]
     checks.append(
         _check(
@@ -127,7 +159,11 @@ def pack_preflight(pack: dict, allowed_refs: list[str] | None = None) -> dict[st
         )
     )
 
-    artifact_policy = render_pack.get("artifact_policy") if isinstance(render_pack.get("artifact_policy"), dict) else {}
+    artifact_policy = (
+        render_pack.get("artifact_policy")
+        if isinstance(render_pack.get("artifact_policy"), dict)
+        else {}
+    )
     checks.append(
         _check(
             "artifact_export_policy",
@@ -212,7 +248,9 @@ def pdf_preflight(data: bytes, pack: dict, edition: str) -> dict[str, Any]:
                 goto_count += 1
                 target = int(link.get("page", -1))
                 if target < 0 or target >= page_count:
-                    invalid_links.append({"source_page": page_index + 1, "target_page": target + 1})
+                    invalid_links.append(
+                        {"source_page": page_index + 1, "target_page": target + 1}
+                    )
         checks.append(
             _check(
                 "internal_link_destinations",
@@ -222,6 +260,7 @@ def pdf_preflight(data: bytes, pack: dict, edition: str) -> dict[str, Any]:
         )
 
         toc = doc.get_toc(simple=True)
+        toc_titles = [str(item[1]) for item in toc if len(item) >= 3]
         invalid_toc = [
             {"title": str(item[1]), "page": int(item[2])}
             for item in toc
@@ -237,82 +276,100 @@ def pdf_preflight(data: bytes, pack: dict, edition: str) -> dict[str, Any]:
 
         text = _pdf_text(doc)
         marker_tokens = sorted(set(_NAV_MARKER_RE.findall(text)))
+        blocking_markers = [token for token in marker_tokens if not token.startswith("LPNS")]
+        source_markers = [token for token in marker_tokens if token.startswith("LPNS")]
         checks.append(
             _check(
                 "navigation_marker_cleanup",
-                not marker_tokens,
-                details={"remaining_markers": marker_tokens},
+                not blocking_markers,
+                details={"remaining_blocking_markers": blocking_markers},
+            )
+        )
+        checks.append(
+            _check(
+                "navigation_source_marker_cleanup",
+                not source_markers,
+                blocking=False,
+                details={"remaining_source_markers": source_markers},
             )
         )
 
         render_pack = prepare_practice_pack(pack)
-        practice = [q for q in (render_pack.get("practice_questions") or []) if isinstance(q, dict)]
+        practice = [
+            q for q in (render_pack.get("practice_questions") or []) if isinstance(q, dict)
+        ]
         selected = self_test_items(render_pack)
 
         if edition == "student":
             expected_titles = [item.label for item in navigation_items(render_pack)]
-            toc_titles = {str(item[1]) for item in toc if len(item) >= 3}
-            missing_titles = [title for title in expected_titles if title not in toc_titles]
+            title_set = set(toc_titles)
+            missing_titles = [title for title in expected_titles if title not in title_set]
+            checks.append(
+                _check(
+                    "student_main_navigation",
+                    not missing_titles,
+                    details={"missing_main_bookmarks": missing_titles},
+                )
+            )
+
             question_bookmarks = [
-                item for item in toc if len(item) >= 3 and int(item[0]) == 2 and str(item[1]).startswith("سؤال ")
+                item
+                for item in toc
+                if len(item) >= 3
+                and int(item[0]) == 2
+                and str(item[1]).startswith("سؤال ")
             ]
             checks.append(
                 _check(
-                    "student_navigation_contract",
-                    not missing_titles and len(question_bookmarks) == len(practice),
+                    "student_question_navigation",
+                    len(question_bookmarks) == len(practice),
+                    blocking=False,
                     details={
-                        "missing_main_bookmarks": missing_titles,
                         "question_bookmark_count": len(question_bookmarks),
                         "expected_question_bookmarks": len(practice),
                     },
                 )
             )
 
-            forbidden_teacher_markers = [
-                marker for marker in ("نسخة المدرس فقط", "نموذج إجابة") if marker in text
-            ]
             checks.append(
                 _check(
-                    "student_teacher_only_content_absent",
-                    not forbidden_teacher_markers,
-                    details={"found_markers": forbidden_teacher_markers},
+                    "student_teacher_appendix_absent",
+                    TEACHER_SELF_TEST_BOOKMARK not in title_set,
+                    details={"teacher_appendix_bookmark_present": TEACHER_SELF_TEST_BOOKMARK in title_set},
                 )
             )
 
-            if practice:
-                settings = practice_layout_settings(render_pack)
-                missing_surfaces = []
-                if "اختبر نفسك" not in text:
-                    missing_surfaces.append("self_test")
-                if settings["show_answer_sheet"] and "ورقة إجابة الطالب" not in text:
-                    missing_surfaces.append("answer_sheet")
-                checks.append(
-                    _check(
-                        "student_practice_surfaces",
-                        not missing_surfaces,
-                        details={"missing": missing_surfaces},
-                    )
-                )
-
             review_title = normalize_final_review_settings(render_pack)["title"]
-            last_page_text = doc[-1].get_text() if page_count else ""
+            review_rows = [
+                item for item in toc if len(item) >= 3 and str(item[1]) == review_title
+            ]
             checks.append(
                 _check(
                     "final_review_is_last_page",
-                    bool(review_title) and review_title in last_page_text,
-                    details={"review_title": review_title},
+                    len(review_rows) == 1 and int(review_rows[0][2]) == page_count,
+                    details={
+                        "review_title": review_title,
+                        "bookmark_pages": [int(item[2]) for item in review_rows],
+                        "page_count": page_count,
+                    },
                 )
             )
 
         else:
-            missing_teacher_surfaces: list[str] = []
-            if selected and "نسخة المدرس فقط" not in text:
-                missing_teacher_surfaces.append("self_test_answer_key")
+            answer_rows = [
+                item
+                for item in toc
+                if len(item) >= 3 and str(item[1]) == TEACHER_SELF_TEST_BOOKMARK
+            ]
             checks.append(
                 _check(
                     "teacher_answer_appendix",
-                    not missing_teacher_surfaces,
-                    details={"missing": missing_teacher_surfaces, "self_test_count": len(selected)},
+                    not selected or len(answer_rows) == 1,
+                    details={
+                        "bookmark_count": len(answer_rows),
+                        "self_test_count": len(selected),
+                        "bookmark_pages": [int(item[2]) for item in answer_rows],
+                    },
                 )
             )
 

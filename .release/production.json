@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "19ff7ffc11e30fb88c5141a8f64a461f160ab3af",
+  "requested_code_sha": "7484cdcded65a5c24c1f6c3767b3a4f0598bc2f5",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.11 configurable final-review settings and per-question PDF navigation after green CI and security audit",
+  "reason": "Release Lesson Pack Studio 1.8.12 grouped practice, self-test, student answer sheet, and teacher answer key after green CI and security audit",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

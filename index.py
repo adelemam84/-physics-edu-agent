@@ -105,3 +105,4 @@ from app import lesson_pack_studio_ui  # noqa: F401,E402
 from app import lesson_pack_student_handout_runtime  # noqa: F401,E402
 from app import lesson_pack_export_readiness_ui  # noqa: F401,E402
 from app import lesson_presentation_studio  # noqa: F401,E402
+from app import lesson_presentation_studio_ui  # noqa: F401,E402

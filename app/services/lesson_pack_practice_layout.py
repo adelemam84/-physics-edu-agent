@@ -18,7 +18,7 @@ DIFFICULTY_HEADINGS = {
 
 
 def _esc(value) -> str:
-    return html.escape(str(value or ""))
+    return html.escape("" if value is None else str(value))
 
 
 def _lines(value) -> str:

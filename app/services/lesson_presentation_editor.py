@@ -89,7 +89,9 @@ def validate_presentation_edits(
     warnings: list[str] = []
     base_hash = presentation_editor_base_hash(base_blueprint)
 
-    if supplied_base_hash and supplied_base_hash != base_hash:
+    if not supplied_base_hash:
+        blockers.append("editor_base_hash_required")
+    elif supplied_base_hash != base_hash:
         blockers.append("stale_editor_base")
 
     if not isinstance(edited_blueprint, dict):
@@ -144,6 +146,8 @@ def validate_presentation_edits(
                         continue
                     if not _same(before.get(key), after.get(key)):
                         blockers.append(f"unsupported_block_edit_{key}")
+                if "text" in after and not str(after.get("text") or "").strip() and str(before.get("text") or "").strip():
+                    warnings.append("empty_edited_block_text")
 
         base_visuals = [x for x in (original.get("visual_specs") or []) if isinstance(x, dict)]
         new_visuals = [x for x in (slide.get("visual_specs") or []) if isinstance(x, dict)]

@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "0b572fba427b93a423a255ae7108e6e6fe1adbdf",
+  "requested_code_sha": "14df909a85612e87e75f7b9dc963c1369741e244",
   "requested_at": "2026-09-17",
-  "reason": "Release Physics Education AI Agent 1.8.15 with Lesson Presentation Studio foundation, source-grounded blueprints, Student/Teacher projections, teacher workspace, and editable PPTX export after green CI, Security Audit, and CodeRabbit review",
+  "reason": "Release Physics Education AI Agent 1.8.16 with interactive Presentation Studio preview, fullscreen/keyboard navigation, Teacher Speaker Notes, structured visual diagrams, editable PPTX shapes, and smart tables after green CI and Security Audit",
   "content_ingestion": "locked",
   "scope": "lesson_presentation_studio"
 }

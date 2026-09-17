@@ -121,7 +121,7 @@ def final_review_html(pack: dict) -> str:
 def navigation_css() -> str:
     return '''
       .page-break-after { page-break-after:always; }
-      .nav-marker { color:#ffffff; font-size:1px; line-height:1px; font-weight:400; }
+      .nav-marker { color:#ffffff; font-size:5px; line-height:5px; font-weight:400; white-space:nowrap; }
       .toc-page { min-height:690px; border:1px solid #d0d5dd; padding:18px 22px; box-sizing:border-box; }
       .toc-kicker,.review-kicker { color:#667085; font-size:9pt; font-weight:700; }
       .toc-page h2,.final-review h2 { font-size:20pt; margin-top:8px; }

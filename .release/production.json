@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "b3221ed18cbe69352b48713c25f85ae5587b8d77",
+  "requested_code_sha": "bff420aa94b3d65d4431313a32b1444f48a8f101",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.9 professional cover, student identity fields, page-by-page preview, and resilient PDF cleanup after green CI and security audit",
+  "reason": "Release Lesson Pack Studio 1.8.10 compact PDF index, internal GoTo navigation, bookmarks, and deterministic final-review page after green CI and security audit",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

@@ -38,10 +38,20 @@ def _presentation_base(job_id: str, payload: dict) -> tuple[dict, dict]:
     return blueprint, request
 
 
+def _presentation_editor_base(job_id: str, payload: dict) -> tuple[dict, dict]:
+    edited = payload.get("edited_blueprint")
+    if not isinstance(edited, dict):
+        raise HTTPException(422, "edited_blueprint is required")
+    original_request = edited.get("request")
+    if not isinstance(original_request, dict):
+        raise HTTPException(422, "edited_blueprint.request is required")
+    return _presentation_base(job_id, original_request)
+
+
 def _prepared_editor_blueprint(job_id: str, payload: dict) -> tuple[dict, dict]:
-    base, request = _presentation_base(job_id, payload)
     edited = payload.get("edited_blueprint")
     if edited is None:
+        base, _ = _presentation_base(job_id, payload)
         return base, {
             "ready": True,
             "changed": False,
@@ -50,6 +60,7 @@ def _prepared_editor_blueprint(job_id: str, payload: dict) -> tuple[dict, dict]:
             "edit_digest": "",
             "prepared_blueprint": base,
         }
+    base, _ = _presentation_editor_base(job_id, payload)
     report = validate_presentation_edits(
         base,
         edited,
@@ -101,10 +112,8 @@ def create_lesson_presentation_blueprint(job_id: str, payload: dict = Body(defau
     dependencies=[Depends(require_admin)],
 )
 def lesson_presentation_editor_preflight(job_id: str, payload: dict = Body(...)):
-    base, _ = _presentation_base(job_id, payload)
-    edited = payload.get("edited_blueprint")
-    if not isinstance(edited, dict):
-        raise HTTPException(422, "edited_blueprint is required")
+    base, _ = _presentation_editor_base(job_id, payload)
+    edited = payload["edited_blueprint"]
     report = validate_presentation_edits(
         base,
         edited,
@@ -125,9 +134,10 @@ def create_lesson_presentation_edition(
 ):
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
-    blueprint, _ = _presentation_base(job_id, payload)
+    request_payload = dict(payload)
+    request_payload["audience"] = edition
+    blueprint, _ = _presentation_base(job_id, request_payload)
     try:
-        blueprint["request"]["audience"] = edition
         projected = project_edition(blueprint, edition)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc

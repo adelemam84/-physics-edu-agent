@@ -38,7 +38,13 @@ def _render_lesson_pack_pdf(pack: dict, edition: str) -> bytes:
     if not pack_report["ready"]:
         raise _preflight_error(pack_report, stage="pack")
 
-    data = _render_lesson_pack_pdf_unchecked(pack, edition)
+    # Keep the Student renderer explicit here. Existing runtime contracts verify that
+    # the production Student export cannot silently fall back to the generic renderer.
+    if edition == "student":
+        data = render_student_handout_pdf(pack)
+    else:
+        data = _render_lesson_pack_pdf_unchecked(pack, edition)
+
     pdf_report = pdf_preflight(data, pack, edition)
     if not pdf_report["ready"]:
         raise _preflight_error(pdf_report, stage=f"{edition} PDF")

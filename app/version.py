@@ -4,5 +4,5 @@ from __future__ import annotations
 # Both the full FastAPI app and the lightweight Vercel status plane import this
 # value so /health, /health/ready, release diagnostics and the main runtime
 # cannot silently drift to different versions.
-# 1.8.14 adds deterministic Lesson Pack PDF preflight and export quality gates.
-APPLICATION_VERSION = "1.8.14"
+# 1.8.15 adds Lesson Presentation Studio foundation, workspace, and editable PPTX export.
+APPLICATION_VERSION = "1.8.15"

@@ -3,7 +3,7 @@ import unittest
 import fitz
 
 from app.services.lesson_pack_pdf_navigation import final_review_html, navigation_index_html
-from app.services.lesson_pack_student_renderer import render_student_handout_pdf
+from app.services.lesson_pack_student_handout_v2 import render_enhanced_student_handout_pdf
 
 
 class LessonPackPdfNavigationTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
         self.assertIn("قانون أوم يربط الجهد", review)
 
     def test_student_pdf_has_outline_and_internal_links(self):
-        data = render_student_handout_pdf(self._pack())
+        data = render_enhanced_student_handout_pdf(self._pack())
         self.assertTrue(data.startswith(b"%PDF"))
         doc = fitz.open(stream=data, filetype="pdf")
         try:
@@ -66,7 +66,7 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
             doc.close()
 
     def test_final_review_is_after_index(self):
-        data = render_student_handout_pdf(self._pack())
+        data = render_enhanced_student_handout_pdf(self._pack())
         doc = fitz.open(stream=data, filetype="pdf")
         try:
             index_pages = []

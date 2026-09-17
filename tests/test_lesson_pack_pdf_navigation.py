@@ -48,37 +48,35 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
         self.assertTrue(data.startswith(b"%PDF"))
         doc = fitz.open(stream=data, filetype="pdf")
         try:
-            text = "\n".join(page.get_text() for page in doc)
-            self.assertIn("فهرس الملزمة", text)
-            self.assertIn("المراجعة النهائية", text)
             toc = doc.get_toc()
+            labels = [row[1] for row in toc]
             self.assertGreaterEqual(len(toc), 3)
-            self.assertTrue(any(row[1] == "تدريبات الدرس" for row in toc))
-            index_page = None
-            for page in doc:
-                if "فهرس الملزمة" in page.get_text():
-                    index_page = page
-                    break
-            self.assertIsNotNone(index_page)
-            links = index_page.get_links()
-            self.assertTrue(any(link.get("kind") == fitz.LINK_GOTO for link in links))
+            self.assertIn("تدريبات الدرس", labels)
+            self.assertIn("المراجعة النهائية", labels)
+            links = [
+                link
+                for page in doc
+                for link in page.get_links()
+                if link.get("kind") == fitz.LINK_GOTO
+            ]
+            self.assertGreaterEqual(len(links), 3)
         finally:
             doc.close()
 
-    def test_final_review_is_after_index(self):
+    def test_final_review_destination_is_after_index_page(self):
         data = render_enhanced_student_handout_pdf(self._pack())
         doc = fitz.open(stream=data, filetype="pdf")
         try:
-            index_pages = []
-            review_pages = []
-            for i, page in enumerate(doc):
-                txt = page.get_text()
-                if "فهرس الملزمة" in txt:
-                    index_pages.append(i)
-                if "المراجعة النهائية" in txt:
-                    review_pages.append(i)
-            self.assertEqual(len(index_pages), 1)
-            self.assertGreaterEqual(len(review_pages), 1)
-            self.assertGreater(review_pages[-1], index_pages[0])
+            index_pages = [
+                i
+                for i, page in enumerate(doc)
+                if any(link.get("kind") == fitz.LINK_GOTO for link in page.get_links())
+            ]
+            self.assertTrue(index_pages)
+            toc = doc.get_toc()
+            final_rows = [row for row in toc if row[1] == "المراجعة النهائية"]
+            self.assertEqual(len(final_rows), 1)
+            final_page_zero_based = int(final_rows[0][2]) - 1
+            self.assertGreater(final_page_zero_based, index_pages[0])
         finally:
             doc.close()

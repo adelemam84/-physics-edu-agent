@@ -11,6 +11,11 @@ from .lesson_pack_pdf_navigation import (
     final_review_html,
     navigation_css,
 )
+from .lesson_pack_practice_layout import (
+    decorate_practice_html,
+    practice_suite_css,
+    prepare_practice_pack,
+)
 from .lesson_pack_student_renderer import (
     MARGIN_X,
     MARGIN_Y,
@@ -54,8 +59,10 @@ def _render_story(html: str, css: str, *, max_pages: int) -> bytes:
 
 
 def _render_enhanced(pack: dict) -> tuple[bytes, list]:
-    html = enhance_document_html(_document_html(pack), pack)
-    return _render_story(html, _css() + navigation_css(), max_pages=220), []
+    base_html = decorate_practice_html(_document_html(pack), pack)
+    html = enhance_document_html(base_html, pack)
+    css = _css() + navigation_css() + practice_suite_css()
+    return _render_story(html, css, max_pages=240), []
 
 
 def _render_final_review(pack: dict) -> bytes:
@@ -78,8 +85,9 @@ def _append_final_review(base_data: bytes, review_data: bytes) -> bytes:
 
 
 def render_enhanced_student_handout_pdf(pack: dict) -> bytes:
-    """Render the handout, append a deterministic final-review page, then add navigation."""
-    data, positions = _render_enhanced(pack)
-    data = _append_final_review(data, _render_final_review(pack))
-    data = add_pdf_navigation(data, pack, positions)
-    return _stamp(data, str(pack.get("title") or "ملزمة الدرس"))
+    """Render the grouped practice suite, append final review, then add PDF navigation."""
+    render_pack = prepare_practice_pack(pack)
+    data, positions = _render_enhanced(render_pack)
+    data = _append_final_review(data, _render_final_review(render_pack))
+    data = add_pdf_navigation(data, render_pack, positions)
+    return _stamp(data, str(render_pack.get("title") or "ملزمة الدرس"))

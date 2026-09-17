@@ -108,3 +108,5 @@ from app import lesson_presentation_studio  # noqa: F401,E402
 from app import lesson_presentation_studio_ui  # noqa: F401,E402
 from app import lesson_presentation_editor_productivity  # noqa: F401,E402
 from app import lesson_presentation_editor_productivity_ui  # noqa: F401,E402
+from app import lesson_presentation_advanced_design  # noqa: F401,E402
+from app import lesson_presentation_advanced_design_ui  # noqa: F401,E402

@@ -18,7 +18,57 @@ from .services.lesson_presentation_blueprint import (
     presentation_preflight,
     project_edition,
 )
+from .services.lesson_presentation_editor import (
+    presentation_editor_base_hash,
+    validate_presentation_edits,
+)
 from .services.lesson_presentation_pptx import pptx_preflight, render_presentation_pptx
+
+
+def _presentation_base(job_id: str, payload: dict) -> tuple[dict, dict]:
+    job, _ = lesson_pack_studio._job(job_id)
+    pack = job.get("pack_json")
+    if not pack:
+        raise HTTPException(409, "Generate the Lesson Pack before creating a presentation")
+    try:
+        request = normalize_request(payload)
+        blueprint = build_presentation_blueprint(pack, request, source_lesson_pack_id=job_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return blueprint, request
+
+
+def _presentation_editor_base(job_id: str, payload: dict) -> tuple[dict, dict]:
+    edited = payload.get("edited_blueprint")
+    if not isinstance(edited, dict):
+        raise HTTPException(422, "edited_blueprint is required")
+    original_request = edited.get("request")
+    if not isinstance(original_request, dict):
+        raise HTTPException(422, "edited_blueprint.request is required")
+    return _presentation_base(job_id, original_request)
+
+
+def _prepared_editor_blueprint(job_id: str, payload: dict) -> tuple[dict, dict]:
+    edited = payload.get("edited_blueprint")
+    if edited is None:
+        base, _ = _presentation_base(job_id, payload)
+        return base, {
+            "ready": True,
+            "changed": False,
+            "teacher_reapproval_required": False,
+            "base_hash": presentation_editor_base_hash(base),
+            "edit_digest": "",
+            "prepared_blueprint": base,
+        }
+    base, _ = _presentation_editor_base(job_id, payload)
+    report = validate_presentation_edits(
+        base,
+        edited,
+        supplied_base_hash=str(payload.get("editor_base_hash") or "") or None,
+    )
+    if not report.get("ready"):
+        raise HTTPException(409, {"message": "Presentation editor preflight failed", "preflight": report})
+    return report["prepared_blueprint"], report
 
 
 @app.get(
@@ -35,6 +85,15 @@ def lesson_presentation_feature_specs():
         "themes": sorted(THEMES),
         "official_question_bank_write": False,
         "content_ingestion_unchanged": True,
+        "slide_editor": {
+            "enabled": True,
+            "reorder": True,
+            "hide_show": True,
+            "title_and_text": True,
+            "diagram_text_and_labels": True,
+            "source_grounding_immutable": True,
+            "teacher_reapproval_after_edit": True,
+        },
     }
 
 
@@ -43,16 +102,25 @@ def lesson_presentation_feature_specs():
     dependencies=[Depends(require_admin)],
 )
 def create_lesson_presentation_blueprint(job_id: str, payload: dict = Body(default_factory=dict)):
-    job, _ = lesson_pack_studio._job(job_id)
-    pack = job.get("pack_json")
-    if not pack:
-        raise HTTPException(409, "Generate the Lesson Pack before creating a presentation")
-    try:
-        request = normalize_request(payload)
-        blueprint = build_presentation_blueprint(pack, request, source_lesson_pack_id=job_id)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+    blueprint, _ = _presentation_base(job_id, payload)
+    blueprint["editor_base_hash"] = presentation_editor_base_hash(blueprint)
     return blueprint
+
+
+@app.post(
+    "/api/admin/lesson-pack-studio/jobs/{job_id}/presentation/editor/preflight",
+    dependencies=[Depends(require_admin)],
+)
+def lesson_presentation_editor_preflight(job_id: str, payload: dict = Body(...)):
+    base, _ = _presentation_editor_base(job_id, payload)
+    edited = payload["edited_blueprint"]
+    report = validate_presentation_edits(
+        base,
+        edited,
+        supplied_base_hash=str(payload.get("editor_base_hash") or "") or None,
+    )
+    public = {key: value for key, value in report.items() if key != "prepared_blueprint"}
+    return public
 
 
 @app.post(
@@ -66,14 +134,10 @@ def create_lesson_presentation_edition(
 ):
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
-    job, _ = lesson_pack_studio._job(job_id)
-    pack = job.get("pack_json")
-    if not pack:
-        raise HTTPException(409, "Generate the Lesson Pack before creating a presentation")
+    request_payload = dict(payload)
+    request_payload["audience"] = edition
+    blueprint, _ = _presentation_base(job_id, request_payload)
     try:
-        request = normalize_request(payload)
-        request["audience"] = edition
-        blueprint = build_presentation_blueprint(pack, request, source_lesson_pack_id=job_id)
         projected = project_edition(blueprint, edition)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
@@ -107,14 +171,29 @@ def export_lesson_presentation_pptx(
 ):
     if edition not in {"student", "teacher"}:
         raise HTTPException(400, "edition must be student or teacher")
-    job, _ = lesson_pack_studio._job(job_id)
-    pack = job.get("pack_json")
-    if not pack:
-        raise HTTPException(409, "Generate the Lesson Pack before creating a presentation")
     try:
-        request = normalize_request(payload)
-        request["audience"] = edition
-        blueprint = build_presentation_blueprint(pack, request, source_lesson_pack_id=job_id)
+        blueprint, edit_report = _prepared_editor_blueprint(job_id, payload)
+        if edit_report.get("changed"):
+            expected_digest = str(edit_report.get("edit_digest") or "")
+            supplied_digest = str(payload.get("validation_digest") or "")
+            if not supplied_digest or supplied_digest != expected_digest:
+                raise HTTPException(
+                    409,
+                    {
+                        "message": "Edited presentation must pass the latest pre-export validation",
+                        "code": "editor_validation_required",
+                    },
+                )
+            if payload.get("teacher_reapproved") is not True:
+                raise HTTPException(
+                    409,
+                    {
+                        "message": "Teacher re-approval is required after slide edits",
+                        "code": "teacher_reapproval_required",
+                    },
+                )
+            blueprint["approval_state"]["teacher_approved"] = True
+
         projected = project_edition(blueprint, edition)
         preflight = projected.get("preflight") or presentation_preflight(projected, edition=edition)
         if not preflight.get("ready"):
@@ -135,5 +214,6 @@ def export_lesson_presentation_pptx(
             "Content-Disposition": f'attachment; filename="lesson-presentation-{edition}-{job_id}.pptx"',
             "X-Presentation-Slides": str(pptx_report["slide_count"]),
             "X-Official-Question-Bank-Write": "false",
+            "X-Presentation-Edited": "true" if edit_report.get("changed") else "false",
         },
     )

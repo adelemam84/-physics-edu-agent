@@ -8,7 +8,7 @@ class VercelEntrypointTests(unittest.TestCase):
         return importlib.import_module("index").app
 
     def test_vercel_entrypoint_imports_without_runtime_import_errors(self):
-        self.assertEqual(self._app().version, "1.8.10")
+        self.assertEqual(self._app().version, "1.8.11")
 
     def test_status_plane_uses_the_same_canonical_version(self):
         import status
@@ -67,6 +67,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/api/admin/lesson-pack-studio/jobs/{job_id}/source-visuals/{visual_id}/review",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-pdf",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/cover",
+            "/api/admin/lesson-pack-studio/jobs/{job_id}/final-review",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-manifest",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/preview-page/{page_number}",
             "/api/admin/lesson-pack-studio/jobs/{job_id}/export-pdf",
@@ -88,6 +89,7 @@ class VercelEntrypointTests(unittest.TestCase):
             "/admin/lesson-studio/integrations",
             "/admin/lesson-pack-studio",
             "/admin/lesson-pack-studio/jobs/{job_id}/preview",
+            "/admin/lesson-pack-studio/jobs/{job_id}/review-settings",
             "/admin/completion-audit",
             "/admin/project-closure",
         }

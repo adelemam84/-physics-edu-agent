@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "bff420aa94b3d65d4431313a32b1444f48a8f101",
+  "requested_code_sha": "19ff7ffc11e30fb88c5141a8f64a461f160ab3af",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.10 compact PDF index, internal GoTo navigation, bookmarks, and deterministic final-review page after green CI and security audit",
+  "reason": "Release Lesson Pack Studio 1.8.11 configurable final-review settings and per-question PDF navigation after green CI and security audit",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

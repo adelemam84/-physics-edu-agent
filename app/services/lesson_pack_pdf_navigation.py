@@ -133,7 +133,7 @@ def navigation_css() -> str:
 
 
 def enhance_document_html(base_html: str, pack: dict) -> str:
-    """Inject one index marker plus exact target markers before rendering."""
+    """Inject one index marker and exact targets for the in-story sections."""
     out = str(base_html)
     cover_end = out.find("</header>")
     if cover_end < 0:
@@ -157,15 +157,6 @@ def enhance_document_html(base_html: str, pack: dict) -> str:
         out = out.replace('<section class="examples"><h2>', '<section class="examples"><h2>' + _marker_html("T", "nav-examples"), 1)
     if pack.get("practice_questions"):
         out = out.replace('<section class="practice page-break-before"><h2>', '<section class="practice page-break-before"><h2>' + _marker_html("T", "nav-practice"), 1)
-
-    notes_marker = '<section class="notes">'
-    notes_pos = out.find(notes_marker)
-    if notes_pos >= 0:
-        out = out[:notes_pos] + final_review_html(pack) + out[notes_pos:]
-    else:
-        footer_pos = out.find("<footer>")
-        insertion = footer_pos if footer_pos >= 0 else len(out)
-        out = out[:insertion] + final_review_html(pack) + out[insertion:]
     return out
 
 
@@ -178,8 +169,6 @@ def _locate_marker(doc: fitz.Document, token: str) -> tuple[int, fitz.Rect] | No
 
 
 def _toc_row_rect(page: fitz.Page, index_marker: fitz.Rect, row_index: int) -> fitz.Rect:
-    # Index geometry is deliberately fixed to one compact page: kicker, heading,
-    # note, then major rows of 34pt each. The clickable band covers the full row.
     y0 = index_marker.y1 + 78 + (row_index * 34)
     return fitz.Rect(
         page.rect.x0 + 36,
@@ -190,7 +179,7 @@ def _toc_row_rect(page: fitz.Page, index_marker: fitz.Rect, row_index: int) -> f
 
 
 def add_pdf_navigation(data: bytes, pack: dict, _positions=None) -> bytes:
-    """Use a single index marker and exact target markers; remove all markers before delivery."""
+    """Link the compact index to exact targets; the appended final review is always the last page."""
     doc = fitz.open(stream=data, filetype="pdf")
     try:
         index = _locate_marker(doc, _marker_token("I", "nav-index"))
@@ -198,9 +187,12 @@ def add_pdf_navigation(data: bytes, pack: dict, _positions=None) -> bytes:
             return data
         index_page, index_marker = index
 
-        resolved: list[tuple[NavigationItem, int, fitz.Rect]] = []
+        resolved: list[tuple[NavigationItem, int, fitz.Rect | None]] = []
         marker_rects: dict[int, list[fitz.Rect]] = {index_page: [index_marker]}
         for item in navigation_items(pack):
+            if item.anchor == "nav-final-review":
+                resolved.append((item, doc.page_count - 1, None))
+                continue
             target = _locate_marker(doc, _marker_token("T", item.anchor))
             if not target:
                 continue

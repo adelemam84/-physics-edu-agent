@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import hashlib
 import html
-import re
 from dataclasses import dataclass
 
 import fitz
@@ -16,8 +16,8 @@ def _lines(value) -> str:
 
 
 def _marker_token(role: str, anchor: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9]+", "_", str(anchor)).strip("_").upper()
-    return f"LPNAV_{role}_{safe}"
+    digest = hashlib.sha1(str(anchor).encode("utf-8")).hexdigest()[:8].upper()
+    return f"LPN{role}{digest}"
 
 
 def _marker_html(role: str, anchor: str) -> str:
@@ -202,7 +202,7 @@ def _clickable_row_rect(page: fitz.Page, marker_rect: fitz.Rect) -> fitz.Rect:
 
 
 def add_pdf_navigation(data: bytes, pack: dict, _positions=None) -> bytes:
-    """Resolve exact PDF pages from temporary ASCII markers, then remove every marker."""
+    """Resolve exact PDF pages from short temporary ASCII markers, then remove every marker."""
     doc = fitz.open(stream=data, filetype="pdf")
     try:
         resolved: list[tuple[NavigationItem, int, fitz.Rect, int]] = []
@@ -218,7 +218,6 @@ def add_pdf_navigation(data: bytes, pack: dict, _positions=None) -> bytes:
             marker_rects.setdefault(source_page, []).append(source_marker)
             marker_rects.setdefault(target_page, []).append(target_marker)
 
-        # Remove temporary layout markers before adding the final navigation annotations.
         for page_index, rects in marker_rects.items():
             page = doc[page_index]
             for rect in rects:

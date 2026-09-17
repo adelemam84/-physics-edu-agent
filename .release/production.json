@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "7484cdcded65a5c24c1f6c3767b3a4f0598bc2f5",
+  "requested_code_sha": "4c79b3e3fa0c855820cb4e6e50d5c36390d3d2f5",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.12 grouped practice, self-test, student answer sheet, and teacher answer key after green CI and security audit",
+  "reason": "Release Lesson Pack Studio 1.8.13 falsy-field rendering fix after green CI, security audit, and CodeRabbit review",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

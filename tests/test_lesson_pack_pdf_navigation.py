@@ -8,6 +8,7 @@ from app.services.lesson_pack_pdf_navigation import (
     navigation_index_html,
     navigation_items,
     normalize_final_review_settings,
+    question_navigation_html,
 )
 from app.services.lesson_pack_student_handout_v2 import (
     _render_enhanced,
@@ -86,6 +87,13 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
         self.assertNotIn("تأكد قبل ما تقفل الملزمة", review)
         self.assertEqual(navigation_items(pack)[-1].label, "راجع الفكرة الأساسية")
 
+    def test_question_map_html_is_visible_and_has_every_question(self):
+        html = question_navigation_html(self._pack())
+        self.assertIn("خريطة الأسئلة", html)
+        self.assertIn("سؤال 1", html)
+        self.assertIn("سؤال 2", html)
+        self.assertIn("سؤال 3", html)
+
     def test_raw_pdf_contains_main_and_question_navigation_markers(self):
         pack = self._pack()
         raw, _positions = _render_enhanced(pack)
@@ -136,12 +144,10 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
                 for link in page.get_links()
                 if link.get("kind") == fitz.LINK_GOTO
             ]
-            # Main index links + one forward and one return link for every question.
             self.assertGreaterEqual(len(links), len(expected_labels) + 6)
             extracted = "\n".join(page.get_text() for page in doc)
             for marker_prefix in ("LPNI", "LPNT", "LPNS", "LPNB", "LPNM"):
                 self.assertNotIn(marker_prefix, extracted)
-            self.assertIn("خريطة الأسئلة", extracted)
         finally:
             doc.close()
 
@@ -164,7 +170,6 @@ class LessonPackPdfNavigationTests(unittest.TestCase):
             ]
             for page_index in question_pages.values():
                 self.assertTrue(any(int(link.get("page")) == page_index for _, link in all_links))
-            # At least one return link must point back to a page before the first question.
             first_question_page = min(question_pages.values())
             return_targets = [int(link.get("page")) for _, link in all_links if int(link.get("page")) < first_question_page]
             self.assertTrue(return_targets)

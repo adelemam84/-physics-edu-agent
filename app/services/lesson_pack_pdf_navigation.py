@@ -46,13 +46,14 @@ def navigation_index_html(pack: dict) -> str:
     rows: list[str] = []
     for item in navigation_items(pack):
         cls = "toc-item toc-subitem" if item.level > 1 else "toc-item"
+        source_id = f"toc-link-{item.anchor}"
         rows.append(
-            f'<div class="{cls}"><a class="toc-link" href="#{_esc(item.anchor)}">'
+            f'<div class="{cls}" id="{_esc(source_id)}">'
             f'<span class="toc-label">{_esc(item.label)}</span>'
-            '<span class="toc-dots">................................</span></a></div>'
+            '<span class="toc-dots">................................</span></div>'
         )
     return (
-        '<section class="toc-page page-break-before page-break-after">'
+        '<section class="toc-page page-break-before page-break-after" id="nav-index">'
         '<div class="toc-kicker">دليل سريع للملزمة</div>'
         '<h2>فهرس الملزمة</h2>'
         '<p class="toc-note">في النسخة الرقمية اضغط على العنوان للانتقال مباشرة إلى الجزء المطلوب.</p>'
@@ -115,9 +116,8 @@ def navigation_css() -> str:
       .toc-kicker,.review-kicker { color:#667085; font-size:9pt; font-weight:700; }
       .toc-page h2,.final-review h2 { font-size:20pt; margin-top:8px; }
       .toc-note,.review-lead { color:#667085; font-size:9.5pt; }
-      .toc-item { margin:10px 0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
+      .toc-item { display:flex; align-items:center; gap:8px; margin:10px 0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
       .toc-subitem { margin-right:22px; font-weight:500; font-size:10.5pt; }
-      .toc-link { display:flex; align-items:center; gap:8px; color:#172033; text-decoration:none; }
       .toc-label { white-space:nowrap; }
       .toc-dots { color:#d0d5dd; overflow:hidden; direction:ltr; flex:1; }
       .final-review { min-height:680px; border:1.5px solid #667085; padding:16px 19px; box-sizing:border-box; background:#fbfcfe; }
@@ -130,7 +130,7 @@ def navigation_css() -> str:
 
 
 def enhance_document_html(base_html: str, pack: dict) -> str:
-    """Inject same-document anchors, index and final review before rendering."""
+    """Inject layout IDs, index and final review before rendering."""
     out = str(base_html)
     cover_end = out.find("</header>")
     if cover_end < 0:
@@ -152,35 +152,15 @@ def enhance_document_html(base_html: str, pack: dict) -> str:
             out = out.replace(old, new, 1)
 
     if pack.get("equations_or_rules"):
-        out = out.replace(
-            '<section class="laws"><h2>',
-            '<section class="laws"><h2 id="nav-laws">',
-            1,
-        )
+        out = out.replace('<section class="laws"><h2>', '<section class="laws"><h2 id="nav-laws">', 1)
     if pack.get("source_visuals"):
-        out = out.replace(
-            '<section class="source-visuals"><h2>',
-            '<section class="source-visuals"><h2 id="nav-visuals">',
-            1,
-        )
+        out = out.replace('<section class="source-visuals"><h2>', '<section class="source-visuals"><h2 id="nav-visuals">', 1)
     elif pack.get("diagram_specs"):
-        out = out.replace(
-            '<section class="diagrams"><h2>',
-            '<section class="diagrams"><h2 id="nav-visuals">',
-            1,
-        )
+        out = out.replace('<section class="diagrams"><h2>', '<section class="diagrams"><h2 id="nav-visuals">', 1)
     if pack.get("worked_examples"):
-        out = out.replace(
-            '<section class="examples"><h2>',
-            '<section class="examples"><h2 id="nav-examples">',
-            1,
-        )
+        out = out.replace('<section class="examples"><h2>', '<section class="examples"><h2 id="nav-examples">', 1)
     if pack.get("practice_questions"):
-        out = out.replace(
-            '<section class="practice page-break-before"><h2>',
-            '<section class="practice page-break-before"><h2 id="nav-practice">',
-            1,
-        )
+        out = out.replace('<section class="practice page-break-before"><h2>', '<section class="practice page-break-before"><h2 id="nav-practice">', 1)
 
     notes_marker = '<section class="notes">'
     notes_pos = out.find(notes_marker)
@@ -193,25 +173,59 @@ def enhance_document_html(base_html: str, pack: dict) -> str:
     return out
 
 
-def add_pdf_navigation(data: bytes, pack: dict) -> bytes:
-    """Build PDF outline from native same-document GoTo links; never text-search Arabic glyphs."""
-    expected = navigation_items(pack)
+def position_map(positions) -> dict[str, tuple[int, fitz.Rect | None]]:
+    result: dict[str, tuple[int, fitz.Rect | None]] = {}
+    for position in positions or []:
+        anchor = getattr(position, "id", None)
+        if not anchor or not (getattr(position, "open_close", 0) & 1):
+            continue
+        page_num = int(getattr(position, "page_num", 0) or 0)
+        if page_num <= 0:
+            continue
+        rect = getattr(position, "rect", None)
+        try:
+            rect = fitz.Rect(rect) if rect is not None else None
+        except Exception:
+            rect = None
+        result[str(anchor)] = (page_num, rect)
+    return result
+
+
+def add_pdf_navigation(data: bytes, pack: dict, positions) -> bytes:
+    """Create GoTo links and outline from stabilized Story positions, never from Arabic text extraction."""
+    geometry = position_map(positions)
     doc = fitz.open(stream=data, filetype="pdf")
     try:
-        internal_links: list[dict] = []
-        for page in doc:
-            for link in page.get_links():
-                if link.get("kind") == fitz.LINK_GOTO and isinstance(link.get("page"), int):
-                    internal_links.append(link)
-        if not internal_links:
-            return data
-
         outline: list[list] = [[1, str(pack.get("title") or "ملزمة الدرس"), 1]]
-        for item, link in zip(expected, internal_links):
-            target_page = int(link["page"]) + 1
+        links_added = 0
+        for item in navigation_items(pack):
+            target = geometry.get(item.anchor)
+            source = geometry.get(f"toc-link-{item.anchor}")
+            if not target:
+                continue
+            target_page = target[0]
             outline.append([item.level, item.label, target_page])
+            if not source or source[1] is None:
+                continue
+            source_page = source[0] - 1
+            destination_page = target_page - 1
+            if not (0 <= source_page < doc.page_count and 0 <= destination_page < doc.page_count):
+                continue
+            rect = source[1]
+            if rect.is_empty or rect.is_infinite:
+                continue
+            doc[source_page].insert_link({
+                "kind": fitz.LINK_GOTO,
+                "from": rect,
+                "page": destination_page,
+                "to": fitz.Point(0, 0),
+            })
+            links_added += 1
         if len(outline) > 1:
             doc.set_toc(outline)
+        if links_added == 0 and len(outline) > 1:
+            # Keep bookmarks useful even if a future Story build omits source rectangles.
+            pass
         return doc.tobytes(garbage=3, deflate=True)
     finally:
         doc.close()

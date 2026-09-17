@@ -28,18 +28,13 @@ def _marker_html(role: str, anchor: str) -> str:
 class NavigationItem:
     label: str
     anchor: str
-    level: int = 1
 
 
 def navigation_items(pack: dict) -> list[NavigationItem]:
+    """Keep the printable index compact: major study surfaces only."""
     items: list[NavigationItem] = []
-    sections = [x for x in (pack.get("sections") or []) if isinstance(x, dict)]
-    if sections:
+    if pack.get("sections"):
         items.append(NavigationItem("شرح الدرس", "nav-lessons"))
-        for index, section in enumerate(sections, 1):
-            heading = str(section.get("heading") or f"فكرة {index}").strip()
-            if heading:
-                items.append(NavigationItem(heading, f"nav-section-{index}", 2))
     if pack.get("equations_or_rules"):
         items.append(NavigationItem("القوانين والعلاقات", "nav-laws"))
     if pack.get("source_visuals") or pack.get("diagram_specs"):
@@ -53,20 +48,19 @@ def navigation_items(pack: dict) -> list[NavigationItem]:
 
 
 def navigation_index_html(pack: dict) -> str:
-    rows: list[str] = []
-    for item in navigation_items(pack):
-        cls = "toc-item toc-subitem" if item.level > 1 else "toc-item"
-        rows.append(
-            f'<div class="{cls}">{_marker_html("S", item.anchor)}'
-            f'<span class="toc-label">{_esc(item.label)}</span>'
-            '<span class="toc-dots">................................</span></div>'
-        )
+    rows = "".join(
+        '<div class="toc-item">'
+        f'<span class="toc-label">{_esc(item.label)}</span>'
+        '<span class="toc-dots">................................</span></div>'
+        for item in navigation_items(pack)
+    )
     return (
         '<section class="toc-page page-break-before page-break-after">'
-        '<div class="toc-kicker">دليل سريع للملزمة</div>'
+        + _marker_html("I", "nav-index")
+        + '<div class="toc-kicker">دليل سريع للملزمة</div>'
         '<h2>فهرس الملزمة</h2>'
         '<p class="toc-note">في النسخة الرقمية اضغط على العنوان للانتقال مباشرة إلى الجزء المطلوب.</p>'
-        + "".join(rows)
+        + rows
         + '</section>'
     )
 
@@ -127,7 +121,6 @@ def navigation_css() -> str:
       .toc-page h2,.final-review h2 { font-size:20pt; margin-top:8px; }
       .toc-note,.review-lead { color:#667085; font-size:9.5pt; margin-bottom:10px; }
       .toc-item { display:flex; align-items:center; gap:8px; height:22px; margin:0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
-      .toc-subitem { margin-right:22px; font-weight:500; font-size:10.5pt; }
       .toc-label { white-space:nowrap; }
       .toc-dots { color:#d0d5dd; overflow:hidden; direction:ltr; flex:1; }
       .final-review { min-height:680px; border:1.5px solid #667085; padding:16px 19px; box-sizing:border-box; background:#fbfcfe; }
@@ -140,7 +133,7 @@ def navigation_css() -> str:
 
 
 def enhance_document_html(base_html: str, pack: dict) -> str:
-    """Inject temporary ASCII navigation markers, index and final review before rendering."""
+    """Inject one index marker plus exact target markers before rendering."""
     out = str(base_html)
     cover_end = out.find("</header>")
     if cover_end < 0:
@@ -148,19 +141,12 @@ def enhance_document_html(base_html: str, pack: dict) -> str:
     cover_end += len("</header>")
     out = out[:cover_end] + navigation_index_html(pack) + out[cover_end:]
 
-    sections = [x for x in (pack.get("sections") or []) if isinstance(x, dict)]
-    if sections:
+    if pack.get("sections"):
         out = out.replace(
             '<section class="lesson-section">',
             '<section class="lesson-section">' + _marker_html("T", "nav-lessons"),
             1,
         )
-        for index, section in enumerate(sections, 1):
-            heading = _esc(section.get("heading") or f"فكرة {index}")
-            old = f'<h2>{heading}</h2>'
-            new = f'<h2>{_marker_html("T", f"nav-section-{index}")}{heading}</h2>'
-            out = out.replace(old, new, 1)
-
     if pack.get("equations_or_rules"):
         out = out.replace('<section class="laws"><h2>', '<section class="laws"><h2>' + _marker_html("T", "nav-laws"), 1)
     if pack.get("source_visuals"):
@@ -191,31 +177,35 @@ def _locate_marker(doc: fitz.Document, token: str) -> tuple[int, fitz.Rect] | No
     return None
 
 
-def _clickable_row_rect(page: fitz.Page, marker_rect: fitz.Rect) -> fitz.Rect:
-    y_mid = (marker_rect.y0 + marker_rect.y1) / 2
+def _toc_row_rect(page: fitz.Page, index_marker: fitz.Rect, row_index: int) -> fitz.Rect:
+    # Index geometry is deliberately fixed to one compact page: kicker, heading,
+    # note, then major rows of 34pt each. The clickable band covers the full row.
+    y0 = index_marker.y1 + 78 + (row_index * 34)
     return fitz.Rect(
         page.rect.x0 + 36,
-        max(page.rect.y0 + 20, y_mid - 15),
+        max(page.rect.y0 + 20, y0),
         page.rect.x1 - 36,
-        min(page.rect.y1 - 20, y_mid + 17),
+        min(page.rect.y1 - 20, y0 + 32),
     )
 
 
 def add_pdf_navigation(data: bytes, pack: dict, _positions=None) -> bytes:
-    """Resolve exact PDF pages from short temporary ASCII markers, then remove every marker."""
+    """Use a single index marker and exact target markers; remove all markers before delivery."""
     doc = fitz.open(stream=data, filetype="pdf")
     try:
-        resolved: list[tuple[NavigationItem, int, fitz.Rect, int]] = []
-        marker_rects: dict[int, list[fitz.Rect]] = {}
+        index = _locate_marker(doc, _marker_token("I", "nav-index"))
+        if not index:
+            return data
+        index_page, index_marker = index
+
+        resolved: list[tuple[NavigationItem, int, fitz.Rect]] = []
+        marker_rects: dict[int, list[fitz.Rect]] = {index_page: [index_marker]}
         for item in navigation_items(pack):
-            source = _locate_marker(doc, _marker_token("S", item.anchor))
             target = _locate_marker(doc, _marker_token("T", item.anchor))
-            if not source or not target:
+            if not target:
                 continue
-            source_page, source_marker = source
             target_page, target_marker = target
-            resolved.append((item, source_page, source_marker, target_page))
-            marker_rects.setdefault(source_page, []).append(source_marker)
+            resolved.append((item, target_page, target_marker))
             marker_rects.setdefault(target_page, []).append(target_marker)
 
         for page_index, rects in marker_rects.items():
@@ -225,10 +215,12 @@ def add_pdf_navigation(data: bytes, pack: dict, _positions=None) -> bytes:
             page.apply_redactions()
 
         outline: list[list] = [[1, str(pack.get("title") or "ملزمة الدرس"), 1]]
-        for item, source_page, source_marker, target_page in resolved:
-            outline.append([item.level, item.label, target_page + 1])
-            click_rect = _clickable_row_rect(doc[source_page], source_marker)
-            doc[source_page].insert_link({
+        for row_index, (item, target_page, _target_marker) in enumerate(resolved):
+            outline.append([1, item.label, target_page + 1])
+            click_rect = _toc_row_rect(doc[index_page], index_marker, row_index)
+            if click_rect.is_empty or click_rect.is_infinite:
+                continue
+            doc[index_page].insert_link({
                 "kind": fitz.LINK_GOTO,
                 "from": click_rect,
                 "page": target_page,

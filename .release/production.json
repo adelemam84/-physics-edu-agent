@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "4c79b3e3fa0c855820cb4e6e50d5c36390d3d2f5",
+  "requested_code_sha": "75960ec1af9a45bcb76b88853309c3c05cf9de6c",
   "requested_at": "2026-09-17",
-  "reason": "Release Lesson Pack Studio 1.8.13 falsy-field rendering fix after green CI, security audit, and CodeRabbit review",
+  "reason": "Release Lesson Pack Studio 1.8.14 deterministic PDF preflight and export quality gate after green CI, security audit, and CodeRabbit review",
   "content_ingestion": "locked",
   "scope": "lesson_pack_runtime"
 }

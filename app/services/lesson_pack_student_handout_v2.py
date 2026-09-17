@@ -16,7 +16,7 @@ from .lesson_pack_student_renderer import (
 )
 
 
-def _render_enhanced(pack: dict) -> bytes:
+def _render_enhanced(pack: dict) -> tuple[bytes, list]:
     media = fitz.Rect(0, 0, PAGE_WIDTH, PAGE_HEIGHT)
     content = fitz.Rect(MARGIN_X, MARGIN_Y, PAGE_WIDTH - MARGIN_X, PAGE_HEIGHT - MARGIN_Y)
 
@@ -26,8 +26,11 @@ def _render_enhanced(pack: dict) -> bytes:
         return media, content, None
 
     enhanced_html = enhance_document_html(_document_html(pack), pack)
+    stabilized_positions: list = []
 
-    def contentfn(_positions):
+    def contentfn(positions):
+        stabilized_positions.clear()
+        stabilized_positions.extend(list(positions or []))
         return enhanced_html
 
     out = io.BytesIO()
@@ -46,11 +49,11 @@ def _render_enhanced(pack: dict) -> bytes:
     data = out.getvalue()
     if not data.startswith(b"%PDF"):
         raise RuntimeError("Invalid enhanced Student Handout PDF")
-    return data
+    return data, stabilized_positions
 
 
 def render_enhanced_student_handout_pdf(pack: dict) -> bytes:
-    """Render one A4 story with native internal links, then add the PDF outline."""
-    data = _render_enhanced(pack)
-    data = add_pdf_navigation(data, pack)
+    """Render one A4 story, then build internal links and outline from stabilized positions."""
+    data, positions = _render_enhanced(pack)
+    data = add_pdf_navigation(data, pack, positions)
     return _stamp(data, str(pack.get("title") or "ملزمة الدرس"))

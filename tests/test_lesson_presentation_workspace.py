@@ -1,10 +1,15 @@
 import unittest
+from copy import deepcopy
 from io import BytesIO
 
 from pptx import Presentation
 
 from app.lesson_presentation_studio_ui import _enhance_pack_preview, _workspace
 from app.services.lesson_presentation_blueprint import build_presentation_blueprint
+from app.services.lesson_presentation_editor import (
+    presentation_editor_base_hash,
+    validate_presentation_edits,
+)
 from app.services.lesson_presentation_pptx import pptx_preflight, render_presentation_pptx
 
 
@@ -76,7 +81,68 @@ class LessonPresentationWorkspaceTests(unittest.TestCase):
         self.assertIn("فرق الجهد", all_text)
         self.assertIn("generated_visual", all_text)
 
-    def test_workspace_exposes_interactive_preview_and_both_exports(self):
+    def test_editor_allows_reorder_hide_and_text_changes_but_invalidates_approval(self):
+        base = self._blueprint("teacher")
+        edited = deepcopy(base)
+        edited["slides"][0]["title"] = "قانون أوم — تمهيد"
+        edited["slides"][1]["hidden"] = True
+        edited["slides"][2]["content_blocks"][0]["text"] = "صياغة عرض مختصرة للعلاقة V = IR."
+        edited["slides"][0], edited["slides"][-1] = edited["slides"][-1], edited["slides"][0]
+        report = validate_presentation_edits(
+            base,
+            edited,
+            supplied_base_hash=presentation_editor_base_hash(base),
+        )
+        self.assertTrue(report["ready"], report)
+        self.assertTrue(report["changed"])
+        self.assertTrue(report["teacher_reapproval_required"])
+        self.assertFalse(report["prepared_blueprint"]["approval_state"]["teacher_approved"])
+        self.assertEqual(report["hidden_slide_count"], 1)
+        self.assertEqual(
+            report["visible_slide_count"],
+            len(base["slides"]) - 1,
+        )
+        self.assertNotIn("hidden", report["prepared_blueprint"]["slides"][0])
+
+    def test_editor_blocks_source_grounding_mutation(self):
+        base = self._blueprint("student")
+        edited = deepcopy(base)
+        target = next(slide for slide in edited["slides"] if slide.get("source_refs"))
+        target["source_refs"] = ["forged-source"]
+        report = validate_presentation_edits(
+            base,
+            edited,
+            supplied_base_hash=presentation_editor_base_hash(base),
+        )
+        self.assertFalse(report["ready"])
+        self.assertIn("immutable_slide_source_refs", report["blocking_failures"])
+
+    def test_editor_requires_current_base_hash(self):
+        base = self._blueprint("student")
+        edited = deepcopy(base)
+        edited["slides"][0]["title"] = "عنوان جديد"
+        missing = validate_presentation_edits(base, edited)
+        stale = validate_presentation_edits(base, edited, supplied_base_hash="stale")
+        self.assertIn("editor_base_hash_required", missing["blocking_failures"])
+        self.assertIn("stale_editor_base", stale["blocking_failures"])
+
+    def test_hidden_slide_is_excluded_from_renderable_prepared_deck(self):
+        base = self._blueprint("student")
+        edited = deepcopy(base)
+        edited["slides"][-1]["hidden"] = True
+        report = validate_presentation_edits(
+            base,
+            edited,
+            supplied_base_hash=presentation_editor_base_hash(base),
+        )
+        self.assertTrue(report["ready"], report)
+        prepared = report["prepared_blueprint"]
+        data = render_presentation_pptx(prepared, "student")
+        pptx_report = pptx_preflight(data, len(prepared["slides"]))
+        self.assertTrue(pptx_report["ready"], pptx_report)
+        self.assertEqual(pptx_report["slide_count"], len(base["slides"]) - 1)
+
+    def test_workspace_exposes_interactive_preview_editor_and_guarded_exports(self):
         html = _workspace("job-1")
         self.assertIn("Lesson Presentation Studio", html)
         self.assertIn("presentation/blueprint", html)
@@ -88,6 +154,12 @@ class LessonPresentationWorkspaceTests(unittest.TestCase):
         self.assertIn("filmstrip", html)
         self.assertIn("Speaker Notes", html)
         self.assertIn("renderDiagram", html)
+        self.assertIn("محرر الشرائح داخل المتصفح", html)
+        self.assertIn("presentation/editor/preflight", html)
+        self.assertIn("validateEdits", html)
+        self.assertIn("teacher_reapproved", html)
+        self.assertIn("moveUp", html)
+        self.assertIn("toggleHidden", html)
 
     def test_lesson_pack_preview_gets_presentation_link(self):
         source = '<div class=box><a href="/admin/lesson-pack-studio">Lesson Pack Studio</a> · <a href="/admin/dashboard">لوحة التحكم</a></div>'
@@ -99,6 +171,7 @@ class LessonPresentationWorkspaceTests(unittest.TestCase):
 
         paths = {route.path for route in index.app.routes}
         self.assertIn("/admin/lesson-pack-studio/jobs/{job_id}/presentation", paths)
+        self.assertIn("/api/admin/lesson-pack-studio/jobs/{job_id}/presentation/editor/preflight", paths)
         self.assertIn("/api/admin/lesson-pack-studio/jobs/{job_id}/presentation/export-pptx/{edition}", paths)
 
 

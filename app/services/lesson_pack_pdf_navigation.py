@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from collections import defaultdict
 from dataclasses import dataclass
 
 import fitz
@@ -115,8 +116,8 @@ def navigation_css() -> str:
       .toc-page { min-height:690px; border:1px solid #d0d5dd; padding:18px 22px; box-sizing:border-box; }
       .toc-kicker,.review-kicker { color:#667085; font-size:9pt; font-weight:700; }
       .toc-page h2,.final-review h2 { font-size:20pt; margin-top:8px; }
-      .toc-note,.review-lead { color:#667085; font-size:9.5pt; }
-      .toc-item { display:flex; align-items:center; gap:8px; margin:10px 0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
+      .toc-note,.review-lead { color:#667085; font-size:9.5pt; margin-bottom:10px; }
+      .toc-item { display:flex; align-items:center; gap:8px; height:22px; margin:0; padding:6px 0; border-bottom:1px solid #eaecf0; font-weight:700; }
       .toc-subitem { margin-right:22px; font-weight:500; font-size:10.5pt; }
       .toc-label { white-space:nowrap; }
       .toc-dots { color:#d0d5dd; overflow:hidden; direction:ltr; flex:1; }
@@ -191,27 +192,38 @@ def position_map(positions) -> dict[str, tuple[int, fitz.Rect | None]]:
     return result
 
 
+def _fallback_row_rect(page: fitz.Page, row_index: int) -> fitz.Rect:
+    """Clickable band aligned to the deterministic TOC row layout."""
+    x0 = max(page.rect.x0 + 36, 36)
+    x1 = min(page.rect.x1 - 36, page.rect.x1)
+    y0 = page.rect.y0 + 132 + (row_index * 34)
+    y1 = min(y0 + 32, page.rect.y1 - 40)
+    return fitz.Rect(x0, y0, x1, y1)
+
+
 def add_pdf_navigation(data: bytes, pack: dict, positions) -> bytes:
     """Create GoTo links and outline from stabilized Story positions, never from Arabic text extraction."""
     geometry = position_map(positions)
     doc = fitz.open(stream=data, filetype="pdf")
     try:
         outline: list[list] = [[1, str(pack.get("title") or "ملزمة الدرس"), 1]]
-        links_added = 0
+        row_indexes: dict[int, int] = defaultdict(int)
         for item in navigation_items(pack):
             target = geometry.get(item.anchor)
             source = geometry.get(f"toc-link-{item.anchor}")
-            if not target:
+            if not target or not source:
                 continue
             target_page = target[0]
-            outline.append([item.level, item.label, target_page])
-            if not source or source[1] is None:
-                continue
             source_page = source[0] - 1
             destination_page = target_page - 1
             if not (0 <= source_page < doc.page_count and 0 <= destination_page < doc.page_count):
                 continue
+
+            outline.append([item.level, item.label, target_page])
             rect = source[1]
+            if rect is None or rect.is_empty or rect.is_infinite:
+                rect = _fallback_row_rect(doc[source_page], row_indexes[source_page])
+            row_indexes[source_page] += 1
             if rect.is_empty or rect.is_infinite:
                 continue
             doc[source_page].insert_link({
@@ -220,12 +232,9 @@ def add_pdf_navigation(data: bytes, pack: dict, positions) -> bytes:
                 "page": destination_page,
                 "to": fitz.Point(0, 0),
             })
-            links_added += 1
+
         if len(outline) > 1:
             doc.set_toc(outline)
-        if links_added == 0 and len(outline) > 1:
-            # Keep bookmarks useful even if a future Story build omits source rectangles.
-            pass
         return doc.tobytes(garbage=3, deflate=True)
     finally:
         doc.close()

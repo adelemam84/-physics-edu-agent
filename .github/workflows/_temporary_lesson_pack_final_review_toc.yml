@@ -1,0 +1,137 @@
+name: Temporary Lesson Pack Final Review TOC
+on:
+  push:
+    branches: [work/lesson-pack-final-review-toc]
+    paths: [.github/workflows/_temporary_lesson_pack_final_review_toc.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: work/lesson-pack-final-review-toc
+      - name: Patch renderer and add tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/services/lesson_pack_student_renderer.py')
+          s=p.read_text()
+          old='from .storage import get_bytes\n'
+          new='from .storage import get_bytes\nfrom .lesson_pack_pdf_navigation import add_pdf_navigation, final_review_html, navigation_css, navigation_index_html\n'
+          assert old in s and 'lesson_pack_pdf_navigation' not in s
+          s=s.replace(old,new,1)
+          old='      {_cover_html(pack)}\n      {_lesson_map_html(pack)}'
+          new='      {_cover_html(pack)}\n      {navigation_index_html(pack)}\n      {_lesson_map_html(pack)}'
+          assert old in s
+          s=s.replace(old,new,1)
+          old='      {_revision_html(pack)}\n      {_notes_html()}'
+          new='      {_revision_html(pack)}\n      {final_review_html(pack)}\n      {_notes_html()}'
+          assert old in s
+          s=s.replace(old,new,1)
+          old='            user_css=_css(),\n'
+          new='            user_css=_css() + navigation_css(),\n'
+          assert old in s
+          s=s.replace(old,new,1)
+          old='    data = _render(pack)\n    return _stamp(data, str(pack.get("title") or "ملزمة الدرس"))\n'
+          new='    data = _render(pack)\n    data = add_pdf_navigation(data, pack)\n    return _stamp(data, str(pack.get("title") or "ملزمة الدرس"))\n'
+          assert old in s
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          t=Path('tests/test_lesson_pack_pdf_navigation.py')
+          t.write_text(r'''import unittest
+
+import fitz
+
+from app.services.lesson_pack_pdf_navigation import final_review_html, navigation_index_html
+from app.services.lesson_pack_student_renderer import render_student_handout_pdf
+
+
+class LessonPackPdfNavigationTests(unittest.TestCase):
+    def _pack(self):
+        return {
+            "title": "قانون أوم",
+            "subject": "فيزياء",
+            "grade_label": "الثالث الثانوي",
+            "cover": {"student_name": "طالب تجريبي", "class_label": "3/أ"},
+            "learning_objectives": ["يربط بين الجهد والتيار والمقاومة"],
+            "sections": [
+                {"heading": "العلاقة بين الجهد والتيار", "body": "يزداد التيار بزيادة الجهد عند ثبات المقاومة."},
+                {"heading": "المقاومة الكهربائية", "body": "تحدد المقاومة مقدار التيار المار في الدائرة."},
+            ],
+            "equations_or_rules": [
+                {"label": "قانون أوم", "expression": "V = I × R", "notes": "استخدم وحدات SI"}
+            ],
+            "worked_examples": [
+                {"title": "مثال", "problem": "احسب V", "solution_steps": ["عوّض في القانون"], "answer": "6 V"}
+            ],
+            "common_mistakes": [{"text": "خلط وحدة المقاومة بوحدة التيار"}],
+            "practice_questions": [
+                {"prompt": "ما العلاقة؟", "options": ["طردية", "عكسية"], "difficulty": "easy"}
+            ],
+            "quick_revision": [{"text": "V = I × R"}],
+            "summary": "قانون أوم يربط الجهد بالتيار والمقاومة.",
+        }
+
+    def test_index_and_final_review_are_grounded_in_pack(self):
+        pack=self._pack()
+        index=navigation_index_html(pack)
+        review=final_review_html(pack)
+        self.assertIn("فهرس الملزمة", index)
+        self.assertIn("العلاقة بين الجهد والتيار", index)
+        self.assertIn("المراجعة النهائية", review)
+        self.assertIn("V = I × R", review)
+        self.assertIn("خلط وحدة المقاومة", review)
+        self.assertIn("قانون أوم يربط الجهد", review)
+
+    def test_student_pdf_has_outline_and_internal_links(self):
+        data=render_student_handout_pdf(self._pack())
+        self.assertTrue(data.startswith(b"%PDF"))
+        doc=fitz.open(stream=data, filetype="pdf")
+        try:
+            text="\n".join(page.get_text() for page in doc)
+            self.assertIn("فهرس الملزمة", text)
+            self.assertIn("المراجعة النهائية", text)
+            toc=doc.get_toc()
+            self.assertGreaterEqual(len(toc), 3)
+            self.assertTrue(any(row[1] == "تدريبات الدرس" for row in toc))
+            index_page=None
+            for page in doc:
+                if "فهرس الملزمة" in page.get_text():
+                    index_page=page
+                    break
+            self.assertIsNotNone(index_page)
+            links=index_page.get_links()
+            self.assertTrue(any(link.get("kind") == fitz.LINK_GOTO for link in links))
+        finally:
+            doc.close()
+
+    def test_final_review_is_dedicated_late_page(self):
+        data=render_student_handout_pdf(self._pack())
+        doc=fitz.open(stream=data, filetype="pdf")
+        try:
+            index_pages=[]
+            review_pages=[]
+            for i,page in enumerate(doc):
+                txt=page.get_text()
+                if "فهرس الملزمة" in txt:
+                    index_pages.append(i)
+                if "المراجعة النهائية" in txt:
+                    review_pages.append(i)
+            self.assertEqual(len(index_pages),1)
+            self.assertGreaterEqual(len(review_pages),1)
+            self.assertGreater(review_pages[-1], index_pages[0])
+        finally:
+            doc.close()
+''')
+          PY
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/_temporary_lesson_pack_final_review_toc.yml
+          git config user.name "adelemam84"
+          git config user.email "aaaadel2010@yahoo.com"
+          git add app/services/lesson_pack_student_renderer.py app/services/lesson_pack_pdf_navigation.py tests/test_lesson_pack_pdf_navigation.py .github/workflows/_temporary_lesson_pack_final_review_toc.yml
+          git commit -m "Add final review page and PDF navigation"
+          git push origin HEAD:work/lesson-pack-final-review-toc

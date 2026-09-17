@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "0335efbd84c5f2203d9f2003a9a7e1107794088d",
+  "requested_code_sha": "1c416cf1f840f3f6ed2c72d7808357074a7d578e",
   "requested_at": "2026-09-17",
-  "reason": "Release Physics Education AI Agent 1.8.18 with Presentation Studio editor productivity: bounded undo/redo, browser-local autosave drafts bound to the current job/base hash, before/after slide comparison, safe duplicate slides with provenance validation, guarded Smart Table cell editing, and mandatory pre-export validation plus teacher re-approval after edits",
+  "reason": "Release Physics Education AI Agent 1.8.19 with guarded drag-and-drop Presentation Studio layouts, bounded element geometry, layout presets, per-slide theme controls, editable source-grounded designed PPTX output, and mandatory pre-export validation plus teacher re-approval after design edits",
   "content_ingestion": "locked",
   "scope": "lesson_presentation_studio"
 }

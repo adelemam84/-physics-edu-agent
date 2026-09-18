@@ -228,13 +228,29 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          from app.version import APPLICATION_VERSION
           health = json.loads(Path('/tmp/health.json').read_text())
           ready = json.loads(Path('/tmp/ready.json').read_text())
           if health.get('status') != 'ok':
               raise SystemExit(f"staged /health failed: {health}")
           if ready.get('status') != 'ready':
               raise SystemExit(f"staged /health/ready failed: {ready}")
-          print('staged health checks passed')
+          if health.get('version') != APPLICATION_VERSION:
+              raise SystemExit(
+                  f"staged /health version drift: expected {APPLICATION_VERSION}, "
+                  f"got {health.get('version') or 'missing'}"
+              )
+          if ready.get('version') != APPLICATION_VERSION:
+              raise SystemExit(
+                  f"staged /health/ready version drift: expected {APPLICATION_VERSION}, "
+                  f"got {ready.get('version') or 'missing'}"
+              )
+          if ready.get('content_ingestion') != 'locked':
+              raise SystemExit(
+                  "staged content ingestion drift: expected locked, got "
+                  f"{ready.get('content_ingestion') or 'missing'}"
+              )
+          print(f'staged health checks passed for version {APPLICATION_VERSION}')
           PY
 
       - name: Promote verified deployment
@@ -258,13 +274,29 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          from app.version import APPLICATION_VERSION
           health = json.loads(Path('/tmp/prod-health.json').read_text())
           ready = json.loads(Path('/tmp/prod-ready.json').read_text())
           if health.get('status') != 'ok':
               raise SystemExit(f"production /health failed: {health}")
           if ready.get('status') != 'ready':
               raise SystemExit(f"production /health/ready failed: {ready}")
-          print('production health checks passed')
+          if health.get('version') != APPLICATION_VERSION:
+              raise SystemExit(
+                  f"production /health version drift: expected {APPLICATION_VERSION}, "
+                  f"got {health.get('version') or 'missing'}"
+              )
+          if ready.get('version') != APPLICATION_VERSION:
+              raise SystemExit(
+                  f"production /health/ready version drift: expected {APPLICATION_VERSION}, "
+                  f"got {ready.get('version') or 'missing'}"
+              )
+          if ready.get('content_ingestion') != 'locked':
+              raise SystemExit(
+                  "production content ingestion drift: expected locked, got "
+                  f"{ready.get('content_ingestion') or 'missing'}"
+              )
+          print(f'production health checks passed for version {APPLICATION_VERSION}')
           PY
 
       - name: Release summary

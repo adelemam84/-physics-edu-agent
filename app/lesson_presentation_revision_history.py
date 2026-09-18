@@ -18,7 +18,7 @@ def _clean_label(value: object) -> str | None:
     return text[:_MAX_LABEL] or None
 
 
-def _validated_editor_payload(job_id: str, payload: dict) -> tuple[dict, dict, str, str]:
+def _validated_editor_payload(job_id: str, payload: dict) -> tuple[dict, dict, str, str, int]:
     edited = payload.get("edited_blueprint")
     if not isinstance(edited, dict):
         raise HTTPException(422, "edited_blueprint is required")
@@ -46,6 +46,7 @@ def _validated_editor_payload(job_id: str, payload: dict) -> tuple[dict, dict, s
         report,
         str(report.get("base_hash") or ""),
         str(report.get("edit_digest") or ""),
+        current_slide,
     )
 
 
@@ -124,14 +125,7 @@ def get_lesson_presentation_draft(job_id: str):
     dependencies=[Depends(require_admin)],
 )
 def save_lesson_presentation_draft(job_id: str, payload: dict = Body(...)):
-    edited, report, base_hash, edit_digest = _validated_editor_payload(job_id, payload)
-    current_slide = max(
-        0,
-        min(
-            int(payload.get("current_slide") or 0),
-            max(0, len(edited.get("slides") or []) - 1),
-        ),
-    )
+    edited, report, base_hash, edit_digest, current_slide = _validated_editor_payload(job_id, payload)
     with connect() as con:
         con.execute(
             """INSERT INTO lesson_presentation_drafts(

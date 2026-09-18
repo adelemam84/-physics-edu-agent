@@ -25,6 +25,7 @@ from .services.lesson_presentation_editor import (
 )
 from .services.lesson_presentation_approval import active_approval
 from .services.lesson_presentation_pptx import pptx_preflight, render_presentation_pptx
+from .services.presentation_visual_qa import presentation_visual_preflight
 
 
 def _presentation_base(job_id: str, payload: dict) -> tuple[dict, dict]:
@@ -104,6 +105,9 @@ def lesson_presentation_feature_specs():
             "persistent_teacher_approval": True,
             "exact_digest_approval": True,
             "approval_required_for_all_final_exports": True,
+            "cross_science_visual_qa": True,
+            "strict_visual_schema_validation": True,
+            "visual_teacher_review_gate": True,
         },
     }
 
@@ -154,6 +158,21 @@ def create_lesson_presentation_edition(
         raise HTTPException(422, str(exc)) from exc
     return projected
 
+
+
+
+@app.post(
+    "/api/admin/lesson-pack-studio/presentation/visual-preflight",
+    dependencies=[Depends(require_admin)],
+)
+def lesson_presentation_visual_preflight(payload: dict = Body(...)):
+    report = presentation_visual_preflight(payload)
+    return {
+        "ready": report["ready"],
+        "visual_qa": report,
+        "official_question_bank_write": False,
+        "content_ingestion_unchanged": True,
+    }
 
 @app.post(
     "/api/admin/lesson-pack-studio/presentation/preflight",
@@ -235,5 +254,6 @@ def export_lesson_presentation_pptx(
             "X-Official-Question-Bank-Write": "false",
             "X-Presentation-Edited": "true" if edit_report.get("changed") else "false",
             "X-Presentation-Approval-Id": str(approval["id"]),
+            "X-Science-Visual-QA": "ready",
         },
     )

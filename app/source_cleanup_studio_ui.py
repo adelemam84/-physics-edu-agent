@@ -7,17 +7,17 @@ from fastapi.responses import HTMLResponse
 from . import lesson_pack_studio_ui
 from .main import app
 
-_LINK_ANCHOR = '<div class=box><a href="/admin/lesson-pack-studio">Lesson Pack Studio</a> · <a href="/admin/dashboard">لوحة التحكم</a></div>'
+_DASHBOARD_LINK = '<a href="/admin/dashboard">لوحة التحكم</a>'
 
 
 def _enhance_preview_link(html: str, job_id: str) -> str:
-    if _LINK_ANCHOR not in html:
+    if "Source Cleanup Studio" in html or _DASHBOARD_LINK not in html:
         return html
     replacement = (
-        _LINK_ANCHOR[:-6]
-        + f' · <a href="/admin/lesson-pack-studio/jobs/{job_id}/source-cleanup">Source Cleanup Studio</a></div>'
+        _DASHBOARD_LINK
+        + f' · <a href="/admin/lesson-pack-studio/jobs/{job_id}/source-cleanup">Source Cleanup Studio</a>'
     )
-    return html.replace(_LINK_ANCHOR, replacement, 1)
+    return html.replace(_DASHBOARD_LINK, replacement, 1)
 
 
 _base_preview_page = lesson_pack_studio_ui._preview_page

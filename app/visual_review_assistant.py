@@ -58,7 +58,7 @@ def _queue_rows(limit: int = 100) -> list[dict]:
 
 
 def _candidate_ordinal(text: object) -> int | None:
-    match = re.search(r'\\bQ(\\d+)\\]', str(text or ''), re.IGNORECASE)
+    match = re.search(r'\bQ(\d+)\]', str(text or ''), re.IGNORECASE)
     return int(match.group(1)) if match else None
 
 

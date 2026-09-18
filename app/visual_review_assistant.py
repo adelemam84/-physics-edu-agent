@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
+import time
+
+import httpx
 
 from fastapi import Depends, HTTPException, Request
 
@@ -12,7 +16,17 @@ from .security import require_admin
 from .science_lesson_studio import _gemini_text
 from .services.source_asset_runtime import render_asset_bytes
 from .services.ai_governance import model_settings
+from .services.ai_budget import enforce_ai_budget
+from .services.ai_telemetry import record_ai_usage
+from .services.provider_http import (
+    provider_attempts,
+    provider_error_attempts,
+    request_with_retries,
+)
 from .services.rate_limit import enforce_request_policy
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_VISUAL_MODEL = os.getenv("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra").strip() or "gpt-5.6-terra"
 
 
 def _schema() -> None:
@@ -117,6 +131,140 @@ def _suggestion_prompt(asset_mode: str, ordinal: int | None) -> str:
     )
 
 
+def _extract_openai_output_text(payload: dict) -> str:
+    texts: list[str] = []
+    for item in payload.get("output") or []:
+        if item.get("type") != "message":
+            continue
+        for block in item.get("content") or []:
+            if block.get("type") == "output_text" and block.get("text"):
+                texts.append(str(block["text"]))
+    return "\n".join(texts).strip()
+
+
+def _openai_visual_json(image: bytes, prompt: str) -> str:
+    if not OPENAI_API_KEY:
+        raise HTTPException(503, "OpenAI visual fallback is not configured")
+    enforce_ai_budget(
+        provider="openai",
+        task="visual_review_fallback",
+        model=OPENAI_VISUAL_MODEL,
+    )
+    body = {
+        "model": OPENAI_VISUAL_MODEL,
+        "reasoning": {"effort": "low"},
+        "store": False,
+        "input": [
+            {
+                "role": "developer",
+                "content": [{
+                    "type": "input_text",
+                    "text": (
+                        "أنت محرك نسخ بصري احتياطي لمصدر تعليمي. "
+                        "استخدم الصورة المرفقة فقط. لا تستخدم المعرفة العامة، لا تحل السؤال، "
+                        "ولا تعتمد المحتوى. أخرج JSON فقط."
+                    ),
+                }],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {
+                        "type": "input_image",
+                        "image_url": "data:image/jpeg;base64,"
+                        + base64.b64encode(image).decode("ascii"),
+                        "detail": "high",
+                    },
+                ],
+            },
+        ],
+    }
+    started = time.perf_counter()
+    try:
+        response = request_with_retries(
+            "POST",
+            "https://api.openai.com/v1/responses",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+            timeout=60,
+            retry=False,
+        )
+    except httpx.HTTPError as exc:
+        record_ai_usage(
+            provider="openai",
+            task="visual_review_fallback",
+            model=OPENAI_VISUAL_MODEL,
+            status="error",
+            latency_ms=round((time.perf_counter() - started) * 1000),
+            error_code="network",
+            metadata={"provider_attempts": provider_error_attempts(exc)},
+        )
+        raise HTTPException(502, "OpenAI visual fallback is temporarily unavailable") from exc
+    if response.status_code >= 400:
+        record_ai_usage(
+            provider="openai",
+            task="visual_review_fallback",
+            model=OPENAI_VISUAL_MODEL,
+            status="error",
+            latency_ms=round((time.perf_counter() - started) * 1000),
+            error_code=str(response.status_code),
+            metadata={"provider_attempts": provider_attempts(response)},
+        )
+        raise HTTPException(
+            502,
+            {
+                "message": "OpenAI visual fallback request failed",
+                "provider_status": response.status_code,
+            },
+        )
+    payload = response.json()
+    text = _extract_openai_output_text(payload)
+    if not text:
+        record_ai_usage(
+            provider="openai",
+            task="visual_review_fallback",
+            model=OPENAI_VISUAL_MODEL,
+            status="error",
+            latency_ms=round((time.perf_counter() - started) * 1000),
+            usage=payload.get("usage") or {},
+            error_code="empty_content",
+            metadata={"provider_attempts": provider_attempts(response)},
+        )
+        raise HTTPException(502, "OpenAI visual fallback returned no content")
+    record_ai_usage(
+        provider="openai",
+        task="visual_review_fallback",
+        model=OPENAI_VISUAL_MODEL,
+        status="success",
+        latency_ms=round((time.perf_counter() - started) * 1000),
+        usage=payload.get("usage") or {},
+        metadata={"provider_attempts": provider_attempts(response)},
+    )
+    return text
+
+
+def _should_openai_fallback(exc: HTTPException) -> bool:
+    detail = exc.detail
+    provider_status = None
+    if isinstance(detail, dict):
+        provider_status = detail.get("status") or detail.get("provider_status")
+    try:
+        provider_status = int(provider_status) if provider_status is not None else None
+    except (TypeError, ValueError):
+        provider_status = None
+    return bool(
+        OPENAI_API_KEY
+        and (
+            provider_status in {408, 429, 500, 502, 503, 504}
+            or (provider_status is None and exc.status_code == 503)
+        )
+    )
+
+
 def generate_visual_suggestion(question_id: int) -> dict:
     _schema()
     with connect() as con:
@@ -141,10 +289,23 @@ def generate_visual_suggestion(question_id: int) -> dict:
     except Exception as exc:
         raise HTTPException(503, 'Authoritative source asset is temporarily unavailable') from exc
 
-    raw = _gemini_text([
-        {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
-        {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
-    ], _suggestion_prompt(asset_mode, ordinal), json_mode=True, task='visual_review', provider_timeout=45, provider_retry=False)
+    prompt = _suggestion_prompt(asset_mode, ordinal)
+    provider_id = 'gemini:' + str(model_settings()['gemini_lesson_studio'])
+    fallback_from = None
+    try:
+        raw = _gemini_text([
+            {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
+            {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
+        ], prompt, json_mode=True, task='visual_review', provider_timeout=45, provider_retry=False)
+    except HTTPException as exc:
+        if not _should_openai_fallback(exc):
+            raise
+        raw = _openai_visual_json(
+            image,
+            f"Document: {row['filename']} · original page {row['source_page']}\n" + prompt,
+        )
+        fallback_from = provider_id
+        provider_id = 'openai:' + OPENAI_VISUAL_MODEL
     try:
         suggestion = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -171,6 +332,8 @@ def generate_visual_suggestion(question_id: int) -> dict:
     suggestion['source_page']=int(row['source_page'])
     suggestion['asset_mode']=asset_mode
     suggestion['source_candidate_ordinal']=ordinal
+    suggestion['provider']=provider_id
+    suggestion['fallback_from']=fallback_from
 
     fingerprint=_source_fingerprint(row, asset_mode, ordinal)
     with connect() as con:
@@ -187,7 +350,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
             source_asset_fingerprint=excluded.source_asset_fingerprint,
             updated_at=now()
         """, (question_id,row['document_id'],row['source_page'],json.dumps(suggestion,ensure_ascii=False),
-              confidence,'gemini:'+str(model_settings()['gemini_lesson_studio']),fingerprint))
+              confidence,provider_id,fingerprint))
     return {'question_id':question_id,'suggestion':suggestion,'stored':True,'auto_approved':False}
 
 

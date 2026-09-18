@@ -41,12 +41,14 @@ def _review_effort() -> str:
 
 def model_settings() -> dict:
     """Return secret-free model configuration used across the platform."""
+    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
+    configured_research = _value("GEMINI_RESEARCH_MODEL", "gemini-2.5-flash")
+    configured_lesson = _value("LESSON_STUDIO_GEMINI_MODEL", configured_research)
+    gemini_research = "gemini-2.5-flash" if free_only else configured_research
+    gemini_lesson = "gemini-2.5-flash" if free_only else configured_lesson
     return {
-        "gemini_research": _value("GEMINI_RESEARCH_MODEL", "gemini-2.5-flash"),
-        "gemini_lesson_studio": _value(
-            "LESSON_STUDIO_GEMINI_MODEL",
-            _value("GEMINI_RESEARCH_MODEL", "gemini-2.5-flash"),
-        ),
+        "gemini_research": gemini_research,
+        "gemini_lesson_studio": gemini_lesson,
         "openai_scientific_reviewer": _value("LESSON_STUDIO_REVIEW_MODEL", "gpt-5.6-sol"),
         "openai_scientific_reviewer_reasoning": _review_effort(),
         "openai_visual_fallback": _value("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra"),

@@ -8,6 +8,37 @@ from fastapi import HTTPException
 
 from ..db import connect
 
+FREE_ONLY_ALLOWED_GEMINI_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+}
+
+
+def project_free_only() -> bool:
+    return os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _enforce_free_only_provider(*, provider: str, task: str, model: str | None) -> None:
+    if not project_free_only():
+        return
+    normalized_provider = (provider or "").strip().lower()
+    normalized_model = (model or "").strip()
+    if normalized_provider == "deterministic":
+        return
+    if normalized_provider == "gemini" and normalized_model in FREE_ONLY_ALLOWED_GEMINI_MODELS:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "message": "تم حظر مزود أو نموذج قد يسبب تكلفة لأن المشروع يعمل بوضع Free-only.",
+            "reason": "project_free_only_policy",
+            "provider": provider,
+            "task": task,
+            "model": model,
+            "allowed_gemini_models": sorted(FREE_ONLY_ALLOWED_GEMINI_MODELS),
+        },
+    )
+
 
 @dataclass(frozen=True)
 class AIBudgetConfig:
@@ -116,6 +147,8 @@ def budget_snapshot() -> dict:
         "checks": checks,
         "hard_block_active": bool(exceeded),
         "policy": {
+            "project_free_only": project_free_only(),
+            "free_only_allowed_gemini_models": sorted(FREE_ONLY_ALLOWED_GEMINI_MODELS),
             "blocks_only_when_explicit_budget_is_reached": True,
             "pricing_required_for_cost_budgets": True,
             "does_not_store_prompts_or_outputs": True,
@@ -129,6 +162,7 @@ def enforce_ai_budget(*, provider: str, task: str, model: str | None = None) -> 
     With no budget settings this function performs no database query, so normal AI
     requests keep their existing latency profile.
     """
+    _enforce_free_only_provider(provider=provider, task=task, model=model)
     cfg = budget_config()
     if not _configured(cfg):
         return {

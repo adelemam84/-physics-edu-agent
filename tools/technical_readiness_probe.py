@@ -18,6 +18,7 @@ EXPECT_CONTENT_INGESTION_LOCKED = (
     os.getenv("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED", "true").strip().lower()
     not in {"0", "false", "no", "off"}
 )
+EXPECT_VERSION = os.getenv("TECH_READY_EXPECT_VERSION", "").strip()
 CONTENT_INGESTION_STATE_MIN_VERSION = (1, 8, 4)
 
 
@@ -110,6 +111,17 @@ def _request(path: str) -> dict:
     }
 
 
+def _version_violations(data: object) -> list[str]:
+    if not EXPECT_VERSION or not isinstance(data, dict):
+        return []
+    actual = str(data.get("version") or "").strip()
+    if actual != EXPECT_VERSION:
+        return [
+            f"version drift: expected {EXPECT_VERSION}, got {actual or 'missing'}"
+        ]
+    return []
+
+
 def _security_header_violations(headers: dict[str, str]) -> list[str]:
     violations = []
     for name, expected in SECURITY_HEADERS.items():
@@ -152,6 +164,7 @@ def _expect_health(row: dict) -> list[str]:
         out.append(f"expected 200, got {row['status']}")
     if not isinstance(data, dict) or data.get("status") != "ok":
         out.append("health payload is not ok")
+    out.extend(_version_violations(data))
     if isinstance(data, dict) and _contains_sensitive_key(data):
         out.append("health payload contains a sensitive key name")
     out.extend(_security_header_violations(row["headers"]))
@@ -177,6 +190,7 @@ def _expect_ready(row: dict) -> list[str]:
                 f"content ingestion drift: expected {expected}, got "
                 f"{data.get('content_ingestion') or 'missing'}"
             )
+    out.extend(_version_violations(data))
     if isinstance(data, dict) and _contains_sensitive_key(data):
         out.append("readiness payload contains a sensitive key name")
     out.extend(_security_header_violations(row["headers"]))
@@ -274,6 +288,7 @@ def run() -> dict:
         "content_intake_expected": (
             "locked" if EXPECT_CONTENT_INGESTION_LOCKED else "enabled"
         ),
+        "expected_version": EXPECT_VERSION or None,
         "checks": results,
         "thresholds": {
             "timeout_seconds": TIMEOUT_SECONDS,
@@ -293,6 +308,7 @@ def run() -> dict:
             f"- Result: **{'PASS ✅' if passed else 'FAIL ❌'}**",
             "- Content ingestion: **deferred**",
             f"- Production intake expected: **{'locked' if EXPECT_CONTENT_INGESTION_LOCKED else 'enabled'}**",
+            f"- Expected runtime version: **{EXPECT_VERSION or 'not pinned'}**",
             "",
             "| Check | Result | Last status | Last latency |",
             "|---|---|---:|---:|",

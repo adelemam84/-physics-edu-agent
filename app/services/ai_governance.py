@@ -41,12 +41,14 @@ def _review_effort() -> str:
 
 def model_settings() -> dict:
     """Return secret-free model configuration used across the platform."""
+    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
+    configured_research = _value("GEMINI_RESEARCH_MODEL", "gemini-2.5-flash")
+    configured_lesson = _value("LESSON_STUDIO_GEMINI_MODEL", configured_research)
+    gemini_research = "gemini-2.5-flash" if free_only else configured_research
+    gemini_lesson = "gemini-2.5-flash" if free_only else configured_lesson
     return {
-        "gemini_research": _value("GEMINI_RESEARCH_MODEL", "gemini-3.8-flash"),
-        "gemini_lesson_studio": _value(
-            "LESSON_STUDIO_GEMINI_MODEL",
-            _value("GEMINI_RESEARCH_MODEL", "gemini-3.8-flash"),
-        ),
+        "gemini_research": gemini_research,
+        "gemini_lesson_studio": gemini_lesson,
         "openai_scientific_reviewer": _value("LESSON_STUDIO_REVIEW_MODEL", "gpt-5.6-sol"),
         "openai_scientific_reviewer_reasoning": _review_effort(),
         "openai_visual_fallback": _value("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra"),
@@ -93,6 +95,7 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
     providers = provider_status()
     gemini_ready = bool(providers["gemini"]["configured"])
     openai_ready = bool(providers["openai"]["configured"])
+    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
     mathpix_ready = bool(providers["mathpix"]["configured"])
     gemini_model = str(models["gemini_research"])
     lesson_model = str(models["gemini_lesson_studio"])
@@ -149,15 +152,17 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
             label_ar="قراءة سؤال أو رسم مرئي",
             provider="gemini",
             model=lesson_model,
-            mode="exact_source_image_gemini_with_openai_fallback",
-            ready=bool(gemini_ready or openai_ready),
+            mode="exact_source_image_free_tier_gemini" if free_only else "exact_source_image_gemini_with_openai_fallback",
+            ready=gemini_ready if free_only else bool(gemini_ready or openai_ready),
             source_grounded=True,
             advisory_only=True,
             can_write_question_bank=False,
             can_auto_approve=False,
             can_publish=False,
             human_gate="visual_transcription_review",
-            notes_ar="يقرأ صورة المصدر فقط؛ Gemini أساسي وOpenAI fallback عند تعطل المزود/Rate Limit فقط، وأي جزء غير واضح يظل للمراجعة.",
+            notes_ar=("يقرأ صورة المصدر فقط عبر Gemini Free Tier؛ أي fallback مدفوع محظور، وأي جزء غير واضح يظل للمراجعة."
+                      if free_only else
+                      "يقرأ صورة المصدر فقط؛ Gemini أساسي وOpenAI fallback عند تعطل المزود/Rate Limit فقط، وأي جزء غير واضح يظل للمراجعة."),
         ),
         AITaskPolicy(
             task="handwriting_ocr_primary",
@@ -180,7 +185,7 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
             provider="mathpix",
             model="mathpix-v3-text",
             mode="stem_ocr_verification",
-            ready=mathpix_ready,
+            ready=mathpix_ready and not free_only,
             source_grounded=True,
             advisory_only=True,
             can_write_question_bank=False,
@@ -195,7 +200,7 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
             provider="openai",
             model=review_model,
             mode="source_vs_structured_comparison",
-            ready=openai_ready,
+            ready=openai_ready and not free_only,
             source_grounded=True,
             advisory_only=True,
             can_write_question_bank=False,
@@ -262,6 +267,7 @@ def get_task_policy(task: str) -> AITaskPolicy:
 
 def governance_snapshot() -> dict:
     """Build the admin-facing AI operations contract."""
+    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
     providers = provider_status()
     tasks = [asdict(x) for x in task_policies()]
     recommendations: list[dict] = []
@@ -279,32 +285,37 @@ def governance_snapshot() -> dict:
             "reason_ar": "يحسن البحث في المصادر الكبيرة مع إبقاء المراجعة الدقيقة على الصفحات الأصلية.",
         })
 
-    if not providers["openai"]["configured"]:
+    if not free_only and not providers["openai"]["configured"]:
         recommendations.append({
             "priority": "recommended_high_stakes",
             "title_ar": "إعداد مفتاح OpenAI",
             "reason_ar": "يفعّل المراجع العلمي الثاني المستقل قبل اعتماد المدرس.",
         })
 
-    if not providers["mathpix"]["configured"]:
+    if not free_only and not providers["mathpix"]["configured"]:
         recommendations.append({
             "priority": "optional",
             "title_ar": "Mathpix اختياري",
             "reason_ar": "يفيد كمراجع OCR ثانٍ للمعادلات المكتوبة في الصور، وليس شرطًا لتشغيل المنصة.",
         })
 
-    recommendations.extend([
-        {
-            "priority": "architecture",
-            "title_ar": "احتفظ بالنماذج التوليدية في الدور الاستشاري",
-            "reason_ar": "الاعتماد والنشر والدرجة النهائية يجب أن تبقى خلف بوابات حتمية/بشرية.",
-        },
-        {
+    recommendations.append({
+        "priority": "architecture",
+        "title_ar": "احتفظ بالنماذج التوليدية في الدور الاستشاري",
+        "reason_ar": "الاعتماد والنشر والدرجة النهائية يجب أن تبقى خلف بوابات حتمية/بشرية.",
+    })
+    if free_only:
+        recommendations.append({
+            "priority": "free_only",
+            "title_ar": "الاستمرار على Gemini Free Tier",
+            "reason_ar": "المشروع يحظر المزودات المدفوعة افتراضيًا ويستخدم Gemini 2.5 Flash/Flash-Lite فقط في المسارات المسموح بها.",
+        })
+    else:
+        recommendations.append({
             "priority": "cost_quality",
             "title_ar": "استخدم GPT-5.6 Sol فقط للمراجعات عالية المخاطر",
             "reason_ar": "لا حاجة لاستهلاكه في اختيار التدريب أو التصحيح أو كل تفاعل طالب.",
-        },
-    ])
+        })
 
     return {
         "schema_version": "1.1",
@@ -322,6 +333,8 @@ def governance_snapshot() -> dict:
             "question_bank_write_tasks": sum(1 for x in tasks if x["can_write_question_bank"]),
         },
         "principles": {
+            "project_free_only": free_only,
+            "paid_ai_fallbacks_disabled_when_free_only": free_only,
             "pdf_is_scientific_source_of_truth": True,
             "question_text_verbatim_when_source_question": True,
             "no_model_can_auto_approve_scientific_content": True,

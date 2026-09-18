@@ -21,12 +21,16 @@ from .services.storage import get_bytes, put_bytes, storage_configured
 from .services.ocr_consensus import compare_ocr, single_provider_result
 from .services.science_diagrams import DiagramSpec, render as render_science_diagram, supported_kinds
 from .services.ai_telemetry import record_ai_usage
-from .services.ai_budget import enforce_ai_budget
+from .services.ai_budget import enforce_ai_budget, project_free_only
 from .services.rate_limit import enforce_request_policy
 from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
-GEMINI_MODEL = os.getenv('LESSON_STUDIO_GEMINI_MODEL', os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash')).strip()
+_CONFIGURED_GEMINI_MODEL = os.getenv(
+    'LESSON_STUDIO_GEMINI_MODEL',
+    os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-2.5-flash'),
+).strip() or 'gemini-2.5-flash'
+GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only() else _CONFIGURED_GEMINI_MODEL
 MATHPIX_APP_ID = os.getenv('MATHPIX_APP_ID', '').strip()
 MATHPIX_APP_KEY = os.getenv('MATHPIX_APP_KEY', '').strip()
 MAX_FILE_BYTES = int(os.getenv('LESSON_STUDIO_MAX_FILE_BYTES', str(12 * 1024 * 1024)))

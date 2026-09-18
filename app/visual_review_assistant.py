@@ -27,12 +27,17 @@ from .services.rate_limit import enforce_request_policy
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_VISUAL_MODEL = os.getenv("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra").strip() or "gpt-5.6-terra"
+VISUAL_REVIEW_FREE_ONLY = os.getenv("VISUAL_REVIEW_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
+GEMINI_VISUAL_PRIMARY_MODEL = (
+    os.getenv("VISUAL_REVIEW_GEMINI_PRIMARY_MODEL", "gemini-2.5-flash").strip()
+    or "gemini-2.5-flash"
+)
 GEMINI_VISUAL_FALLBACK_MODELS = tuple(
     dict.fromkeys(
         model.strip()
         for model in os.getenv(
             "VISUAL_REVIEW_GEMINI_FALLBACK_MODELS",
-            "gemini-3.5-flash-lite,gemini-2.5-flash-lite",
+            "gemini-2.5-flash-lite",
         ).split(",")
         if model.strip()
     )
@@ -277,7 +282,7 @@ def _should_gemini_model_failover(exc: HTTPException) -> bool:
 
 
 def _gemini_visual_json(image: bytes, prompt: str, row: dict) -> tuple[str, str, list[str]]:
-    primary = str(model_settings()["gemini_lesson_studio"])
+    primary = GEMINI_VISUAL_PRIMARY_MODEL if VISUAL_REVIEW_FREE_ONLY else str(model_settings()["gemini_lesson_studio"])
     models = [primary, *[m for m in GEMINI_VISUAL_FALLBACK_MODELS if m != primary]]
     attempted: list[str] = []
     last_exc: HTTPException | None = None
@@ -309,7 +314,8 @@ def _gemini_visual_json(image: bytes, prompt: str, row: dict) -> tuple[str, str,
 def _should_openai_fallback(exc: HTTPException) -> bool:
     provider_status = _provider_status_code(exc)
     return bool(
-        OPENAI_API_KEY
+        (not VISUAL_REVIEW_FREE_ONLY)
+        and OPENAI_API_KEY
         and (
             provider_status in {408, 429, 500, 502, 503, 504}
             or (provider_status is None and exc.status_code == 503)
@@ -342,7 +348,8 @@ def generate_visual_suggestion(question_id: int) -> dict:
         raise HTTPException(503, 'Authoritative source asset is temporarily unavailable') from exc
 
     prompt = _suggestion_prompt(asset_mode, ordinal)
-    primary_provider_id = 'gemini:' + str(model_settings()['gemini_lesson_studio'])
+    primary_model = GEMINI_VISUAL_PRIMARY_MODEL if VISUAL_REVIEW_FREE_ONLY else str(model_settings()['gemini_lesson_studio'])
+    primary_provider_id = 'gemini:' + primary_model
     provider_id = primary_provider_id
     fallback_from = None
     gemini_models_attempted: list[str] = []
@@ -405,7 +412,13 @@ def generate_visual_suggestion(question_id: int) -> dict:
             updated_at=now()
         """, (question_id,row['document_id'],row['source_page'],json.dumps(suggestion,ensure_ascii=False),
               confidence,provider_id,fingerprint))
-    return {'question_id':question_id,'suggestion':suggestion,'stored':True,'auto_approved':False}
+    return {
+        'question_id':question_id,
+        'suggestion':suggestion,
+        'stored':True,
+        'auto_approved':False,
+        'free_only':VISUAL_REVIEW_FREE_ONLY,
+    }
 
 
 @app.get('/api/admin/current-corpus/visual-review/queue', dependencies=[Depends(require_admin)])

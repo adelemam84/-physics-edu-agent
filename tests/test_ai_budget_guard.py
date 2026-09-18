@@ -30,9 +30,37 @@ class AIBudgetGuardTests(unittest.TestCase):
             },
             clear=False,
         ):
-            snap = enforce_ai_budget(provider="gemini", task="source_analysis")
+            snap = enforce_ai_budget(provider="gemini", task="source_analysis", model="gemini-2.5-flash")
         self.assertFalse(snap["configured"])
         self.assertFalse(snap["hard_block_active"])
+
+    def test_free_only_blocks_paid_or_unapproved_models_before_budget_checks(self):
+        with patch.dict(os.environ, {"PROJECT_FREE_ONLY": "true"}, clear=False):
+            for provider, model in (
+                ("openai", "gpt-5.6-sol"),
+                ("mathpix", "mathpix-v3-text"),
+                ("gemini", "gemini-3.8-flash"),
+            ):
+                with self.subTest(provider=provider, model=model):
+                    with self.assertRaises(HTTPException) as ctx:
+                        enforce_ai_budget(provider=provider, task="test", model=model)
+                    self.assertEqual(ctx.exception.status_code, 403)
+                    self.assertEqual(ctx.exception.detail["reason"], "project_free_only_policy")
+
+    def test_free_only_allows_verified_free_tier_gemini_models(self):
+        with patch.dict(
+            os.environ,
+            {
+                "PROJECT_FREE_ONLY": "true",
+                "AI_DAILY_CALL_BUDGET": "",
+                "AI_DAILY_COST_BUDGET_USD": "",
+                "AI_MONTHLY_COST_BUDGET_USD": "",
+            },
+            clear=False,
+        ):
+            for model in ("gemini-2.5-flash", "gemini-2.5-flash-lite"):
+                snap = enforce_ai_budget(provider="gemini", task="test", model=model)
+                self.assertFalse(snap["hard_block_active"])
 
     def test_budget_snapshot_warns_at_eighty_percent(self):
         with patch.dict(
@@ -66,7 +94,7 @@ class AIBudgetGuardTests(unittest.TestCase):
             return_value={"daily_calls": 10, "daily_cost_usd": 0, "monthly_cost_usd": 0},
         ):
             with self.assertRaises(HTTPException) as ctx:
-                enforce_ai_budget(provider="gemini", task="visual_review")
+                enforce_ai_budget(provider="gemini", task="visual_review", model="gemini-2.5-flash")
         self.assertEqual(ctx.exception.status_code, 429)
         self.assertEqual(ctx.exception.detail["reason"], "ai_budget_exhausted")
         self.assertIn("daily_calls", ctx.exception.detail["exceeded"])

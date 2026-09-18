@@ -462,11 +462,25 @@ def process_next_lesson_pack_page(job_id: str, request: Request):
     if provider == "unconfigured":
         raise HTTPException(503, "No OCR provider configured")
 
-    data = get_bytes(pending["object_key"])
+    ocr_object_key = pending["object_key"]
+    ocr_content_type = _media_type_for_page(pending)
+    ocr_source = "original"
+    with connect() as con:
+        cleanup = con.execute(
+            """SELECT ocr_object_key
+               FROM lesson_pack_page_enhancements
+               WHERE page_id=%s AND job_id=%s AND teacher_approved=TRUE""",
+            (pending["id"], job_id),
+        ).fetchone()
+    if cleanup and cleanup.get("ocr_object_key"):
+        ocr_object_key = cleanup["ocr_object_key"]
+        ocr_content_type = "image/png"
+        ocr_source = "approved_enhanced"
+    data = get_bytes(ocr_object_key)
     try:
         text, alternate, verification = _verified_ocr(
             data,
-            _media_type_for_page(pending),
+            ocr_content_type,
             int(pending["position"]),
         )
     except Exception:
@@ -514,6 +528,7 @@ def process_next_lesson_pack_page(job_id: str, request: Request):
             "source_ref": source_ref(pending),
             "requires_review": verification["requires_review"],
             "confidence_band": verification["confidence_band"],
+            "ocr_source": ocr_source,
         },
         "processed": len(refreshed) - remaining,
         "remaining": remaining,

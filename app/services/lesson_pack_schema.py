@@ -54,6 +54,29 @@ def ensure_lesson_pack_schema() -> None:
             "CREATE INDEX IF NOT EXISTS idx_lesson_pack_pages_job ON lesson_pack_pages(job_id,position)"
         )
         con.execute(
+            """CREATE TABLE IF NOT EXISTS lesson_pack_page_enhancements(
+              page_id bigint PRIMARY KEY REFERENCES lesson_pack_pages(id) ON DELETE CASCADE,
+              job_id uuid NOT NULL REFERENCES lesson_pack_jobs(id) ON DELETE CASCADE,
+              original_object_key text NOT NULL,
+              visual_object_key text,
+              ocr_object_key text,
+              diff_object_key text,
+              profile text NOT NULL DEFAULT 'balanced',
+              params_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+              metrics_before_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+              metrics_after_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+              fidelity_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+              ocr_comparison_json jsonb,
+              teacher_approved boolean NOT NULL DEFAULT false,
+              approval_notes text,
+              created_at timestamptz NOT NULL DEFAULT now(),
+              updated_at timestamptz NOT NULL DEFAULT now()
+            )"""
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lesson_pack_page_enhancements_job ON lesson_pack_page_enhancements(job_id,page_id)"
+        )
+        con.execute(
             """CREATE TABLE IF NOT EXISTS lesson_presentation_drafts(
               job_id uuid PRIMARY KEY REFERENCES lesson_pack_jobs(id) ON DELETE CASCADE,
               base_hash text NOT NULL,

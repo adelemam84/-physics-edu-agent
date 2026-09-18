@@ -1,12 +1,28 @@
 from pathlib import Path
+import os
 import unittest
+from unittest.mock import patch
+
+from fastapi import HTTPException
 
 VISUAL = Path("app/visual_review_assistant.py").read_text(encoding="utf-8")
+
+from app import visual_review_assistant
 GOV = Path("app/services/ai_governance.py").read_text(encoding="utf-8")
 MAINT = Path("app/content_maintenance_api.py").read_text(encoding="utf-8")
 
 
 class Edu003OpenAIFallbackContractTests(unittest.TestCase):
+    def test_free_only_is_default_and_disables_openai_fallback(self):
+        self.assertIn('VISUAL_REVIEW_FREE_ONLY = os.getenv("VISUAL_REVIEW_FREE_ONLY", "true")', VISUAL)
+        self.assertIn('"gemini-2.5-flash"', VISUAL)
+        self.assertIn('"gemini-2.5-flash-lite"', VISUAL)
+        with patch.object(visual_review_assistant, "VISUAL_REVIEW_FREE_ONLY", True), patch.object(
+            visual_review_assistant, "OPENAI_API_KEY", "configured-but-must-not-be-used"
+        ):
+            exc = HTTPException(status_code=503, detail={"provider_status": 429})
+            self.assertFalse(visual_review_assistant._should_openai_fallback(exc))
+
     def test_visual_fallback_uses_same_source_image_and_is_non_persistent(self):
         self.assertIn('"type": "input_image"', VISUAL)
         self.assertIn('"data:image/jpeg;base64,"', VISUAL)

@@ -102,3 +102,20 @@ def ensure_lesson_pack_schema() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_lesson_presentation_revisions_job ON lesson_presentation_revisions(job_id,created_at DESC,id DESC)"
         )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS lesson_presentation_approvals(
+              id bigserial PRIMARY KEY,
+              job_id uuid NOT NULL REFERENCES lesson_pack_jobs(id) ON DELETE CASCADE,
+              base_hash text NOT NULL,
+              edit_digest text NOT NULL,
+              blueprint_json jsonb NOT NULL,
+              approval_notes text,
+              approved_by text NOT NULL DEFAULT 'admin_session',
+              approved_at timestamptz NOT NULL DEFAULT now(),
+              revoked_at timestamptz,
+              revoke_reason text
+            )"""
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lesson_presentation_approvals_lookup ON lesson_presentation_approvals(job_id,base_hash,edit_digest,approved_at DESC)"
+        )

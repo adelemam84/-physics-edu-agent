@@ -8,7 +8,7 @@ class VercelEntrypointTests(unittest.TestCase):
         return importlib.import_module("index").app
 
     def test_vercel_entrypoint_imports_without_runtime_import_errors(self):
-        self.assertEqual(self._app().version, "1.8.21")
+        self.assertEqual(self._app().version, "1.8.22")
 
     def test_status_plane_uses_the_same_canonical_version(self):
         import status

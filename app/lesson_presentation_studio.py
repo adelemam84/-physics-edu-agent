@@ -19,9 +19,11 @@ from .services.lesson_presentation_blueprint import (
     project_edition,
 )
 from .services.lesson_presentation_editor import (
+    presentation_edit_digest,
     presentation_editor_base_hash,
     validate_presentation_edits,
 )
+from .services.lesson_presentation_approval import active_approval
 from .services.lesson_presentation_pptx import pptx_preflight, render_presentation_pptx
 
 
@@ -52,12 +54,13 @@ def _prepared_editor_blueprint(job_id: str, payload: dict) -> tuple[dict, dict]:
     edited = payload.get("edited_blueprint")
     if edited is None:
         base, _ = _presentation_base(job_id, payload)
+        base_hash = presentation_editor_base_hash(base)
         return base, {
             "ready": True,
             "changed": False,
-            "teacher_reapproval_required": False,
-            "base_hash": presentation_editor_base_hash(base),
-            "edit_digest": "",
+            "teacher_reapproval_required": True,
+            "base_hash": base_hash,
+            "edit_digest": presentation_edit_digest(base_hash, base),
             "prepared_blueprint": base,
         }
     base, _ = _presentation_editor_base(job_id, payload)
@@ -189,15 +192,23 @@ def export_lesson_presentation_pptx(
                         "code": "editor_validation_required",
                     },
                 )
-            if payload.get("teacher_reapproved") is not True:
-                raise HTTPException(
-                    409,
-                    {
-                        "message": "Teacher re-approval is required after slide edits",
-                        "code": "teacher_reapproval_required",
-                    },
-                )
-            blueprint["approval_state"]["teacher_approved"] = True
+        approval = active_approval(
+            job_id,
+            str(edit_report.get("base_hash") or ""),
+            str(edit_report.get("edit_digest") or ""),
+        )
+        if not approval:
+            raise HTTPException(
+                409,
+                {
+                    "message": "Persistent teacher approval is required for this exact presentation revision",
+                    "code": "presentation_approval_required",
+                    "base_hash": edit_report.get("base_hash"),
+                    "edit_digest": edit_report.get("edit_digest"),
+                },
+            )
+        blueprint["approval_state"]["teacher_approved"] = True
+        blueprint["approval_state"]["approval_id"] = approval["id"]
 
         projected = project_edition(blueprint, edition)
         preflight = projected.get("preflight") or presentation_preflight(projected, edition=edition)
@@ -220,5 +231,6 @@ def export_lesson_presentation_pptx(
             "X-Presentation-Slides": str(pptx_report["slide_count"]),
             "X-Official-Question-Bank-Write": "false",
             "X-Presentation-Edited": "true" if edit_report.get("changed") else "false",
+            "X-Presentation-Approval-Id": str(approval["id"]),
         },
     )

@@ -155,11 +155,11 @@ class DatabasePerformanceTests(unittest.TestCase):
         )
         self.assertEqual(error["state"], "unhealthy")
 
-    def test_admin_api_is_protected(self):
+    def test_admin_api_and_page_are_protected(self):
         source = inspect.getsource(perf)
-        self.assertIn(
-            'dependencies=[Depends(require_admin)]',
-            source,
+        self.assertGreaterEqual(
+            source.count('dependencies=[Depends(require_admin)]'),
+            2,
         )
 
 

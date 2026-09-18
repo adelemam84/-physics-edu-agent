@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "6ec7ad9a01e824762366adbf39793d231d442efb",
+  "requested_code_sha": "cf8dbe077239132d0aed63b12c35ed615ae88494",
   "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.20 with Presentation Studio Layout Toolkit: guarded resize handles, snap-to-grid and visual guides, layer ordering and element locks, copy/paste style, reusable slide templates, PPTX layer-order fidelity, and mandatory pre-export validation plus teacher re-approval after edits",
+  "reason": "Release Physics Education AI Agent 1.8.21 with Presentation Studio Pro Editor Tools: multi-select, guarded grouping, alignment/distribution, keyboard nudging, zoom/pan controls, precise element inspector, and continued pre-export validation plus teacher re-approval after edits",
   "content_ingestion": "locked",
   "scope": "lesson_presentation_studio"
 }

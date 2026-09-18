@@ -10,9 +10,9 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 9,
+  "execution_generation": 10,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "all 94 visual candidates reached Gemini but primary model returned HTTP 429 for every request; workflow incorrectly finished green with zero suggestions",
+  "previous_attempt": "isolated Vercel deployment remained INITIALIZING and blocked the maintenance workflow before EDU-003 processing",
   "corrected_mapping": {
     "lesson_id": 20,
     "from": [
@@ -24,7 +24,7 @@
       31
     ]
   },
-  "execution_focus": "Gemini primary plus bounded visual fallback models; fail closed until all EDU-003 candidates have suggestions",
+  "execution_focus": "bounded no-wait staged deployment readiness with automatic cleanup/retry, then resume EDU-003 model failover",
   "provider_policy": {
     "primary": "gemini",
     "fallback": "openai",

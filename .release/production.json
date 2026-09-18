@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "cf8dbe077239132d0aed63b12c35ed615ae88494",
+  "requested_code_sha": "3ec475847bd6556c45382866d8d78675085f8993",
   "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.21 with Presentation Studio Pro Editor Tools: multi-select, guarded grouping, alignment/distribution, keyboard nudging, zoom/pan controls, precise element inspector, and continued pre-export validation plus teacher re-approval after edits",
+  "reason": "Release Physics Education AI Agent 1.8.22 with persistent Presentation Studio server autosave drafts, bounded revision checkpoints, cross-session recovery, guarded restore history, and mandatory pre-export validation plus teacher re-approval after restored or edited states",
   "content_ingestion": "locked",
   "scope": "lesson_presentation_studio"
 }

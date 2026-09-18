@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "30845c62233f7535d82bfbd2b75c246e1cf334c6",
+  "requested_code_sha": "416113d9c658492978c27f21039bd9f11145ea5e",
   "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.23 with Source Cleanup Studio: deterministic non-generative scan denoise and clarity enhancement, separate visual/OCR outputs, fidelity checks, quality metrics, manual-region and batch cleanup, teacher approval, and approved-enhanced OCR source selection while preserving immutable originals",
+  "reason": "Release Physics Education AI Agent 1.8.24 with persistent exact-digest Presentation Studio teacher approval, server-side approval history and revocation, and approval-gated final PPTX exports for both edited and unedited revisions",
   "content_ingestion": "locked",
-  "scope": "source_cleanup_studio"
+  "scope": "lesson_presentation_studio"
 }

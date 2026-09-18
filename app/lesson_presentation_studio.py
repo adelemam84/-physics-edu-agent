@@ -93,6 +93,11 @@ def lesson_presentation_feature_specs():
             "diagram_text_and_labels": True,
             "source_grounding_immutable": True,
             "teacher_reapproval_after_edit": True,
+            "local_undo_redo": True,
+            "server_autosave_draft": True,
+            "revision_timeline": True,
+            "restore_revision": True,
+            "unsaved_change_recovery": True,
         },
     }
 

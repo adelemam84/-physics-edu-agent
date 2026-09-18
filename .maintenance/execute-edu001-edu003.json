@@ -1,0 +1,13 @@
+{
+  "requested_at": "2026-09-18",
+  "recovery_branch": "br-flat-lake-a5zh4xxu",
+  "operations": [
+    "EDU-001",
+    "EDU-003"
+  ],
+  "production_content_runtime": "remains_locked",
+  "sources": [
+    "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
+    "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
+  ]
+}

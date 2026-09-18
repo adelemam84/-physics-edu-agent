@@ -1,0 +1,60 @@
+name: Execute EDU-001 and EDU-003
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".maintenance/execute-edu001-edu003.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-content-maintenance
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_GsqjHJAXTirB3YVlUto63rma
+  VERCEL_PROJECT_ID: prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL
+  VERCEL_CLI_VERSION: 59.17.0
+
+jobs:
+  execute:
+    name: Source coverage and visual transcription assistance
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@$VERCEL_CLI_VERSION"
+      - name: Pull production configuration
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Execute controlled content maintenance
+        run: |
+          set -euo pipefail
+          set -a
+          source .vercel/.env.production.local
+          set +a
+          export CONTENT_INGESTION_ENABLED=true
+          python tools/run_edu001_edu003_maintenance.py
+      - name: Upload maintenance evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: edu001-edu003-maintenance-${{ github.run_id }}
+          path: edu001-edu003-maintenance-results.json
+          if-no-files-found: warn
+          retention-days: 30

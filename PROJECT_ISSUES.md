@@ -5,9 +5,10 @@ This file records non-blocking or deferred issues discovered during implementati
 ## Technical handoff status
 
 - Open technical issues at the pre-content handoff baseline: **0**.
-- Runtime: **1.8.4** with Production intake drift monitoring enabled.
+- Runtime: **1.8.27** with Production intake drift monitoring and exact runtime-version attestation enabled.
 - Production content/source intake remains locked; this backlog must not be interpreted as permission to upload or auto-approve curriculum material.
-- The machine-readable handoff record is `.release/pre-content-baseline.json`.
+- Controlled Production Release, Production Smoke, and Final Technical Readiness now fail closed on runtime-version drift; release/readiness also preserve the locked content-intake boundary.
+- The immutable pre-content closure baseline remains `.release/pre-content-baseline.json`; the current verified runtime state is recorded separately in `.release/current-technical-state.json`.
 
 ## Open
 

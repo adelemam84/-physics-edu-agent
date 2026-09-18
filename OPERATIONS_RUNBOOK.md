@@ -10,13 +10,13 @@ This runbook covers the technical production runtime only. Question/source conte
 - Liveness: `GET /health` must return HTTP 200 with `status=ok`.
 - Readiness: `GET /health/ready` must return HTTP 200 with `status=ready` and `Cache-Control: no-store`.
 - Research engine public status must remain source-only and must not auto-publish.
-- Controlled production releases stage and verify a deployment before promotion.
+- Controlled production releases stage and verify a deployment before promotion, require staged/canonical runtime version identity to match `app.version.APPLICATION_VERSION`, and fail if content intake is not locked.
 - Controlled rollback requires an explicit known-good Vercel deployment and a `ROLLBACK` confirmation.
 
 ## Automated safety checks
 
-- Production smoke: every 6 hours, read-only, evidence retained for 14 days.
-- Final technical readiness: daily, read-only, evidence retained for 30 days.
+- Production smoke: every 6 hours, read-only, exact runtime-version + locked-intake attestation, evidence retained for 14 days.
+- Final technical readiness: daily, read-only, exact runtime-version + locked-intake attestation, evidence retained for 30 days.
 - Python dependency CVE audit: on push/PR and weekly.
 - CI regression suite: on push/PR.
 

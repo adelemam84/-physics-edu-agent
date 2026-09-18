@@ -101,6 +101,9 @@ def lesson_presentation_feature_specs():
             "revision_timeline": True,
             "restore_revision": True,
             "unsaved_change_recovery": True,
+            "persistent_teacher_approval": True,
+            "exact_digest_approval": True,
+            "approval_required_for_all_final_exports": True,
         },
     }
 

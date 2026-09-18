@@ -202,6 +202,11 @@ jobs:
           print(json.dumps(data,ensure_ascii=False,indent=2))
           if int(data.get("covered_lessons") or 0) != int(data.get("total_lessons") or 0):
               raise SystemExit("EDU-001 source coverage is not complete")
+          queue=data.get("visual_queue") or {}
+          if int(queue.get("without_suggestion") or 0) > 0:
+              raise SystemExit(
+                  f"EDU-003 is incomplete: {int(queue.get('without_suggestion') or 0)} visual candidates still have no suggestion"
+              )
           PY
 
       - name: Remove isolated maintenance deployment

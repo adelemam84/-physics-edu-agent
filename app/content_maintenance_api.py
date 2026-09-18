@@ -235,6 +235,14 @@ def content_maintenance_status(request: Request):
         "ai_providers": provider_status(),
         "ai_models": {
             "gemini_visual_primary": model_settings()["gemini_lesson_studio"],
+            "gemini_visual_fallbacks": [
+                x.strip()
+                for x in os.getenv(
+                    "VISUAL_REVIEW_GEMINI_FALLBACK_MODELS",
+                    "gemini-3.5-flash-lite,gemini-2.5-flash-lite",
+                ).split(",")
+                if x.strip()
+            ],
             "openai_visual_fallback": model_settings()["openai_visual_fallback"],
         },
         "policy": "source_grounded_only_no_visual_auto_approval",

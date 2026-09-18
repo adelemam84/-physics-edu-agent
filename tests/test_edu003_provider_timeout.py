@@ -12,7 +12,7 @@ class Edu003ProviderTimeoutTests(unittest.TestCase):
         self.assertIn("retry=provider_retry", STUDIO)
 
     def test_visual_review_uses_fail_fast_provider_policy(self):
-        self.assertIn("task='visual_review'", VISUAL)
+        self.assertTrue("task='visual_review'" in VISUAL or 'task="visual_review"' in VISUAL)
         self.assertIn("provider_timeout=45", VISUAL)
         self.assertIn("provider_retry=False", VISUAL)
 

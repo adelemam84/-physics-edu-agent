@@ -91,6 +91,21 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p maintenance-evidence
+          vercel curl "/api/internal/content-maintenance/status" \
+            --deployment "$DEPLOYMENT_URL" -- \
+            --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+            --fail-with-body > maintenance-evidence/pre-status.json
+          read -r covered total < <(python - <<'PY'
+          import json
+          data=json.load(open("maintenance-evidence/pre-status.json",encoding="utf-8"))
+          print(int(data.get("covered_lessons") or 0), int(data.get("total_lessons") or 0))
+          PY
+          )
+          if [ "$total" -gt 0 ] && [ "$covered" -eq "$total" ]; then
+            echo "EDU-001 already complete ($covered/$total); skipping source re-import."
+            exit 0
+          fi
+
           run_source() {
             key="$1"
             vercel curl "/api/internal/content-maintenance/source/$key/register" \

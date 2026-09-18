@@ -53,3 +53,29 @@ def ensure_lesson_pack_schema() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_lesson_pack_pages_job ON lesson_pack_pages(job_id,position)"
         )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS lesson_presentation_drafts(
+              job_id uuid PRIMARY KEY REFERENCES lesson_pack_jobs(id) ON DELETE CASCADE,
+              base_hash text NOT NULL,
+              edit_digest text NOT NULL,
+              blueprint_json jsonb NOT NULL,
+              current_slide integer NOT NULL DEFAULT 0,
+              updated_at timestamptz NOT NULL DEFAULT now()
+            )"""
+        )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS lesson_presentation_revisions(
+              id bigserial PRIMARY KEY,
+              job_id uuid NOT NULL REFERENCES lesson_pack_jobs(id) ON DELETE CASCADE,
+              base_hash text NOT NULL,
+              edit_digest text NOT NULL,
+              blueprint_json jsonb NOT NULL,
+              current_slide integer NOT NULL DEFAULT 0,
+              action text NOT NULL DEFAULT 'checkpoint',
+              label text,
+              created_at timestamptz NOT NULL DEFAULT now()
+            )"""
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lesson_presentation_revisions_job ON lesson_presentation_revisions(job_id,created_at DESC,id DESC)"
+        )

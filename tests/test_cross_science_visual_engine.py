@@ -6,6 +6,7 @@ from io import BytesIO
 from pptx import Presentation
 
 from app.services.diagram_router import route_diagram
+from app.services.lesson_diagram_integrity import diagram_spec_hash
 from app.services.lesson_presentation_blueprint import build_presentation_blueprint
 from app.services.lesson_presentation_editor import presentation_editor_base_hash, validate_presentation_edits
 from app.services.lesson_presentation_pptx import render_presentation_pptx
@@ -126,19 +127,26 @@ class CrossScienceVisualEngineTests(unittest.TestCase):
         self.assertIn("immutable_visual_parameters", report["blocking_failures"])
 
     def test_pptx_uses_editable_native_shapes_for_cross_science_visual(self):
+        params = {
+            "object_label": "جسم",
+            "object_x": .5,
+            "object_y": .5,
+            "forces": [
+                {"label": "F", "x1": .5, "y1": .5, "x2": .8, "y2": .5},
+                {"label": "W", "x1": .5, "y1": .5, "x2": .5, "y2": .85},
+            ],
+        }
         diagram = {
             "kind": "force_diagram",
             "title": "القوى",
             "description": "قوى من المصدر",
             "source_refs": [self.REF],
-            "parameters": {
-                "object_label": "جسم",
-                "object_x": .5,
-                "object_y": .5,
-                "forces": [
-                    {"label": "F", "x1": .5, "y1": .5, "x2": .8, "y2": .5},
-                    {"label": "W", "x1": .5, "y1": .5, "x2": .5, "y2": .85},
-                ],
+            "parameters": params,
+            "diagram_engine": {
+                "schema_validated": True,
+                "teacher_reviewed": True,
+                "review_required": False,
+                "approved_spec_hash": diagram_spec_hash({"kind": "force_diagram", "parameters": params}),
             },
         }
         bp = build_presentation_blueprint(

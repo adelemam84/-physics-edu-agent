@@ -8,6 +8,7 @@ from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 from .lesson_presentation_blueprint import presentation_preflight, project_edition
+from .presentation_science_visuals import render_native_science_visual
 
 
 def _set_text(shape, text: str, *, size: int = 24, bold: bool = False) -> None:
@@ -62,6 +63,11 @@ def _visual_labels(spec: dict) -> list[str]:
 
 def _add_visual_diagram(slide, spec: dict, *, top: float = 2.0) -> None:
     """Render a deterministic editable diagram from a source-grounded visual spec."""
+    native_rect = (Inches(0.8), Inches(top), Inches(11.7), Inches(2.15))
+    if render_native_science_visual(slide, spec, native_rect):
+        caption = slide.shapes.add_textbox(Inches(0.9), Inches(top + 2.22), Inches(11.5), Inches(0.34))
+        _set_text(caption, f"{spec.get('kind') or 'diagram'} · generated_visual · source-grounded", size=8)
+        return
     labels = _visual_labels(spec)
     count = max(1, len(labels))
     left = 0.8

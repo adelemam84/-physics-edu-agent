@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 
 from fastapi import Depends, HTTPException
@@ -72,7 +71,7 @@ def _triage_rows(limit: int = 200) -> list[dict]:
     return result
 
 
-@app.get("/api/admin/current-corpus/visual-review/triage", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/current-corpus/visual-review-triage", dependencies=[Depends(require_admin)])
 def visual_review_triage(limit: int = 200):
     items=_triage_rows(limit)
     counts={
@@ -120,7 +119,6 @@ def visual_review_decision(question_id: int, payload: VisualReviewDecision):
             raise HTTPException(404,"Pending visual-review question not found")
 
         suggestion=row["suggestion"] or {}
-        suggested_text=str(suggestion.get("question_text") or "").strip()
         if decision=="accept":
             if not suggestion:
                 raise HTTPException(409,"Visual suggestion is missing")
@@ -189,7 +187,7 @@ body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-wi
 let data={items:[],counts:{}};function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 async function jf(u,o={}){let r=await fetch(u,o),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(typeof x.detail==='string'?x.detail:JSON.stringify(x.detail));return x}
 function label(b){return {missing:'بدون اقتراح',high_attention:'أولوية عالية',review:'مراجعة',quick_check:'فحص سريع'}[b]||b}
-async function load(){msg.textContent='جارٍ التحميل...';try{data=await jf('/api/admin/current-corpus/visual-review/triage?limit=200');let c=data.counts;summary.innerHTML=[['الإجمالي',c.total],['بدون اقتراح',c.missing],['أولوية عالية',c.high_attention],['مراجعة',c.review],['فحص سريع',c.quick_check]].map(x=>'<div class=card><div class=muted>'+x[0]+'</div><b>'+x[1]+'</b></div>').join('');msg.textContent='المقترحات استشارية فقط';render()}catch(err){msg.textContent=err.message}}
+async function load(){msg.textContent='جارٍ التحميل...';try{data=await jf('/api/admin/current-corpus/visual-review-triage?limit=200');let c=data.counts;summary.innerHTML=[['الإجمالي',c.total],['بدون اقتراح',c.missing],['أولوية عالية',c.high_attention],['مراجعة',c.review],['فحص سريع',c.quick_check]].map(x=>'<div class=card><div class=muted>'+x[0]+'</div><b>'+x[1]+'</b></div>').join('');msg.textContent='المقترحات استشارية فقط';render()}catch(err){msg.textContent=err.message}}
 function render(){let f=filter.value,items=data.items.filter(x=>!f||x.triage_band===f);list.innerHTML=items.length?items.map(item=>{let s=item.suggestion||{},unc=s.uncertain_parts||[],conf=Math.round(Number(item.confidence||0)*100),draft=[s.question_text||'',...(s.options||[]).map((x,i)=>(i+1)+') '+x)].filter(Boolean).join('\n');return '<div class=item id="q'+item.id+'"><div class=top><b>#'+item.id+' · صفحة '+item.source_page+'</b><span class=pill>'+label(item.triage_band)+'</span><span class=pill>ثقة '+conf+'%</span><span class=pill>'+e(item.model||'لا يوجد نموذج')+'</span></div><div class=muted>'+e(item.filename)+'</div><h4>الحالي</h4><div class=source>'+e(item.text_verbatim)+'</div><h4>اقتراح المصدر المرئي</h4><div class=suggestion>'+(s.question_text?e(s.question_text):'لا يوجد اقتراح حتى الآن')+(unc.length?'<br><span class=warn>غير واضح: '+e(unc.join('، '))+'</span>':'')+'</div><textarea id="text'+item.id+'" placeholder="النص الحرفي بعد المراجعة البشرية">'+e(draft)+'</textarea><input id="note'+item.id+'" placeholder="ملاحظة المراجع البشرية"><div class=actions><button '+(!s.question_text?'disabled':'')+' onclick="decide('+item.id+',\'accept\')">قبول النسخ بعد المراجعة</button><button onclick="decide('+item.id+',\'needs_correction\')">يحتاج تصحيح</button><button onclick="decide('+item.id+',\'reject\')">رفض الاقتراح</button><a href="/admin/workflow?quality_issue=visual_transcription_required">فتح Workspace الكامل</a></div></div>'}).join(''):'<div class=box>لا توجد عناصر بهذا الفلتر.</div>'}
 async function decide(id,decision){let note=document.getElementById('note'+id).value.trim(),text=document.getElementById('text'+id).value;if(note.length<3){msg.textContent='اكتب ملاحظة مراجعة واضحة أولًا';return}try{let x=await jf('/api/admin/current-corpus/visual-review/'+id+'/decision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,reviewed_text:text,reviewer_note:note})});msg.textContent=decision==='accept'?'تم إغلاق ملاحظة النسخ البصري يدويًا؛ السؤال ما زال غير معتمد.':'تم تسجيل قرار المراجع وبقيت الملاحظة مفتوحة.';await load()}catch(err){msg.textContent=err.message}}
 load();

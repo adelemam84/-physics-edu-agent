@@ -4,6 +4,7 @@ import inspect
 import unittest
 
 from app import database_performance as perf
+from app import db
 
 
 class DatabasePerformanceTests(unittest.TestCase):
@@ -161,6 +162,15 @@ class DatabasePerformanceTests(unittest.TestCase):
             source.count('dependencies=[Depends(require_admin)]'),
             2,
         )
+
+    def test_foreign_key_support_indexes_are_part_of_controlled_migration(self):
+        source = inspect.getsource(db.init_db)
+        for index_name in (
+            "idx_parent_notifications_student",
+            "idx_questions_answer_document",
+            "idx_quizzes_lesson",
+        ):
+            self.assertIn(index_name, source)
 
 
 if __name__ == "__main__":

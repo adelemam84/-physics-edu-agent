@@ -9,5 +9,8 @@
   "sources": [
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
-  ]
+  ],
+  "execution_generation": 2,
+  "execution_mode": "isolated_vercel_maintenance_deployment",
+  "previous_attempt": "stopped_before_mutation_due_to_runner_import_and_secret-boundary"
 }

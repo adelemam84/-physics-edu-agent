@@ -21,40 +21,185 @@ env:
 
 jobs:
   execute:
-    name: Source coverage and visual transcription assistance
+    name: Staged source coverage and visual transcription assistance
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+
       - name: Install runtime dependencies
         run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile maintenance runtime
+        run: python -m compileall -q app index.py
+
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+
       - name: Install pinned Vercel CLI
         run: npm install --global "vercel@$VERCEL_CLI_VERSION"
+
       - name: Pull production configuration
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-      - name: Execute controlled content maintenance
+
+      - name: Install uv for local Vercel build
+        run: python -m pip install --disable-pip-version-check --upgrade uv
+
+      - name: Build production artifact
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Stage isolated maintenance deployment
+        id: stage
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          set -a
-          source .vercel/.env.production.local
-          set +a
-          export CONTENT_INGESTION_ENABLED=true
-          python tools/run_edu001_edu003_maintenance.py
+          TOKEN="$(python - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(48))
+          PY
+          )"
+          echo "::add-mask::$TOKEN"
+          URL="$(vercel deploy --prebuilt --prod --skip-domain --yes \
+            --env RELEASE_GIT_REF=main \
+            --env RELEASE_GIT_SHA="$GITHUB_SHA" \
+            --env CONTENT_INGESTION_ENABLED=true \
+            --env CONTENT_MAINTENANCE_TOKEN="$TOKEN" \
+            --token="$VERCEL_TOKEN")"
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Register extract and map explanatory sources
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+          MAINT_TOKEN: ${{ steps.stage.outputs.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p maintenance-evidence
+          run_source() {
+            key="$1"
+            vercel curl "/api/internal/content-maintenance/source/$key/register" \
+              --deployment "$DEPLOYMENT_URL" -- \
+              --request POST \
+              --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+              --fail-with-body > "maintenance-evidence/$key-register.json"
+
+            read -r doc_id page_count < <(python - "$key" <<'PY'
+          import json,sys
+          key=sys.argv[1]
+          data=json.load(open(f"maintenance-evidence/{key}-register.json",encoding="utf-8"))
+          doc=data["document"]
+          print(int(doc["id"]), int(doc["page_count"]))
+          PY
+            )
+
+            : > "maintenance-evidence/$key-extract.jsonl"
+            start=1
+            while [ "$start" -le "$page_count" ]; do
+              vercel curl "/api/internal/content-maintenance/source/$key/extract?document_id=$doc_id&start_page=$start" \
+                --deployment "$DEPLOYMENT_URL" -- \
+                --request POST \
+                --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+                --fail-with-body >> "maintenance-evidence/$key-extract.jsonl"
+              printf '\n' >> "maintenance-evidence/$key-extract.jsonl"
+              start=$((start + 15))
+            done
+
+            vercel curl "/api/internal/content-maintenance/source/$key/map?document_id=$doc_id" \
+              --deployment "$DEPLOYMENT_URL" -- \
+              --request POST \
+              --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+              --fail-with-body > "maintenance-evidence/$key-map.json"
+          }
+
+          run_source electrical
+          run_source modern
+
+      - name: Generate source-only visual transcription suggestions
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+          MAINT_TOKEN: ${{ steps.stage.outputs.token }}
+        run: |
+          set -euo pipefail
+          : > maintenance-evidence/visual-batches.jsonl
+          previous=-1
+          stalled=0
+          for batch in $(seq 1 30); do
+            vercel curl "/api/internal/content-maintenance/visual-batch?limit=5" \
+              --deployment "$DEPLOYMENT_URL" -- \
+              --request POST \
+              --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+              --fail-with-body > /tmp/visual.json
+            cat /tmp/visual.json >> maintenance-evidence/visual-batches.jsonl
+            printf '\n' >> maintenance-evidence/visual-batches.jsonl
+            remaining="$(python - <<'PY'
+          import json
+          print(int(json.load(open("/tmp/visual.json"))["remaining_without_suggestion"]))
+          PY
+            )"
+            echo "visual batch $batch remaining=$remaining"
+            if [ "$remaining" -eq 0 ]; then
+              break
+            fi
+            if [ "$remaining" -eq "$previous" ]; then
+              stalled=$((stalled + 1))
+            else
+              stalled=0
+            fi
+            if [ "$stalled" -ge 3 ]; then
+              echo "::warning::Visual suggestion queue stalled with $remaining items still pending."
+              break
+            fi
+            previous="$remaining"
+          done
+
+      - name: Capture final maintenance state
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+          MAINT_TOKEN: ${{ steps.stage.outputs.token }}
+        run: |
+          set -euo pipefail
+          vercel curl "/api/internal/content-maintenance/status" \
+            --deployment "$DEPLOYMENT_URL" -- \
+            --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+            --fail-with-body > maintenance-evidence/final-status.json
+          python - <<'PY'
+          import json
+          data=json.load(open("maintenance-evidence/final-status.json",encoding="utf-8"))
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          if int(data.get("covered_lessons") or 0) != int(data.get("total_lessons") or 0):
+              raise SystemExit("EDU-001 source coverage is not complete")
+          PY
+
+      - name: Remove isolated maintenance deployment
+        if: always() && steps.stage.outputs.url != ''
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
+        run: vercel remove "$DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
+
       - name: Upload maintenance evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: edu001-edu003-maintenance-${{ github.run_id }}
-          path: edu001-edu003-maintenance-results.json
+          path: maintenance-evidence
           if-no-files-found: warn
           retention-days: 30

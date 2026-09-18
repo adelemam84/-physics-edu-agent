@@ -178,6 +178,41 @@ def content_maintenance_visual_batch(request: Request, limit: int = 5):
     }
 
 
+
+
+@app.get("/api/internal/content-maintenance/visual-pending", include_in_schema=False)
+def content_maintenance_visual_pending(request: Request):
+    _authorize(request)
+    rows = _queue_rows(250)
+    return {
+        "question_ids": [int(x["id"]) for x in rows if not x.get("suggestion")],
+        "remaining_without_suggestion": sum(1 for x in rows if not x.get("suggestion")),
+        "with_suggestion": sum(1 for x in rows if x.get("suggestion")),
+    }
+
+
+@app.post("/api/internal/content-maintenance/visual/{question_id}", include_in_schema=False)
+def content_maintenance_visual_one(question_id: int, request: Request):
+    _authorize(request)
+    try:
+        result = generate_visual_suggestion(int(question_id))
+        suggestion = result.get("suggestion") or {}
+        return {
+            "question_id": int(question_id),
+            "status": "suggested",
+            "confidence": suggestion.get("confidence"),
+            "uncertain_parts": len(suggestion.get("uncertain_parts") or []),
+            "auto_approved": False,
+        }
+    except HTTPException as exc:
+        return {
+            "question_id": int(question_id),
+            "status": "error",
+            "error": str(exc.detail),
+            "auto_approved": False,
+        }
+
+
 @app.get("/api/internal/content-maintenance/status", include_in_schema=False)
 def content_maintenance_status(request: Request):
     _authorize(request)

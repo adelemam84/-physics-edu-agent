@@ -152,37 +152,38 @@ jobs:
           MAINT_TOKEN: ${{ steps.stage.outputs.token }}
         run: |
           set -euo pipefail
-          : > maintenance-evidence/visual-batches.jsonl
-          previous=-1
-          stalled=0
-          for batch in $(seq 1 30); do
-            vercel curl "/api/internal/content-maintenance/visual-batch?limit=5" \
+          vercel curl "/api/internal/content-maintenance/visual-pending" \
+            --deployment "$DEPLOYMENT_URL" -- \
+            --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
+            --fail-with-body > maintenance-evidence/visual-pending.json
+          python - <<'PY' > /tmp/visual-ids.txt
+          import json
+          data=json.load(open("maintenance-evidence/visual-pending.json",encoding="utf-8"))
+          for qid in data.get("question_ids", []):
+              print(int(qid))
+          PY
+          : > maintenance-evidence/visual-results.jsonl
+          : > maintenance-evidence/visual-errors.txt
+          processed=0
+          failed=0
+          while read -r qid; do
+            [ -n "$qid" ] || continue
+            echo "processing visual question $qid"
+            if vercel curl "/api/internal/content-maintenance/visual/$qid" \
               --deployment "$DEPLOYMENT_URL" -- \
               --request POST \
               --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-              --fail-with-body > /tmp/visual.json
-            cat /tmp/visual.json >> maintenance-evidence/visual-batches.jsonl
-            printf '\n' >> maintenance-evidence/visual-batches.jsonl
-            remaining="$(python - <<'PY'
-          import json
-          print(int(json.load(open("/tmp/visual.json"))["remaining_without_suggestion"]))
-          PY
-            )"
-            echo "visual batch $batch remaining=$remaining"
-            if [ "$remaining" -eq 0 ]; then
-              break
-            fi
-            if [ "$remaining" -eq "$previous" ]; then
-              stalled=$((stalled + 1))
+              --max-time 270 \
+              --fail-with-body > /tmp/visual-one.json; then
+              cat /tmp/visual-one.json >> maintenance-evidence/visual-results.jsonl
+              printf '\n' >> maintenance-evidence/visual-results.jsonl
+              processed=$((processed + 1))
             else
-              stalled=0
+              echo "$qid" >> maintenance-evidence/visual-errors.txt
+              failed=$((failed + 1))
             fi
-            if [ "$stalled" -ge 3 ]; then
-              echo "::warning::Visual suggestion queue stalled with $remaining items still pending."
-              break
-            fi
-            previous="$remaining"
-          done
+          done < /tmp/visual-ids.txt
+          echo "visual processed=$processed failed=$failed"
 
       - name: Capture final maintenance state
         env:

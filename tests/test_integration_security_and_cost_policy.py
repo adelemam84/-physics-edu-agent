@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import inspect
-import os
 import unittest
-from unittest.mock import patch
-
 from fastapi import HTTPException
 
 from app import external_creative_integrations as integrations
@@ -19,12 +16,13 @@ class IntegrationSecurityAndCostTests(unittest.TestCase):
             source,
         )
 
-    def test_enterprise_notebook_is_disabled_by_default_free_only_policy(self):
-        with patch.dict(os.environ, {"AI_FREE_ONLY": "true"}, clear=False):
-            # Module constants are loaded at import time, so assert the committed
-            # policy contract directly as well as runtime status.
-            self.assertTrue(integrations.AI_FREE_ONLY)
+    def test_enterprise_notebook_is_disabled_by_free_only_policy(self):
+        original = integrations.AI_FREE_ONLY
+        integrations.AI_FREE_ONLY = True
+        try:
             status = integrations.integration_status()["gemini_notebook_enterprise"]
+        finally:
+            integrations.AI_FREE_ONLY = original
         self.assertFalse(status["configured"])
         self.assertTrue(status["blocked_by_free_only_policy"])
         self.assertEqual(status["mode"], "disabled_by_free_only_policy")

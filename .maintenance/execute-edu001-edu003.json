@@ -10,9 +10,9 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 4,
+  "execution_generation": 5,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "EDU-001 complete 10/10; visual queue excluded 94 candidates because question_assets were absent",
+  "previous_attempt": "full-page fallback reached Vercel 300s timeout while processing five questions in one function",
   "corrected_mapping": {
     "lesson_id": 20,
     "from": [
@@ -24,5 +24,5 @@
       31
     ]
   },
-  "execution_focus": "EDU-003 source-page fallback suggestions for 94 open visual transcription notes"
+  "execution_focus": "resumable one-question-per-function EDU-003 processing"
 }

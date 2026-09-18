@@ -157,10 +157,10 @@ def budget_snapshot() -> dict:
 
 
 def enforce_ai_budget(*, provider: str, task: str, model: str | None = None) -> dict:
-    """Fail closed only when an explicitly configured budget is exhausted.
+    """Enforce the zero-cost provider allowlist, then any explicit usage budgets.
 
-    With no budget settings this function performs no database query, so normal AI
-    requests keep their existing latency profile.
+    Free-only mode is enabled by default and fails closed for non-allowlisted
+    providers/models before any external request can be issued.
     """
     _enforce_free_only_provider(provider=provider, task=task, model=model)
     cfg = budget_config()

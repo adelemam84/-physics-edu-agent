@@ -247,6 +247,24 @@ def _openai_visual_json(image: bytes, prompt: str) -> str:
     return text
 
 
+def _should_openai_fallback(exc: HTTPException) -> bool:
+    detail = exc.detail
+    provider_status = None
+    if isinstance(detail, dict):
+        provider_status = detail.get("status") or detail.get("provider_status")
+    try:
+        provider_status = int(provider_status) if provider_status is not None else None
+    except (TypeError, ValueError):
+        provider_status = None
+    return bool(
+        OPENAI_API_KEY
+        and (
+            provider_status in {408, 429, 500, 502, 503, 504}
+            or (provider_status is None and exc.status_code == 503)
+        )
+    )
+
+
 def generate_visual_suggestion(question_id: int) -> dict:
     _schema()
     with connect() as con:
@@ -279,8 +297,8 @@ def generate_visual_suggestion(question_id: int) -> dict:
             {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
             {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
         ], prompt, json_mode=True, task='visual_review', provider_timeout=45, provider_retry=False)
-    except HTTPException:
-        if not OPENAI_API_KEY:
+    except HTTPException as exc:
+        if not _should_openai_fallback(exc):
             raise
         raw = _openai_visual_json(
             image,

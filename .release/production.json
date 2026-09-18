@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "d8a2c3a56c6337e109af6e4a5b158d565391bb99",
+  "requested_code_sha": "19ec545cea5e1547ed9509fc2c632c0cbb3dcf87",
   "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.26 with cross-science visual QA, exact diagram approval freshness, schema and renderer validation, final-export visual gates, and full diagram-editor coverage across physics, chemistry, and middle-school science",
+  "reason": "Release Physics Education AI Agent 1.8.27 with subject-aware science profiles and end-to-end Presentation acceptance across physics, chemistry, and middle-school science",
   "content_ingestion": "locked",
-  "scope": "cross_science_visual_qa"
+  "scope": "subject_aware_science_profiles"
 }

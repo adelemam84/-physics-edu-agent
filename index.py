@@ -90,6 +90,7 @@ from app import completion_audit  # noqa: F401,E402
 from app import e2e_content_acceptance  # noqa: F401,E402
 from app import acceptance_work_queue  # noqa: F401,E402
 from app import visual_review_assistant  # noqa: F401,E402
+from app import visual_review_triage  # noqa: F401,E402
 from app import project_closure  # noqa: F401,E402
 from app import lesson_studio_handwriting_pipeline  # noqa: F401,E402
 from app import lesson_studio_visual_summary  # noqa: F401,E402

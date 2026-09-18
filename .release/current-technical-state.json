@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "record_name": "current-technical-state-2026-09-18",
+  "captured_at_utc": "2026-09-18T15:04:25Z",
+  "application_version": "1.8.27",
+  "technical_complete": true,
+  "content_complete": false,
+  "content_ingestion": "locked",
+  "content_phase": "deferred",
+  "production": {
+    "canonical_url": "https://physics-edu-agent.vercel.app",
+    "released_code_sha": "19ec545cea5e1547ed9509fc2c632c0cbb3dcf87",
+    "release_marker_sha": "6feda2501c5b628d2f4b99d084af964e5b0754a1",
+    "deployment_id": "dpl_BaLyHUfPr3Mn1JSu5UA4Ad3UjGLn",
+    "deployment_url": "https://physics-edu-agent-nyoynprh4-farida13.vercel.app",
+    "region": "iad1",
+    "post_release_hardening_sha": "4e513387ce7c4f07978a0f631a947d117f3d385d"
+  },
+  "evidence": {
+    "controlled_production_release_run": 35356978659,
+    "release_ci_run": 35356978707,
+    "release_security_audit_run": 35356978748,
+    "post_release_ci_run": 35360118024,
+    "post_release_security_audit_run": 35360117919,
+    "final_technical_readiness_run": 35360117993,
+    "production_smoke_run": 35360117901
+  },
+  "runtime_attestation": {
+    "exact_version_required": true,
+    "content_ingestion_lock_required": true,
+    "health_version": "1.8.27",
+    "readiness_version": "1.8.27",
+    "readiness_content_ingestion": "locked",
+    "runtime_errors_last_6h": 0
+  },
+  "historical_baseline": ".release/pre-content-baseline.json",
+  "remaining_work": {
+    "technical_issues_open": 0,
+    "content_gates": [
+      "EDU-001",
+      "EDU-003"
+    ]
+  },
+  "guardrails": {
+    "curriculum_source_uploads_allowed": false,
+    "question_file_uploads_allowed": false,
+    "automatic_scientific_approval_allowed": false,
+    "model_memory_substitution_allowed": false
+  }
+}

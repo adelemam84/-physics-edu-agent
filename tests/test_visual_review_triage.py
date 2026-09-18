@@ -10,7 +10,7 @@ class VisualReviewTriageTests(unittest.TestCase):
     def test_routes_are_registered_and_linked(self):
         self.assertIn("visual_review_triage", INDEX)
         self.assertIn("/admin/visual-review-triage", DASH)
-        self.assertIn("/api/admin/current-corpus/visual-review/triage", TRIAGE)
+        self.assertIn("/api/admin/current-corpus/visual-review-triage", TRIAGE)
 
     def test_acceptance_is_human_gated_and_never_auto_approves(self):
         self.assertIn("Explicit human-reviewed verbatim text is required", TRIAGE)

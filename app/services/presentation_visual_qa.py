@@ -4,34 +4,16 @@ from typing import Any
 
 from .lesson_diagram_integrity import diagram_spec_hash
 from .science_diagram_specs import SPEC_DOMAINS, SPEC_MODELS, preview_diagram_spec, validate_diagram_spec
-
-
-def _subject_family(subject: str) -> str:
-    value = str(subject or "").strip().lower()
-    if any(token in value for token in ("فيز", "phys")):
-        return "physics"
-    if any(token in value for token in ("كيم", "chem")):
-        return "chemistry"
-    if any(token in value for token in ("علوم", "science")):
-        return "middle_school_science"
-    return "unknown"
-
-
-def _domain_compatible(subject_family: str, domain: str) -> bool:
-    if domain == "cross_science" or subject_family == "unknown":
-        return True
-    if subject_family == "middle_school_science":
-        # Middle-school science legitimately contains physics, chemistry and
-        # life/Earth-science units, so domain mismatches are advisory only.
-        return True
-    return subject_family == domain
+from .science_subject_profiles import normalize_subject, subject_profile, visual_domain_allowed
 
 
 def presentation_visual_preflight(blueprint: dict[str, Any]) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
     items: list[dict[str, Any]] = []
-    subject_family = _subject_family(str(blueprint.get("subject") or ""))
+    subject = str(blueprint.get("subject") or "")
+    subject_family = normalize_subject(subject)
+    profile = subject_profile(subject)
 
     for slide_index, slide in enumerate(blueprint.get("slides") or [], 1):
         if not isinstance(slide, dict):
@@ -98,7 +80,7 @@ def presentation_visual_preflight(blueprint: dict[str, Any]) -> dict[str, Any]:
                     warnings.append("visual_schema_validation_marker_missing")
                     advisory_codes.append("visual_schema_validation_marker_missing")
 
-                if not _domain_compatible(subject_family, domain):
+                if not visual_domain_allowed(subject, domain):
                     warnings.append("visual_domain_subject_mismatch")
                     advisory_codes.append("visual_domain_subject_mismatch")
 
@@ -138,6 +120,8 @@ def presentation_visual_preflight(blueprint: dict[str, Any]) -> dict[str, Any]:
         "strict_visual_total": strict_total,
         "strict_reviewed_total": reviewed_total,
         "subject_family": subject_family,
+        "subject_profile_id": profile.get("id"),
+        "allowed_visual_domains": list(profile.get("visual_domains") or []),
         "policy": {
             "source_grounded_only": True,
             "strict_science_visuals_require_schema_validation": True,

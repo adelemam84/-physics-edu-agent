@@ -26,6 +26,8 @@ from .services.lesson_presentation_editor import (
 from .services.lesson_presentation_approval import active_approval
 from .services.lesson_presentation_pptx import pptx_preflight, render_presentation_pptx
 from .services.presentation_visual_qa import presentation_visual_preflight
+from .services.presentation_subject_acceptance import presentation_subject_acceptance
+from .services.science_subject_profiles import subject_profiles_catalog
 
 
 def _presentation_base(job_id: str, payload: dict) -> tuple[dict, dict]:
@@ -108,6 +110,8 @@ def lesson_presentation_feature_specs():
             "cross_science_visual_qa": True,
             "strict_visual_schema_validation": True,
             "visual_teacher_review_gate": True,
+            "subject_aware_science_profiles": True,
+            "subject_acceptance_matrix": True,
         },
     }
 
@@ -160,6 +164,26 @@ def create_lesson_presentation_edition(
 
 
 
+
+
+
+@app.get(
+    "/api/admin/lesson-pack-studio/presentation/subject-profiles",
+    dependencies=[Depends(require_admin)],
+)
+def lesson_presentation_subject_profiles():
+    return subject_profiles_catalog()
+
+
+@app.post(
+    "/api/admin/lesson-pack-studio/presentation/acceptance-matrix",
+    dependencies=[Depends(require_admin)],
+)
+def lesson_presentation_acceptance_matrix(
+    payload: dict = Body(...),
+    render_artifacts: bool = True,
+):
+    return presentation_subject_acceptance(payload, render_artifacts=render_artifacts)
 
 @app.post(
     "/api/admin/lesson-pack-studio/presentation/visual-preflight",

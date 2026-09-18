@@ -12,6 +12,7 @@ _IMMUTABLE_TOP_LEVEL = (
     "deck_id",
     "source_lesson_pack_id",
     "subject",
+    "subject_profile",
     "grade_label",
     "request",
     "objectives",

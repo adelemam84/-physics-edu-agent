@@ -5,6 +5,7 @@ import hashlib
 from typing import Any
 
 from .presentation_visual_qa import presentation_visual_preflight
+from .science_subject_profiles import subject_profile
 
 CARD_FEATURE_SPECS = [
     {"card": 1, "capability": "professional_overview", "title": "عرض احترافي", "enabled": True},
@@ -259,6 +260,7 @@ def build_presentation_blueprint(pack: dict, request: dict | None = None, *, sou
         "source_lesson_pack_id": source_lesson_pack_id,
         "title": title,
         "subject": str(pack.get("subject") or ""),
+        "subject_profile": subject_profile(str(pack.get("subject") or "")),
         "grade_label": str(pack.get("grade_label") or ""),
         "request": req,
         "objectives": objective_map,

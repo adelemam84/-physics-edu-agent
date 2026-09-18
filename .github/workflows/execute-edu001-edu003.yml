@@ -73,12 +73,28 @@ jobs:
           PY
           )"
           echo "::add-mask::$TOKEN"
-          URL="$(vercel deploy --prebuilt --prod --skip-domain --yes \
-            --env RELEASE_GIT_REF=main \
-            --env RELEASE_GIT_SHA="$GITHUB_SHA" \
-            --env CONTENT_INGESTION_ENABLED=true \
-            --env CONTENT_MAINTENANCE_TOKEN="$TOKEN" \
-            --token="$VERCEL_TOKEN")"
+          URL=""
+          for attempt in 1 2; do
+            echo "staging maintenance deployment attempt=$attempt"
+            OUT="$(vercel deploy --prebuilt --prod --skip-domain --yes --no-wait \
+              --env RELEASE_GIT_REF=main \
+              --env RELEASE_GIT_SHA="$GITHUB_SHA" \
+              --env CONTENT_INGESTION_ENABLED=true \
+              --env CONTENT_MAINTENANCE_TOKEN="$TOKEN" \
+              --token="$VERCEL_TOKEN")"
+            URL="$(printf '%s\n' "$OUT" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 || true)"
+            if [ -z "$URL" ]; then
+              echo "::warning::Vercel did not return a deployment URL on attempt $attempt"
+              continue
+            fi
+            echo "created $URL; waiting for READY"
+            if timeout 180s vercel inspect "$URL" --wait --token="$VERCEL_TOKEN"; then
+              break
+            fi
+            echo "::warning::Staged deployment did not become READY within 180s; removing and retrying."
+            vercel remove "$URL" --yes --token="$VERCEL_TOKEN" || true
+            URL=""
+          done
           test -n "$URL"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"

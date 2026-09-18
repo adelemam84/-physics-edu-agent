@@ -290,7 +290,7 @@ def governance_snapshot() -> dict:
             "reason_ar": "يفعّل المراجع العلمي الثاني المستقل قبل اعتماد المدرس.",
         })
 
-    if not providers["mathpix"]["configured"]:
+    if not free_only and not providers["mathpix"]["configured"]:
         recommendations.append({
             "priority": "optional",
             "title_ar": "Mathpix اختياري",

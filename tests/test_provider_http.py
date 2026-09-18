@@ -12,8 +12,10 @@ from app.services import provider_http
 class _Client:
     queue = []
     calls = 0
+    instances = 0
 
     def __init__(self, timeout):
+        type(self).instances += 1
         self.timeout = timeout
 
     def __enter__(self):
@@ -41,6 +43,7 @@ class ProviderHttpTests(unittest.TestCase):
     def setUp(self):
         _Client.queue = []
         _Client.calls = 0
+        _Client.instances = 0
 
     def test_transient_status_retries_same_request_until_success(self):
         _Client.queue = [_response(503), _response(429), _response(200)]
@@ -63,6 +66,7 @@ class ProviderHttpTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(_Client.calls, 3)
+        self.assertEqual(_Client.instances, 1)
         self.assertEqual(provider_http.provider_attempts(response), 3)
         self.assertEqual(sleeps, [0.01, 0.02])
 

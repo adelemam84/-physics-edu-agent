@@ -4,6 +4,8 @@ import copy
 import hashlib
 from typing import Any
 
+from .presentation_visual_qa import presentation_visual_preflight
+
 CARD_FEATURE_SPECS = [
     {"card": 1, "capability": "professional_overview", "title": "عرض احترافي", "enabled": True},
     {"card": 2, "capability": "intro_activity", "title": "مقدمة وفعالية", "enabled": True},
@@ -329,11 +331,16 @@ def presentation_preflight(blueprint: dict, *, edition: str | None = None) -> di
     if any(len(str(block.get("text") or "")) > 700 for slide in slides for block in (slide.get("content_blocks") or [])):
         warnings.append("high_text_density")
 
+    visual_qa = presentation_visual_preflight(blueprint)
+    blockers.extend(visual_qa.get("blocking_failures") or [])
+    warnings.extend(visual_qa.get("warnings") or [])
+
     return {
         "ready": not blockers,
         "blocking_failures": list(dict.fromkeys(blockers)),
         "warnings": list(dict.fromkeys(warnings)),
         "slide_count": len(slides),
+        "visual_qa": visual_qa,
         "official_question_bank_write": False,
         "content_ingestion_unchanged": True,
     }

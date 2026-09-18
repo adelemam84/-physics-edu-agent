@@ -1,6 +1,7 @@
 from pathlib import Path
 import unittest
 
+# CI startup retrigger: workflow contract remains unchanged.
 WORKFLOW = Path(".github/workflows/execute-edu001-edu003.yml").read_text(encoding="utf-8")
 
 

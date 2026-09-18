@@ -17,6 +17,7 @@ from . import lesson_presentation_editor_productivity as productivity
 from .services import lesson_presentation_editor as base_editor
 from .services.lesson_presentation_blueprint import presentation_preflight, project_edition
 from .services.lesson_presentation_pptx import _add_notes, pptx_preflight
+from .services.presentation_science_visuals import render_native_science_visual
 
 _LAYOUTS = {"standard", "title_left", "two_column", "visual_focus", "split_40_60", "custom"}
 _TEMPLATE_IDS = {"clean_standard", "visual_story", "exam_focus", "compare_split", "custom"}
@@ -391,6 +392,8 @@ def _text_box(
 
 
 def _render_visual(slide, visual: dict, rect: tuple, theme: dict) -> None:
+    if render_native_science_visual(slide, visual, rect):
+        return
     labels = []
     for key in ("nodes", "steps", "items", "labels"):
         values = visual.get(key)

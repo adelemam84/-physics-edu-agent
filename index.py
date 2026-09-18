@@ -112,3 +112,5 @@ from app import lesson_presentation_advanced_design  # noqa: F401,E402
 from app import lesson_presentation_advanced_design_ui  # noqa: F401,E402
 from app import lesson_presentation_layout_toolkit_ui  # noqa: F401,E402
 from app import lesson_presentation_pro_editor_ui  # noqa: F401,E402
+from app import lesson_presentation_revision_history  # noqa: F401,E402
+from app import lesson_presentation_revision_history_ui  # noqa: F401,E402

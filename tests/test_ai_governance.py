@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from app.services.ai_governance import governance_snapshot, task_policies
 
@@ -37,6 +39,18 @@ class AIGovernanceTests(unittest.TestCase):
             by_id["source_analysis"].provider,
             by_id["independent_scientific_review"].provider,
         )
+
+    def test_free_only_defaults_to_free_tier_gemini_and_disables_paid_reviewers(self):
+        with patch.dict(os.environ, {"PROJECT_FREE_ONLY": "true"}, clear=False):
+            by_id = {x.task: x for x in task_policies()}
+            snap = governance_snapshot()
+        self.assertEqual(by_id["source_analysis"].model, "gemini-2.5-flash")
+        self.assertEqual(by_id["visual_review"].mode, "exact_source_image_free_tier_gemini")
+        self.assertFalse(by_id["independent_scientific_review"].ready)
+        self.assertFalse(by_id["handwriting_ocr_verifier"].ready)
+        self.assertTrue(snap["principles"]["project_free_only"])
+        self.assertTrue(snap["principles"]["paid_ai_fallbacks_disabled_when_free_only"])
+        self.assertNotIn("GPT-5.6 Sol", repr(snap["recommendations"]))
 
     def test_snapshot_is_secret_free_and_fail_safe(self):
         snap = governance_snapshot()

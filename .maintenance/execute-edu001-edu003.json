@@ -10,9 +10,9 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 3,
+  "execution_generation": 4,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "source extraction completed; modern lesson 20 mapping blocked by blank physical page 1",
+  "previous_attempt": "EDU-001 complete 10/10; visual queue excluded 94 candidates because question_assets were absent",
   "corrected_mapping": {
     "lesson_id": 20,
     "from": [
@@ -23,5 +23,6 @@
       2,
       31
     ]
-  }
+  },
+  "execution_focus": "EDU-003 source-page fallback suggestions for 94 open visual transcription notes"
 }

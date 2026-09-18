@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 
 from fastapi import Depends, HTTPException, Request
 
@@ -40,7 +41,7 @@ def _queue_rows(limit: int = 100) -> list[dict]:
             s.suggestion,s.confidence suggestion_confidence,s.updated_at suggestion_updated_at
           FROM question_review_notes qr
           JOIN questions q ON q.id=qr.question_id
-          JOIN question_assets a ON a.question_id=q.id
+          LEFT JOIN question_assets a ON a.question_id=q.id
           JOIN documents d ON d.id=q.document_id
           LEFT JOIN question_visual_suggestions s ON s.question_id=q.id
           WHERE qr.reason_code='visual_transcription_required'
@@ -56,15 +57,54 @@ def _queue_rows(limit: int = 100) -> list[dict]:
     return [dict(x) for x in rows]
 
 
-def _source_fingerprint(row: dict) -> str:
-    return ':'.join(str(row.get(k) or '') for k in (
-        'document_id','source_page','object_key','crop_x','crop_y','crop_width','crop_height'
-    ))
+def _candidate_ordinal(text: object) -> int | None:
+    match = re.search(r'\bQ(\d+)\]', str(text or ''), re.IGNORECASE)
+    return int(match.group(1)) if match else None
 
 
-def _suggestion_prompt() -> str:
+def _prepare_source_row(row: dict) -> tuple[dict, str, int | None]:
+    prepared = dict(row)
+    ordinal = _candidate_ordinal(prepared.get('text_verbatim'))
+    if prepared.get('object_key'):
+        return prepared, 'exact_crop', ordinal
+
+    page = int(prepared.get('source_page') or 0)
+    document_id = int(prepared.get('document_id') or 0)
+    if page < 1 or document_id < 1 or not prepared.get('storage_url'):
+        raise HTTPException(503, 'Authoritative source page is unavailable')
+
+    prepared.update({
+        'object_key': f'source-drive:{document_id}:{page}:full-page-fallback',
+        'page_number': page,
+        'crop_x': 0.0,
+        'crop_y': 0.0,
+        'crop_width': 1.0,
+        'crop_height': 1.0,
+    })
+    return prepared, 'full_source_page_fallback', ordinal
+
+
+def _source_fingerprint(row: dict, asset_mode: str, ordinal: int | None) -> str:
+    fields = (
+        row.get('document_id'), row.get('source_page'), row.get('object_key'),
+        row.get('crop_x'), row.get('crop_y'), row.get('crop_width'), row.get('crop_height'),
+        asset_mode, ordinal or '',
+    )
+    return ':'.join(str(value or '') for value in fields)
+
+
+def _suggestion_prompt(asset_mode: str, ordinal: int | None) -> str:
+    scope = ''
+    if asset_mode == 'full_source_page_fallback':
+        target = f'السؤال رقم {ordinal}' if ordinal else 'السؤال المرشح المحدد'
+        scope = (
+            f'الصورة المرفقة هي صفحة المصدر الأصلية كاملة. المطلوب هو {target} فقط حسب ترتيب '
+            'الأسئلة الظاهر في الصفحة. لا تنقل سؤالًا آخر من الصفحة. إذا تعذر تحديد حدود السؤال '
+            'المطلوب بدقة، اذكر ذلك داخل uncertain_parts واخفض confidence بدل التخمين. '
+        )
     return (
-        'اقرأ قصاصة السؤال المرفقة فقط، وانقل ما هو ظاهر حرفيًا قدر الإمكان. '
+        scope +
+        'اقرأ الصورة المصدرية المرفقة فقط، وانقل ما هو ظاهر حرفيًا قدر الإمكان. '
         'لا تستخدم المعرفة العامة ولا تحل السؤال من عندك ولا تستنتج إجابة غير ظاهرة. '
         'إذا كان جزء غير مقروء فاكتبه داخل uncertain_parts بدل التخمين. '
         'لو توجد اختيارات انقلها بترتيبها كما تظهر. '
@@ -82,10 +122,11 @@ def generate_visual_suggestion(question_id: int) -> dict:
     with connect() as con:
         row = con.execute("""
           SELECT q.id,q.document_id,COALESCE(q.source_page,q.page) source_page,
+            q.text_verbatim,
             a.object_key,a.page_number,a.crop_x,a.crop_y,a.crop_width,a.crop_height,
             d.filename,d.storage_url
           FROM questions q
-          JOIN question_assets a ON a.question_id=q.id
+          LEFT JOIN question_assets a ON a.question_id=q.id
           JOIN documents d ON d.id=q.document_id
           JOIN question_review_notes qr ON qr.question_id=q.id
           WHERE q.id=%s AND qr.reason_code='visual_transcription_required' AND qr.status='open'
@@ -94,7 +135,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
     if not row:
         raise HTTPException(404, 'Pending visual-review question not found')
 
-    row = dict(row)
+    row, asset_mode, ordinal = _prepare_source_row(dict(row))
     try:
         image = render_asset_bytes(row)
     except Exception as exc:
@@ -103,7 +144,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
     raw = _gemini_text([
         {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
         {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
-    ], _suggestion_prompt(), json_mode=True, task='visual_review')
+    ], _suggestion_prompt(asset_mode, ordinal), json_mode=True, task='visual_review')
     try:
         suggestion = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -128,8 +169,10 @@ def generate_visual_suggestion(question_id: int) -> dict:
     suggestion['confidence']=confidence
     suggestion['policy']='source_image_only_no_auto_approval'
     suggestion['source_page']=int(row['source_page'])
+    suggestion['asset_mode']=asset_mode
+    suggestion['source_candidate_ordinal']=ordinal
 
-    fingerprint=_source_fingerprint(row)
+    fingerprint=_source_fingerprint(row, asset_mode, ordinal)
     with connect() as con:
         con.execute("""
           INSERT INTO question_visual_suggestions(

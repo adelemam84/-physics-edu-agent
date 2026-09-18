@@ -27,6 +27,16 @@ from .services.rate_limit import enforce_request_policy
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_VISUAL_MODEL = os.getenv("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra").strip() or "gpt-5.6-terra"
+GEMINI_VISUAL_FALLBACK_MODELS = tuple(
+    dict.fromkeys(
+        model.strip()
+        for model in os.getenv(
+            "VISUAL_REVIEW_GEMINI_FALLBACK_MODELS",
+            "gemini-3.5-flash-lite,gemini-2.5-flash-lite",
+        ).split(",")
+        if model.strip()
+    )
+)
 
 
 def _schema() -> None:
@@ -247,15 +257,57 @@ def _openai_visual_json(image: bytes, prompt: str) -> str:
     return text
 
 
-def _should_openai_fallback(exc: HTTPException) -> bool:
+def _provider_status_code(exc: HTTPException) -> int | None:
     detail = exc.detail
     provider_status = None
     if isinstance(detail, dict):
         provider_status = detail.get("status") or detail.get("provider_status")
     try:
-        provider_status = int(provider_status) if provider_status is not None else None
+        return int(provider_status) if provider_status is not None else None
     except (TypeError, ValueError):
-        provider_status = None
+        return None
+
+
+def _should_gemini_model_failover(exc: HTTPException) -> bool:
+    provider_status = _provider_status_code(exc)
+    return bool(
+        provider_status in {408, 429, 500, 502, 503, 504}
+        or (provider_status is None and exc.status_code == 503)
+    )
+
+
+def _gemini_visual_json(image: bytes, prompt: str, row: dict) -> tuple[str, str, list[str]]:
+    primary = str(model_settings()["gemini_lesson_studio"])
+    models = [primary, *[m for m in GEMINI_VISUAL_FALLBACK_MODELS if m != primary]]
+    attempted: list[str] = []
+    last_exc: HTTPException | None = None
+    parts = [
+        {"text": f"Document: {row['filename']} · original page {row['source_page']}"},
+        {"inlineData": {"mimeType": "image/jpeg", "data": base64.b64encode(image).decode("ascii")}},
+    ]
+    for model in models:
+        attempted.append(model)
+        try:
+            raw = _gemini_text(
+                parts,
+                prompt,
+                json_mode=True,
+                task="visual_review",
+                provider_timeout=45,
+                provider_retry=False,
+                model_override=model,
+            )
+            return raw, f"gemini:{model}", attempted
+        except HTTPException as exc:
+            last_exc = exc
+            if not _should_gemini_model_failover(exc):
+                raise
+    assert last_exc is not None
+    raise last_exc
+
+
+def _should_openai_fallback(exc: HTTPException) -> bool:
+    provider_status = _provider_status_code(exc)
     return bool(
         OPENAI_API_KEY
         and (
@@ -290,13 +342,14 @@ def generate_visual_suggestion(question_id: int) -> dict:
         raise HTTPException(503, 'Authoritative source asset is temporarily unavailable') from exc
 
     prompt = _suggestion_prompt(asset_mode, ordinal)
-    provider_id = 'gemini:' + str(model_settings()['gemini_lesson_studio'])
+    primary_provider_id = 'gemini:' + str(model_settings()['gemini_lesson_studio'])
+    provider_id = primary_provider_id
     fallback_from = None
+    gemini_models_attempted: list[str] = []
     try:
-        raw = _gemini_text([
-            {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
-            {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
-        ], prompt, json_mode=True, task='visual_review', provider_timeout=45, provider_retry=False)
+        raw, provider_id, gemini_models_attempted = _gemini_visual_json(image, prompt, row)
+        if provider_id != primary_provider_id:
+            fallback_from = primary_provider_id
     except HTTPException as exc:
         if not _should_openai_fallback(exc):
             raise
@@ -304,7 +357,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
             image,
             f"Document: {row['filename']} · original page {row['source_page']}\n" + prompt,
         )
-        fallback_from = provider_id
+        fallback_from = primary_provider_id
         provider_id = 'openai:' + OPENAI_VISUAL_MODEL
     try:
         suggestion = json.loads(raw)
@@ -334,6 +387,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
     suggestion['source_candidate_ordinal']=ordinal
     suggestion['provider']=provider_id
     suggestion['fallback_from']=fallback_from
+    suggestion['gemini_models_attempted']=gemini_models_attempted
 
     fingerprint=_source_fingerprint(row, asset_mode, ordinal)
     with connect() as con:

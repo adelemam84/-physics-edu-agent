@@ -144,7 +144,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
     raw = _gemini_text([
         {'text': f"Document: {row['filename']} · original page {row['source_page']}"},
         {'inlineData': {'mimeType':'image/jpeg','data':base64.b64encode(image).decode('ascii')}},
-    ], _suggestion_prompt(asset_mode, ordinal), json_mode=True, task='visual_review')
+    ], _suggestion_prompt(asset_mode, ordinal), json_mode=True, task='visual_review', provider_timeout=45, provider_retry=False)
     try:
         suggestion = json.loads(raw)
     except json.JSONDecodeError as exc:

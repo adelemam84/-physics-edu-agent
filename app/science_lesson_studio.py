@@ -88,6 +88,8 @@ def _gemini_text(
     *,
     json_mode: bool = False,
     task: str = 'lesson_studio_assist',
+    provider_timeout: float = 90,
+    provider_retry: bool = True,
 ) -> str:
     if not GEMINI_API_KEY:
         raise HTTPException(503, 'GEMINI_API_KEY is not configured')
@@ -107,7 +109,8 @@ def _gemini_text(
             url,
             headers={'x-goog-api-key': GEMINI_API_KEY},
             json=body,
-            timeout=90,
+            timeout=provider_timeout,
+            retry=provider_retry,
         )
     except httpx.HTTPError as exc:
         record_ai_usage(

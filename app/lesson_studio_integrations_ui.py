@@ -69,6 +69,10 @@ $('#refresh').onclick=load;$('#authorize').onclick=()=>{location.href='/api/admi
 </script></main></html>'''
 
 
-@app.get('/admin/lesson-studio/integrations', response_class=HTMLResponse)
+@app.get(
+    '/admin/lesson-studio/integrations',
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_admin)],
+)
 def lesson_studio_integrations_page():
     return PAGE

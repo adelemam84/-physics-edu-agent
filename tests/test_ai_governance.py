@@ -4,7 +4,12 @@ import os
 import unittest
 from unittest.mock import patch
 
+from pathlib import Path
+
 from app.services.ai_governance import governance_snapshot, task_policies
+
+SCIENCE = Path("app/science_lesson_studio.py").read_text(encoding="utf-8")
+RESEARCH = Path("app/research_engine.py").read_text(encoding="utf-8")
 
 
 class AIGovernanceTests(unittest.TestCase):
@@ -51,6 +56,10 @@ class AIGovernanceTests(unittest.TestCase):
         self.assertTrue(snap["principles"]["project_free_only"])
         self.assertTrue(snap["principles"]["paid_ai_fallbacks_disabled_when_free_only"])
         self.assertNotIn("GPT-5.6 Sol", repr(snap["recommendations"]))
+
+    def test_runtime_modules_force_free_model_even_if_old_env_value_exists(self):
+        self.assertIn("GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only()", SCIENCE)
+        self.assertIn("GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only()", RESEARCH)
 
     def test_snapshot_is_secret_free_and_fail_safe(self):
         snap = governance_snapshot()

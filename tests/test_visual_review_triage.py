@@ -12,6 +12,12 @@ class VisualReviewTriageTests(unittest.TestCase):
         self.assertIn("/admin/visual-review-triage", DASH)
         self.assertIn("/api/admin/current-corpus/visual-review-triage", TRIAGE)
 
+    def test_triage_shows_authoritative_source_image(self):
+        self.assertIn("/api/questions/", TRIAGE)
+        self.assertIn("/asset/image", TRIAGE)
+        self.assertIn("/api/admin/review/documents/", TRIAGE)
+        self.assertIn("/preview", TRIAGE)
+
     def test_acceptance_is_human_gated_and_never_auto_approves(self):
         self.assertIn("Explicit human-reviewed verbatim text is required", TRIAGE)
         self.assertIn("approved=FALSE", TRIAGE)

@@ -186,6 +186,62 @@ class LessonPresentationLayoutToolkitTests(unittest.TestCase):
         ):
             self.assertIn(marker, html)
 
+    def test_pro_editor_groups_are_validated(self):
+        spec = self._design()
+        spec["editor"]["groups"] = [["title", "body"]]
+        normalized, blockers = normalize_design_spec(spec)
+        self.assertEqual(blockers, [])
+        self.assertEqual(normalized["editor"]["groups"], [["title", "body"]])
+
+        spec["editor"]["groups"] = [["title", "body"], ["body", "visual"]]
+        _, blockers = normalize_design_spec(spec)
+        self.assertIn("design_group_overlap", blockers)
+
+    def test_pro_editor_capabilities_require_reapproval(self):
+        base = self._blueprint()
+        edited = deepcopy(base)
+        edited["slides"][0]["design_spec"] = self._design()
+        edited["slides"][0]["design_spec"]["editor"]["groups"] = [["title", "body"]]
+        report = validate_presentation_advanced_design_edits(
+            base,
+            edited,
+            supplied_base_hash=presentation_editor_base_hash(base),
+        )
+        self.assertTrue(report["ready"], report)
+        for key in (
+            "multi_select",
+            "group_ungroup",
+            "alignment_distribution",
+            "keyboard_nudging",
+            "zoom_pan",
+            "element_inspector",
+        ):
+            self.assertTrue(report[key])
+        self.assertTrue(report["teacher_reapproval_required"])
+        self.assertFalse(report["official_question_bank_write"])
+        self.assertTrue(report["content_ingestion_unchanged"])
+
+    def test_workspace_exposes_pro_editor_tools(self):
+        import index
+        from app import lesson_presentation_studio_ui
+
+        html = lesson_presentation_studio_ui._workspace("job-pro")
+        for marker in (
+            "Pro Editor Tools",
+            "proGroup",
+            "proUngroup",
+            "alignLeft",
+            "alignMiddle",
+            "distH",
+            "distV",
+            "proZoom",
+            "proPanX",
+            "insX",
+            "insW",
+            "pro-selected",
+        ):
+            self.assertIn(marker, html)
+
 
 if __name__ == "__main__":
     unittest.main()

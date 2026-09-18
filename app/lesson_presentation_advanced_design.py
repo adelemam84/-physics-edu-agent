@@ -45,6 +45,7 @@ _DEFAULT_EDITOR = {
     "snap_to_grid": True,
     "show_guides": True,
     "template_id": "clean_standard",
+    "groups": [],
     "layers": {
         "title": {"z": 3, "locked": False},
         "body": {"z": 2, "locked": False},
@@ -91,7 +92,7 @@ def _normalize_rect(role: str, value: Any, blockers: list[str]) -> dict:
 def _normalize_editor(value: Any, blockers: list[str]) -> dict:
     if value in (None, {}):
         return copy.deepcopy(_DEFAULT_EDITOR)
-    if not isinstance(value, dict) or set(value) - {"grid_size", "snap_to_grid", "show_guides", "template_id", "layers"}:
+    if not isinstance(value, dict) or set(value) - {"grid_size", "snap_to_grid", "show_guides", "template_id", "groups", "layers"}:
         blockers.append("design_editor_invalid")
         return copy.deepcopy(_DEFAULT_EDITOR)
 
@@ -114,6 +115,28 @@ def _normalize_editor(value: Any, blockers: list[str]) -> dict:
             blockers.append("design_template_id_invalid")
         else:
             editor["template_id"] = template_id
+
+    groups = value.get("groups")
+    if groups is not None:
+        if not isinstance(groups, list):
+            blockers.append("design_groups_invalid")
+        else:
+            normalized_groups = []
+            claimed = set()
+            for group in groups:
+                if not isinstance(group, list) or len(group) < 2:
+                    blockers.append("design_group_invalid")
+                    continue
+                roles = [str(role) for role in group]
+                if any(role not in _ROLES for role in roles) or len(set(roles)) != len(roles):
+                    blockers.append("design_group_roles_invalid")
+                    continue
+                if claimed.intersection(roles):
+                    blockers.append("design_group_overlap")
+                    continue
+                claimed.update(roles)
+                normalized_groups.append(roles)
+            editor["groups"] = normalized_groups
 
     layers = value.get("layers")
     if layers is not None:
@@ -304,6 +327,12 @@ def validate_presentation_advanced_design_edits(
     report["element_locking"] = True
     report["copy_paste_style"] = True
     report["reusable_templates"] = True
+    report["multi_select"] = True
+    report["group_ungroup"] = True
+    report["alignment_distribution"] = True
+    report["keyboard_nudging"] = True
+    report["zoom_pan"] = True
+    report["element_inspector"] = True
     report["theme_controls"] = True
     report["official_question_bank_write"] = False
     report["content_ingestion_unchanged"] = True

@@ -148,7 +148,9 @@ class LessonPresentationLayoutToolkitTests(unittest.TestCase):
 
     def test_pptx_shape_creation_honors_layer_order(self):
         blueprint = self._blueprint()
-        target = next(s for s in blueprint["slides"] if s.get("visual_specs") and s.get("content_blocks"))
+        target = next(s for s in blueprint["slides"] if s.get("visual_specs"))
+        if not target.get("content_blocks"):
+            target["content_blocks"] = [{"kind": "summary", "text": "العلاقة V = IR.", "source_refs": [self.REF]}]
         for slide in blueprint["slides"]:
             slide["design_spec"] = self._design()
         data = render_presentation_pptx_with_design(blueprint, "teacher")

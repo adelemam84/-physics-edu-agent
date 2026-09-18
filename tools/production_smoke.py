@@ -12,10 +12,27 @@ BASE_URL = os.getenv("SMOKE_BASE_URL", "https://physics-edu-agent.vercel.app").r
 TIMEOUT_SECONDS = float(os.getenv("SMOKE_TIMEOUT_SECONDS", "8"))
 ATTEMPTS = max(1, int(os.getenv("SMOKE_ATTEMPTS", "3")))
 OUTPUT = Path(os.getenv("SMOKE_OUTPUT", "production-smoke-results.json"))
+EXPECT_VERSION = os.getenv("SMOKE_EXPECT_VERSION", "").strip()
+
+
+def _health_ok(data: dict) -> bool:
+    return (
+        data.get("status") == "ok"
+        and (not EXPECT_VERSION or str(data.get("version") or "") == EXPECT_VERSION)
+    )
+
+
+def _ready_ok(data: dict) -> bool:
+    return (
+        data.get("status") == "ready"
+        and data.get("content_ingestion") == "locked"
+        and (not EXPECT_VERSION or str(data.get("version") or "") == EXPECT_VERSION)
+    )
+
 
 CHECKS = (
-    ("/health", lambda data: data.get("status") == "ok"),
-    ("/health/ready", lambda data: data.get("status") == "ready"),
+    ("/health", _health_ok),
+    ("/health/ready", _ready_ok),
     ("/api/research-engine/status", lambda data: isinstance(data.get("configured"), bool)),
     ("/api/next-release/status", lambda data: isinstance(data, dict) and bool(data)),
 )
@@ -83,6 +100,8 @@ def run() -> dict:
     summary = {
         "target": BASE_URL,
         "passed": overall,
+        "expected_version": EXPECT_VERSION or None,
+        "content_ingestion_expected": "locked",
         "checks": results,
         "checked_at_epoch": int(time.time()),
     }

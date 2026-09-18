@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "3ec475847bd6556c45382866d8d78675085f8993",
+  "requested_code_sha": "30845c62233f7535d82bfbd2b75c246e1cf334c6",
   "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.22 with persistent Presentation Studio server autosave drafts, bounded revision checkpoints, cross-session recovery, guarded restore history, and mandatory pre-export validation plus teacher re-approval after restored or edited states",
+  "reason": "Release Physics Education AI Agent 1.8.23 with Source Cleanup Studio: deterministic non-generative scan denoise and clarity enhancement, separate visual/OCR outputs, fidelity checks, quality metrics, manual-region and batch cleanup, teacher approval, and approved-enhanced OCR source selection while preserving immutable originals",
   "content_ingestion": "locked",
-  "scope": "lesson_presentation_studio"
+  "scope": "source_cleanup_studio"
 }

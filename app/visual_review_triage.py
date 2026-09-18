@@ -100,6 +100,8 @@ def visual_review_decision(question_id: int, payload: VisualReviewDecision):
         raise HTTPException(400,"decision must be accept, needs_correction or reject")
     reviewed_text=(payload.reviewed_text or "").strip()
     reviewer_note=payload.reviewer_note.strip()
+    if len(reviewer_note) < 3:
+        raise HTTPException(400,"Reviewer note must contain at least 3 non-space characters")
 
     with connect() as con:
         row=con.execute(
@@ -111,7 +113,13 @@ def visual_review_decision(question_id: int, payload: VisualReviewDecision):
             WHERE q.id=%s
               AND qr.reason_code='visual_transcription_required'
               AND qr.status='open'
+              AND q.curriculum_version_id=(
+                SELECT id FROM curriculum_versions
+                WHERE subject_id=1 AND grade_level_id=6 AND active=TRUE
+                ORDER BY id DESC LIMIT 1
+              )
             LIMIT 1
+            FOR UPDATE OF q,qr
             """,
             (question_id,),
         ).fetchone()

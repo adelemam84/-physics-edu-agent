@@ -97,10 +97,13 @@ def request_with_retries(
     attempts = policy.attempts if retry else 1
     last_error: httpx.HTTPError | None = None
 
-    for attempt in range(1, attempts + 1):
-        response: httpx.Response | None = None
-        try:
-            with httpx.Client(timeout=timeout) as client:
+    # Reuse one client across the bounded retry loop so keep-alive/TLS
+    # connections are preserved between attempts. This lowers latency and
+    # connection churn without changing provider/model selection.
+    with httpx.Client(timeout=timeout) as client:
+        for attempt in range(1, attempts + 1):
+            response: httpx.Response | None = None
+            try:
                 response = client.request(
                     method,
                     url,
@@ -108,22 +111,22 @@ def request_with_retries(
                     json=json,
                     content=content,
                 )
-        except httpx.HTTPError as exc:
-            last_error = exc
-            try:
-                setattr(exc, "provider_attempts", attempt)
-            except Exception:
-                pass
-            if attempt >= attempts:
-                raise
-        else:
-            response.extensions["provider_attempts"] = attempt
-            if response.status_code not in RETRYABLE_STATUS_CODES or attempt >= attempts:
-                return response
+            except httpx.HTTPError as exc:
+                last_error = exc
+                try:
+                    setattr(exc, "provider_attempts", attempt)
+                except Exception:
+                    pass
+                if attempt >= attempts:
+                    raise
+            else:
+                response.extensions["provider_attempts"] = attempt
+                if response.status_code not in RETRYABLE_STATUS_CODES or attempt >= attempts:
+                    return response
 
-        delay = _delay_ms(policy, attempt, response)
-        if delay > 0:
-            sleep(delay / 1000.0)
+            delay = _delay_ms(policy, attempt, response)
+            if delay > 0:
+                sleep(delay / 1000.0)
 
     if last_error is not None:
         raise last_error

@@ -303,6 +303,10 @@ load()
 </script></main></html>'''
 
 
-@app.get("/admin/database-performance", response_class=HTMLResponse)
+@app.get(
+    "/admin/database-performance",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_admin)],
+)
 def database_performance_page():
     return PAGE

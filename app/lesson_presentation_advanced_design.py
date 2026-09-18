@@ -375,6 +375,10 @@ def _render_visual(slide, visual: dict, rect: tuple, theme: dict) -> None:
                 if str(text or "").strip():
                     labels.append(str(text).strip())
     if not labels:
+        description = str(visual.get("description") or "").strip()
+        if description:
+            labels = [x.strip() for x in description.replace("→", "|").replace("->", "|").split("|") if x.strip()]
+    if not labels:
         labels = [str(visual.get("title") or visual.get("kind") or "رسم توضيحي")]
     labels = labels[:6]
     left, top, width, height = rect

@@ -19,6 +19,13 @@ class ScientificDiagramSpecTests(unittest.TestCase):
             'solenoid_field',
             'molecule_bond',
             'chemistry_lab_setup',
+            'force_diagram',
+            'graph_plot',
+            'particle_model',
+            'reaction_profile',
+            'cell_structure',
+            'food_web',
+            'earth_layers',
         }
         self.assertEqual(set(catalog['kinds']), expected)
         self.assertTrue(catalog['policy']['unknown_fields_rejected'])

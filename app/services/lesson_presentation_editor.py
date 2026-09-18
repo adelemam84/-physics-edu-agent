@@ -38,6 +38,10 @@ _IMMUTABLE_VISUAL_FIELDS = (
     "approved",
     "generated",
     "label",
+    "scientific_labels",
+    "parameters",
+    "routing",
+    "diagram_engine",
 )
 _EDITABLE_VISUAL_FIELDS = {"title", "description", "nodes", "steps", "items", "labels"}
 _EDITABLE_SLIDE_FIELDS = {

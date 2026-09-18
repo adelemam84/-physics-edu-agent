@@ -4,6 +4,13 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .science_visual_engine_v2 import (
+    SPEC_CONTRACTS_V2,
+    SPEC_DOMAINS_V2,
+    SPEC_MODELS_V2,
+    render_visual_v2,
+)
+
 
 Unit = Annotated[float, Field(ge=0.0, le=1.0)]
 RayPoint = tuple[Unit, Unit]
@@ -168,6 +175,8 @@ SPEC_MODELS = {
     'chemistry_lab_setup': ChemistryLabSetupSpec,
 }
 
+SPEC_MODELS.update(SPEC_MODELS_V2)
+
 SPEC_CONTRACTS = {
     'resistor_network': 'explicit_graph_v1',
     'series_parallel_circuit': 'explicit_graph_v1',
@@ -177,6 +186,15 @@ SPEC_CONTRACTS = {
     'molecule_bond': 'explicit_molecule_graph_v1',
     'chemistry_lab_setup': 'explicit_lab_apparatus_v1',
 }
+
+SPEC_CONTRACTS.update(SPEC_CONTRACTS_V2)
+
+SPEC_DOMAINS = {
+    'resistor_network':'physics','series_parallel_circuit':'physics','ray_diagram':'physics',
+    'magnetic_field':'physics','solenoid_field':'physics','molecule_bond':'chemistry',
+    'chemistry_lab_setup':'chemistry',
+}
+SPEC_DOMAINS.update(SPEC_DOMAINS_V2)
 
 
 def _validation_errors(exc: ValidationError) -> list[dict]:
@@ -199,6 +217,7 @@ def schema_catalog() -> dict:
             'strict_extra_fields': True,
             'source_grounded_only': True,
             'review_required_after_render': True,
+            'domain': SPEC_DOMAINS.get(kind, 'cross_science'),
         }
     return {
         'version': 'diagram-specs-v1',
@@ -266,6 +285,8 @@ def preview_diagram_spec(kind: str, title: str, parameters: dict | None) -> dict
     from .science_diagram_parameterized import render_parameterized
 
     rendered = render_parameterized(kind, title or 'رسم علمي', validation['normalized'])
+    if not rendered:
+        rendered = render_visual_v2(kind, title or 'رسم علمي', validation['normalized'])
     if not rendered or not rendered.get('valid'):
         return {
             'valid': False,

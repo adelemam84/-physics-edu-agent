@@ -47,11 +47,18 @@ ray_diagram:{optical_element:{type:"convex_lens",x:.5,label:"عدسة محدبة
 magnetic_field:{current_direction:"out_of_page",field_direction:"counterclockwise",label:"I"},
 solenoid_field:{current_direction:"left_to_right",field_direction:"right_to_left",north_side:"left",turns:8,label:"L1"},
 molecule_bond:{atoms:[{id:"C",element:"C",x:.5,y:.5},{id:"O1",element:"O",x:.25,y:.5},{id:"O2",element:"O",x:.75,y:.5}],bonds:[{from:"C",to:"O1",order:2},{from:"C",to:"O2",order:2}]},
-chemistry_lab_setup:{vessels:[{id:"A",type:"flask",x:.15,y:.5,label:"دورق"},{id:"B",type:"gas_jar",x:.8,y:.5,label:"وعاء تجميع"}],connections:[{from:"A",to:"B",direction:"from_to",label:"أنبوب توصيل"}]}
+chemistry_lab_setup:{vessels:[{id:"A",type:"flask",x:.15,y:.5,label:"دورق"},{id:"B",type:"gas_jar",x:.8,y:.5,label:"وعاء تجميع"}],connections:[{from:"A",to:"B",direction:"from_to",label:"أنبوب توصيل"}]},
+force_diagram:{object_label:"جسم",object_x:.5,object_y:.5,forces:[{label:"الوزن",x1:.5,y1:.5,x2:.5,y2:.82},{label:"رد الفعل",x1:.5,y1:.5,x2:.5,y2:.2}]},
+graph_plot:{x_label:"الزمن",y_label:"السرعة",x_min:0,x_max:10,y_min:0,y_max:20,series:[{label:"v-t",points:[{x:0,y:0},{x:5,y:10},{x:10,y:20}]}]},
+particle_model:{particles:[{id:"p1",label:"A",x:.3,y:.5},{id:"p2",label:"B",x:.7,y:.5}],links:[{from:"p1",to:"p2",label:"صلة صريحة"}]},
+reaction_profile:{reactants_label:"المتفاعلات",products_label:"النواتج",energy_unit:"kJ/mol",reactants_energy:20,products_energy:10,transition_energy:55},
+cell_structure:{cell_type:"animal",parts:[{label:"النواة",x:.5,y:.5},{label:"الغشاء",x:.82,y:.5}]},
+food_web:{nodes:[{id:"a",label:"نبات",x:.2,y:.7},{id:"b",label:"حشرة",x:.5,y:.45},{id:"c",label:"طائر",x:.8,y:.2}],edges:[{from:"a",to:"b"},{from:"b",to:"c"}]},
+earth_layers:{layers_outer_to_inner:[{label:"القشرة",relative_thickness:.08},{label:"الوشاح",relative_thickness:.52},{label:"اللب",relative_thickness:.40}]}
 };
 async function api(url,opts){let r=await fetch(url,opts);if(r.status===401){location.href="/admin/login";throw new Error("auth")}let x=await r.json().catch(()=>null);if(!r.ok)throw new Error(JSON.stringify(x?.detail||x||r.status));return x}
 function payload(){let p;try{p=JSON.parse($("#params").value)}catch(e){throw new Error("JSON غير صالح: "+e.message)}return {kind:$("#kind").value,title:$("#title").value,parameters:p}}
-function showSchema(){let k=$("#kind").value;$("#schema").textContent=JSON.stringify(catalog?.kinds?.[k]||{},null,2)}
+function showSchema(){let k=$("#kind").value;let item=catalog?.kinds?.[k]||{};$("#schema").textContent=JSON.stringify(item,null,2);$("#status").innerHTML='<p class=muted>Domain: '+String(item.domain||'cross_science')+' · Source-grounded only</p>'}
 async function load(){catalog=await api("/api/admin/lesson-studio/diagram-specs");$("#kind").innerHTML=Object.keys(catalog.kinds).map(k=>`<option value="${k}">${k}</option>`).join("");showSchema();loadExample()}
 function loadExample(){$("#params").value=JSON.stringify(examples[$("#kind").value]||{},null,2);showSchema();$("#svg").innerHTML="";$("#result").textContent="جاهز للفحص."}
 async function run(preview){try{let x=await api(preview?"/api/admin/lesson-studio/diagram-specs/preview":"/api/admin/lesson-studio/diagram-specs/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload())});$("#result").textContent=JSON.stringify(x,null,2);$("#status").innerHTML=x.valid?'<p class=ok>✅ المواصفات صالحة.</p>':'<p class=bad>⚠️ المواصفات مرفوضة قبل الرسم.</p>';$("#svg").innerHTML=preview&&x.svg?x.svg:""}catch(e){$("#status").innerHTML='<p class=bad>'+String(e.message)+'</p>';$("#svg").innerHTML=""}}

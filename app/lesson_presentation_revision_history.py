@@ -203,14 +203,7 @@ def list_lesson_presentation_revisions(job_id: str):
     dependencies=[Depends(require_admin)],
 )
 def create_lesson_presentation_revision(job_id: str, payload: dict = Body(...)):
-    edited, report, base_hash, edit_digest = _validated_editor_payload(job_id, payload)
-    current_slide = max(
-        0,
-        min(
-            int(payload.get("current_slide") or 0),
-            max(0, len(edited.get("slides") or []) - 1),
-        ),
-    )
+    edited, report, base_hash, edit_digest, current_slide = _validated_editor_payload(job_id, payload)
     label = _clean_label(payload.get("label"))
     with connect() as con:
         existing = con.execute(

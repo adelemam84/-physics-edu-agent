@@ -6,6 +6,7 @@ from .services.diagram_router import route_diagram
 from .services.science_diagram_extensions import ADVANCED_KINDS, render_advanced
 from .services.science_diagram_parameterized import PARAMETERIZED_KINDS, render_parameterized
 from .services.science_diagram_specs import validate_diagram_spec
+from .services.science_visual_engine_v2 import SPEC_MODELS_V2, render_visual_v2
 
 _BASE_ATTACH = science_lesson_studio._attach_diagram_engine
 
@@ -45,7 +46,7 @@ def _attach_with_smart_routing(structured: dict, subject: str) -> dict:
         item['routing'] = route.as_dict()
         specs.append(item)
         labels = tuple(str(x) for x in (item.get('scientific_labels') or []))
-        if route.kind in ADVANCED_KINDS or route.kind in PARAMETERIZED_KINDS:
+        if route.kind in ADVANCED_KINDS or route.kind in PARAMETERIZED_KINDS or route.kind in SPEC_MODELS_V2:
             advanced_indexes[idx] = (
                 route.kind,
                 labels,
@@ -60,10 +61,12 @@ def _attach_with_smart_routing(structured: dict, subject: str) -> dict:
             continue
 
         rendered = None
-        if kind in PARAMETERIZED_KINDS and parameters:
+        if (kind in PARAMETERIZED_KINDS or kind in SPEC_MODELS_V2) and parameters:
             validation = validate_diagram_spec(kind, parameters)
             if validation.get('valid'):
                 rendered = render_parameterized(kind, title, validation['normalized'])
+                if not rendered:
+                    rendered = render_visual_v2(kind, title, validation['normalized'])
                 if rendered:
                     rendered = dict(rendered)
                     rendered['schema_validated'] = True
@@ -90,7 +93,7 @@ def _attach_with_smart_routing(structured: dict, subject: str) -> dict:
         1 for x in diagrams if (x.get('diagram_engine') or {}).get('review_required')
     )
     summary['advanced_extension_kinds'] = sorted(ADVANCED_KINDS)
-    summary['parameterized_kinds'] = sorted(PARAMETERIZED_KINDS)
+    summary['parameterized_kinds'] = sorted(set(PARAMETERIZED_KINDS) | set(SPEC_MODELS_V2))
     summary['parameterized_ready'] = sum(
         1 for x in diagrams if (x.get('diagram_engine') or {}).get('parameterized')
     )

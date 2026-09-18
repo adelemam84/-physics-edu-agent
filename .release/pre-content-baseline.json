@@ -1,29 +1,27 @@
 {
   "schema_version": 1,
-  "baseline_name": "pre-content-technical-closure-2026-09-18",
-  "captured_at_utc": "2026-09-18T15:04:25Z",
-  "application_version": "1.8.27",
+  "baseline_name": "pre-content-technical-closure-2026-09-17",
+  "captured_at_utc": "2026-09-16T21:09:28Z",
+  "application_version": "1.8.4",
   "technical_complete": true,
   "content_complete": false,
   "content_ingestion": "locked",
   "content_phase": "deferred",
   "production": {
     "canonical_url": "https://physics-edu-agent.vercel.app",
-    "requested_code_sha": "19ec545cea5e1547ed9509fc2c632c0cbb3dcf87",
-    "release_marker_sha": "6feda2501c5b628d2f4b99d084af964e5b0754a1",
-    "deployment_id": "dpl_BaLyHUfPr3Mn1JSu5UA4Ad3UjGLn",
-    "deployment_url": "https://physics-edu-agent-nyoynprh4-farida13.vercel.app",
-    "region": "iad1",
-    "post_release_hardening_sha": "4e513387ce7c4f07978a0f631a947d117f3d385d"
+    "requested_code_sha": "142b83abda35ebd81d7b193f5bc1d2b9ec2eb51e",
+    "release_marker_sha": "826816da6d0b568fd5cf21a1333f2f0dc7344292",
+    "deployment_id": "dpl_9mDWha7dx8PUMfLe4T9ABfGH9Mg6",
+    "deployment_url": "https://physics-edu-agent-362m6v2c7-farida13.vercel.app",
+    "region": "iad1"
   },
   "evidence": {
-    "controlled_production_release_run": 35356978659,
-    "release_ci_run": 35356978707,
-    "release_security_audit_run": 35356978748,
-    "post_release_ci_run": 35360118024,
-    "post_release_security_audit_run": 35360117919,
-    "final_technical_readiness_run": 35360117993,
-    "production_smoke_run": 35360117901
+    "controlled_production_release_run": 35037466069,
+    "ci_run": 35037466037,
+    "security_audit_run": 35037466109,
+    "final_technical_readiness_run": 35037412004,
+    "final_technical_readiness_attempt": 2,
+    "final_technical_readiness_job": 104977878580
   },
   "database_recovery": {
     "provider": "neon",
@@ -48,8 +46,6 @@
     "question_file_uploads_allowed": false,
     "automatic_scientific_approval_allowed": false,
     "model_memory_substitution_allowed": false,
-    "reopening_requires_explicit_environment_switch": "CONTENT_INGESTION_ENABLED=true",
-    "deployment_version_attestation_required": true,
-    "production_content_lock_attestation_required": true
+    "reopening_requires_explicit_environment_switch": "CONTENT_INGESTION_ENABLED=true"
   }
 }

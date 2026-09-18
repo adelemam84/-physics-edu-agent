@@ -14,6 +14,7 @@ from .content_completion import (
 from .db import connect
 from .lesson_sources import LessonSourceMap, approve_lesson_source, map_lesson_source
 from .main import app
+from .services.ai_governance import model_settings, provider_status
 from .visual_review_assistant import _queue_rows, generate_visual_suggestion
 
 
@@ -230,6 +231,11 @@ def content_maintenance_status(request: Request):
             "total": len(queue),
             "with_suggestion": sum(1 for x in queue if x.get("suggestion")),
             "without_suggestion": sum(1 for x in queue if not x.get("suggestion")),
+        },
+        "ai_providers": provider_status(),
+        "ai_models": {
+            "gemini_visual_primary": model_settings()["gemini_lesson_studio"],
+            "openai_visual_fallback": model_settings()["openai_visual_fallback"],
         },
         "policy": "source_grounded_only_no_visual_auto_approval",
     }

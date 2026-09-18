@@ -29,9 +29,24 @@ ALIASES = {
     'solenoid': 'solenoid_field',
     'molecule': 'molecule_bond',
     'chem_lab': 'chemistry_lab_setup',
+    'free_body': 'force_diagram',
+    'force': 'force_diagram',
+    'plot': 'graph_plot',
+    'particle': 'particle_model',
+    'reaction_profile': 'reaction_profile',
+    'cell': 'cell_structure',
+    'food_web': 'food_web',
+    'earth_layers': 'earth_layers',
 }
 
 _KEYWORDS = [
+    ('force_diagram', ('مخطط قوى', 'قوى مؤثرة', 'قوة محصلة', 'free body', 'force diagram')),
+    ('graph_plot', ('منحنى بياني', 'بيانات الرسم', 'نقاط الرسم', 'plot data', 'data graph')),
+    ('particle_model', ('نموذج الجسيمات', 'جسيمات المادة', 'particle model', 'particles of matter')),
+    ('reaction_profile', ('طاقة التنشيط', 'منحنى طاقة التفاعل', 'reaction energy profile', 'activation energy')),
+    ('cell_structure', ('تركيب الخلية', 'أجزاء الخلية', 'cell structure', 'cell organelles')),
+    ('food_web', ('شبكة غذائية', 'food web', 'علاقات غذائية')),
+    ('earth_layers', ('طبقات الأرض', 'تركيب الأرض', 'earth layers', 'earth structure')),
     ('series_parallel_circuit', ('توالي وتوازي', 'دائرة مركبة', 'فروع مقاومات', 'series parallel', 'mixed resistor')),
     ('resistor_network', ('شبكة مقاومات', 'مقاومات متوازية', 'توصيل مقاومات على التوازي', 'مقاومات على التوازي', 'resistor network', 'parallel resistors')),
     ('solenoid_field', ('ملف لولبي', 'solenoid', 'مجال ملف', 'مجال داخل الملف')),
@@ -62,6 +77,8 @@ def route_diagram(kind: str, title: str = '', description: str = '', subject: st
         'graph_axes', 'apparatus', 'process', 'comparison', 'classification', 'vector',
         'cycle', 'food_chain', 'anatomy_block', 'atom_shell', 'ray_diagram',
         'magnetic_field', 'solenoid_field', 'molecule_bond', 'chemistry_lab_setup',
+        'force_diagram', 'graph_plot', 'particle_model', 'reaction_profile',
+        'cell_structure', 'food_web', 'earth_layers',
     }
     if raw in known:
         return DiagramRoute(raw, 1.0, 'explicit_kind', False)

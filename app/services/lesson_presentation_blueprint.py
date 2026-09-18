@@ -188,7 +188,21 @@ def build_presentation_blueprint(pack: dict, request: dict | None = None, *, sou
         if diagrams:
             refs = list(dict.fromkeys(ref for x in diagrams for ref in _refs(x)))
             s = add("diagram_specs", "مخططات توضيحية", [], refs)
-            s["visual_specs"] += [{"kind": str(x.get("kind") or "other"), "title": str(x.get("title") or ""), "description": str(x.get("description") or ""), "source_refs": _refs(x), "generated": True, "label": "generated_visual"} for x in diagrams]
+            s["visual_specs"] += [
+                {
+                    "kind": str(x.get("normalized_kind") or x.get("kind") or "other"),
+                    "title": str(x.get("title") or ""),
+                    "description": str(x.get("description") or ""),
+                    "source_refs": _refs(x),
+                    "generated": True,
+                    "label": "generated_visual",
+                    "scientific_labels": list(x.get("scientific_labels") or []),
+                    "parameters": copy.deepcopy(x.get("parameters") or {}),
+                    "routing": copy.deepcopy(x.get("routing") or {}),
+                    "diagram_engine": copy.deepcopy(x.get("diagram_engine") or {}),
+                }
+                for x in diagrams
+            ]
 
     questions = [x for x in (pack.get("practice_questions") or []) if isinstance(x, dict)]
     if req["include"]["checkpoints"] and questions:

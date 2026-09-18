@@ -63,6 +63,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve expected production version
+        run: echo "TECH_READY_EXPECT_VERSION=$(python -c 'from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)')" >> "$GITHUB_ENV"
+
       - name: Run final technical readiness gate
         run: python tools/technical_readiness_probe.py
 

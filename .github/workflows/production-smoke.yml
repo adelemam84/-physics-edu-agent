@@ -36,6 +36,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve expected production version
+        run: echo "SMOKE_EXPECT_VERSION=$(python -c 'from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)')" >> "$GITHUB_ENV"
+
       - name: Run bounded read-only smoke checks
         run: python tools/production_smoke.py
 

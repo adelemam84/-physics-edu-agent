@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "416113d9c658492978c27f21039bd9f11145ea5e",
+  "requested_code_sha": "12ed20855a1be6befca0a5ab3fa2d70f9f52ca50",
   "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.24 with persistent exact-digest Presentation Studio teacher approval, server-side approval history and revocation, and approval-gated final PPTX exports for both edited and unedited revisions",
+  "reason": "Release Physics Education AI Agent 1.8.25 with source-grounded visual engine coverage across physics, chemistry, and middle-school science; strict explicit scientific specs; immutable visual parameters; deterministic browser previews; and editable native PowerPoint rendering",
   "content_ingestion": "locked",
-  "scope": "lesson_presentation_studio"
+  "scope": "science_visual_engine"
 }

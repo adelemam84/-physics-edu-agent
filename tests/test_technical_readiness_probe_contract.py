@@ -33,6 +33,12 @@ class TechnicalReadinessProbeContractTests(unittest.TestCase):
         self.assertIn("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: \"true\"", WORKFLOW)
         self.assertIn('data.get("content_ingestion")', TOOL)
 
+    def test_gate_detects_runtime_version_drift(self):
+        self.assertIn("TECH_READY_EXPECT_VERSION", TOOL)
+        self.assertIn("version drift: expected", TOOL)
+        self.assertIn("Resolve expected production version", WORKFLOW)
+        self.assertIn("from app.version import APPLICATION_VERSION", WORKFLOW)
+
     def test_gate_checks_baseline_security_headers(self):
         for name in (
             "strict-transport-security",

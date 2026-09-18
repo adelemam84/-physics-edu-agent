@@ -29,8 +29,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_VISUAL_MODEL = os.getenv("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra").strip() or "gpt-5.6-terra"
 VISUAL_REVIEW_FREE_ONLY = os.getenv("VISUAL_REVIEW_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
 GEMINI_VISUAL_PRIMARY_MODEL = (
-    os.getenv("VISUAL_REVIEW_GEMINI_PRIMARY_MODEL", "gemini-2.5-flash-lite").strip()
-    or "gemini-2.5-flash-lite"
+    os.getenv("VISUAL_REVIEW_GEMINI_PRIMARY_MODEL", "gemini-2.5-flash").strip()
+    or "gemini-2.5-flash"
 )
 GEMINI_VISUAL_FALLBACK_MODELS = tuple(
     dict.fromkeys(

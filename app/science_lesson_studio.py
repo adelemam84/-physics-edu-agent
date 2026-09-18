@@ -90,10 +90,12 @@ def _gemini_text(
     task: str = 'lesson_studio_assist',
     provider_timeout: float = 90,
     provider_retry: bool = True,
+    model_override: str | None = None,
 ) -> str:
     if not GEMINI_API_KEY:
         raise HTTPException(503, 'GEMINI_API_KEY is not configured')
-    enforce_ai_budget(provider='gemini', task=task, model=GEMINI_MODEL)
+    effective_model = (model_override or GEMINI_MODEL).strip() or GEMINI_MODEL
+    enforce_ai_budget(provider='gemini', task=task, model=effective_model)
     body = {
         'systemInstruction': {'parts': [{'text': system}]},
         'contents': [{'role': 'user', 'parts': parts}],
@@ -101,7 +103,7 @@ def _gemini_text(
     }
     if json_mode:
         body['generationConfig']['responseMimeType'] = 'application/json'
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent'
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:generateContent'
     started = time.perf_counter()
     try:
         r = request_with_retries(
@@ -116,7 +118,7 @@ def _gemini_text(
         record_ai_usage(
             provider='gemini',
             task=task,
-            model=GEMINI_MODEL,
+            model=effective_model,
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code='network',
@@ -127,7 +129,7 @@ def _gemini_text(
         record_ai_usage(
             provider='gemini',
             task=task,
-            model=GEMINI_MODEL,
+            model=effective_model,
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             error_code=str(r.status_code),
@@ -140,7 +142,7 @@ def _gemini_text(
         record_ai_usage(
             provider='gemini',
             task=task,
-            model=GEMINI_MODEL,
+            model=effective_model,
             status='error',
             latency_ms=round((time.perf_counter()-started)*1000),
             usage=payload.get('usageMetadata', {}),
@@ -151,7 +153,7 @@ def _gemini_text(
     record_ai_usage(
         provider='gemini',
         task=task,
-        model=GEMINI_MODEL,
+        model=effective_model,
         status='success',
         latency_ms=round((time.perf_counter()-started)*1000),
         usage=payload.get('usageMetadata', {}),

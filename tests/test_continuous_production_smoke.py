@@ -44,6 +44,12 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
         self.assertIn("SMOKE_ATTEMPTS", self.script)
         self.assertIn("timeout=TIMEOUT_SECONDS", self.script)
 
+    def test_probe_attests_runtime_version_and_content_lock(self):
+        self.assertIn("SMOKE_EXPECT_VERSION", self.script)
+        self.assertIn('data.get("content_ingestion") == "locked"', self.script)
+        self.assertIn("Resolve expected production version", self.workflow)
+        self.assertIn("from app.version import APPLICATION_VERSION", self.workflow)
+
     def test_evidence_is_always_uploaded(self):
         self.assertIn("if: always()", self.workflow)
         self.assertIn("production-smoke-results.json", self.workflow)

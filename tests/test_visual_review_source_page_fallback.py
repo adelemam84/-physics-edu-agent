@@ -20,9 +20,17 @@ class VisualReviewSourcePageFallbackTests(unittest.TestCase):
             SOURCE.count("LEFT JOIN question_assets a ON a.question_id=q.id"),
             2,
         )
-        self.assertNotIn(
-            "JOIN question_assets a ON a.question_id=q.id\n          JOIN documents",
-            SOURCE.replace("LEFT JOIN", "LEFT_JOIN"),
+        join_lines = [
+            line.strip()
+            for line in SOURCE.splitlines()
+            if "JOIN question_assets a ON a.question_id=q.id" in line
+        ]
+        self.assertEqual(
+            join_lines,
+            [
+                "LEFT JOIN question_assets a ON a.question_id=q.id",
+                "LEFT JOIN question_assets a ON a.question_id=q.id",
+            ],
         )
 
     def test_candidate_ordinal_is_read_from_source_placeholder(self):

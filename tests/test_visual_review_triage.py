@@ -18,6 +18,11 @@ class VisualReviewTriageTests(unittest.TestCase):
         self.assertIn("/api/admin/review/documents/", TRIAGE)
         self.assertIn("/preview", TRIAGE)
 
+    def test_decision_is_trim_validated_locked_and_active_curriculum_scoped(self):
+        self.assertIn("Reviewer note must contain at least 3 non-space characters", TRIAGE)
+        self.assertIn("FOR UPDATE OF q,qr", TRIAGE)
+        self.assertGreaterEqual(TRIAGE.count("q.curriculum_version_id=("), 2)
+
     def test_acceptance_is_human_gated_and_never_auto_approves(self):
         self.assertIn("Explicit human-reviewed verbatim text is required", TRIAGE)
         self.assertIn("approved=FALSE", TRIAGE)

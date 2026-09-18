@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+from . import lesson_presentation_advanced_design_ui  # noqa: F401
+from . import lesson_presentation_studio_ui
+
+
+_STYLE = r"""
+<style>
+.layout-toolkit{border:1px solid #d6bbfb;border-radius:12px;padding:12px;margin:10px 0;background:#faf7ff}.toolkit-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.toolkit-grid label{font-size:13px;font-weight:700}.toolkit-actions,.layer-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}.toolkit-actions button,.layer-row button{width:auto}.resize-handle{position:absolute;width:12px;height:12px;border-radius:50%;background:#7f56d9;border:2px solid #fff;box-shadow:0 0 0 1px #7f56d9;z-index:50;display:none}.toolkit-active .advanced-layer:not([data-locked="1"]) .resize-handle{display:block}.resize-se{right:-6px;bottom:-6px;cursor:nwse-resize}.resize-sw{left:-6px;bottom:-6px;cursor:nesw-resize}.resize-ne{right:-6px;top:-6px;cursor:nesw-resize}.resize-nw{left:-6px;top:-6px;cursor:nwse-resize}.guide-grid{background-image:linear-gradient(to right,#7f56d922 1px,transparent 1px),linear-gradient(to bottom,#7f56d922 1px,transparent 1px)!important}.locked-layer{outline:2px solid #f79009!important;cursor:not-allowed!important}.layer-chip{display:inline-block;padding:3px 8px;border-radius:999px;background:#f2f4f7;font-size:12px}@media(max-width:760px){.toolkit-grid{grid-template-columns:1fr 1fr}}
+</style>
+"""
+
+_SCRIPT = r"""
+<script>
+(()=>{
+const form=document.getElementById('editorForm');if(!form)return;
+const box=document.createElement('div');box.className='layout-toolkit';box.innerHTML='<h3 style="margin-top:0">Layout Toolkit</h3><p class=muted>Resize Handles + Snap/Grid + ترتيب الطبقات + Lock + Copy/Paste Style + قوالب قابلة لإعادة الاستخدام.</p><div class=toolkit-grid><label>Template<select id=toolTemplate><option value=clean_standard>Clean Standard</option><option value=visual_story>Visual Story</option><option value=exam_focus>Exam Focus</option><option value=compare_split>Compare Split</option><option value=custom>Custom</option></select></label><label>Grid<select id=toolGrid><option value=1>1%</option><option value=2>2%</option><option value=2.5 selected>2.5%</option><option value=5>5%</option><option value=10>10%</option></select></label><label><input id=toolSnap type=checkbox checked> Snap to Grid</label><label><input id=toolGuides type=checkbox checked> Show Guides</label><label>العنصر<select id=toolRole><option value=title>Title</option><option value=body>Body</option><option value=visual>Visual</option></select></label></div><div class=layer-row><button id=layerUp type=button class=secondary>إلى الأمام</button><button id=layerDown type=button class=secondary>إلى الخلف</button><button id=layerLock type=button class=secondary>قفل العنصر</button><span id=layerState class=layer-chip>—</span></div><div class=toolkit-actions><button id=copyStyle type=button class=secondary>نسخ التصميم</button><button id=pasteStyle type=button class=secondary>لصق التصميم</button><button id=toggleResize type=button class=secondary>Resize Handles</button><button id=applyTemplate type=button>تطبيق القالب</button></div>';
+const designPanel=document.querySelector('.design-panel');if(designPanel)designPanel.parentNode.insertBefore(box,designPanel.nextSibling);else form.insertBefore(box,form.firstChild);
+const stage=document.getElementById('stage'),template=document.getElementById('toolTemplate'),grid=document.getElementById('toolGrid'),snap=document.getElementById('toolSnap'),guides=document.getElementById('toolGuides'),roleSel=document.getElementById('toolRole'),up=document.getElementById('layerUp'),down=document.getElementById('layerDown'),lock=document.getElementById('layerLock'),state=document.getElementById('layerState'),copyBtn=document.getElementById('copyStyle'),pasteBtn=document.getElementById('pasteStyle'),resizeBtn=document.getElementById('toggleResize'),applyTemplate=document.getElementById('applyTemplate');
+let resizeMode=false,resizeState=null,activeRole=null,styleClipboard=null;
+const editorDefaults=()=>({grid_size:2.5,snap_to_grid:true,show_guides:true,template_id:'clean_standard',layers:{title:{z:3,locked:false},body:{z:2,locked:false},visual:{z:1,locked:false}}});
+const templates={clean_standard:{layout:'standard',theme:{background:'#FFFFFF',accent:'#344054',title_color:'#172033',text_color:'#344054',font_family:'Aptos',content_scale:1,title_align:'right',body_align:'right'},elements:{title:{x:6,y:5,w:88,h:13},body:{x:6,y:21,w:88,h:28},visual:{x:10,y:52,w:80,h:34}}},visual_story:{layout:'visual_focus',theme:{background:'#F8FAFC',accent:'#175CD3',title_color:'#101828',text_color:'#344054',font_family:'Noto Sans Arabic',content_scale:1,title_align:'right',body_align:'right'},elements:{title:{x:6,y:4,w:88,h:12},body:{x:8,y:76,w:84,h:18},visual:{x:8,y:19,w:84,h:53}}},exam_focus:{layout:'two_column',theme:{background:'#101828',accent:'#F79009',title_color:'#FFFFFF',text_color:'#F2F4F7',font_family:'Arial',content_scale:1.05,title_align:'right',body_align:'right'},elements:{title:{x:6,y:5,w:88,h:13},body:{x:52,y:23,w:42,h:62},visual:{x:5,y:23,w:42,h:62}}},compare_split:{layout:'split_40_60',theme:{background:'#FFFFFF',accent:'#7F56D9',title_color:'#101828',text_color:'#344054',font_family:'Aptos',content_scale:1,title_align:'center',body_align:'right'},elements:{title:{x:6,y:5,w:88,h:13},body:{x:44,y:22,w:50,h:64},visual:{x:5,y:22,w:35,h:64}}}};
+function currentSlideObj(){return blueprint?.slides?.[currentSlide]||null}
+function ensureDesign(){let s=currentSlideObj();if(!s)return null;if(!s.design_spec)s.design_spec={layout:'standard',theme:clone(templates.clean_standard.theme),elements:clone(templates.clean_standard.elements),editor:editorDefaults()};if(!s.design_spec.editor)s.design_spec.editor=editorDefaults();if(!s.design_spec.editor.layers)s.design_spec.editor.layers=editorDefaults().layers;return s.design_spec}
+function snapValue(v,g){return Math.round(v/g)*g}function normalizeRect(r){r.w=Math.max(5,Math.min(100-r.x,r.w));r.h=Math.max(5,Math.min(100-r.y,r.h));r.x=Math.max(0,Math.min(100-r.w,r.x));r.y=Math.max(0,Math.min(100-r.h,r.y))}
+function layerMeta(role){let d=ensureDesign();return d?.editor?.layers?.[role]||{z:1,locked:false}}
+function syncControls(){let d=ensureDesign();if(!d)return;let e=d.editor||editorDefaults();template.value=e.template_id||'custom';grid.value=String(e.grid_size||2.5);snap.checked=e.snap_to_grid!==false;guides.checked=e.show_guides!==false;let m=layerMeta(roleSel.value);state.textContent='z='+m.z+' · '+(m.locked?'Locked':'Unlocked');lock.textContent=m.locked?'فتح العنصر':'قفل العنصر';pasteBtn.disabled=!styleClipboard;applyToolkitVisuals()}
+function addHandles(el){if(!el||el.querySelector('.resize-handle'))return;['nw','ne','sw','se'].forEach(pos=>{let h=document.createElement('span');h.className='resize-handle resize-'+pos;h.dataset.resize=pos;h.onpointerdown=beginResize;el.appendChild(h)})}
+function applyToolkitVisuals(){let d=currentSlideObj()?.design_spec;if(!d||!stage)return;let e=d.editor||editorDefaults();stage.classList.toggle('guide-grid',!!e.show_guides);stage.classList.toggle('toolkit-active',resizeMode);let size=Math.max(1,Number(e.grid_size||2.5));stage.style.backgroundSize=size+'% '+size+'%';document.querySelectorAll('#stage .advanced-layer').forEach(el=>{let r=el.dataset.designRole,m=e.layers?.[r]||{z:1,locked:false};el.style.zIndex=String(10+m.z);el.dataset.locked=m.locked?'1':'0';el.classList.toggle('locked-layer',!!m.locked);addHandles(el)})}
+function beginResize(ev){ev.stopPropagation();ev.preventDefault();let el=ev.currentTarget.parentElement,role=el?.dataset.designRole,d=ensureDesign();if(!role||!d||layerMeta(role).locked)return;let rect=d.elements[role],box=stage.getBoundingClientRect();resizeState={role,pos:ev.currentTarget.dataset.resize,startX:ev.clientX,startY:ev.clientY,rect:clone(rect),box,el};activeRole=role;ev.currentTarget.setPointerCapture?.(ev.pointerId)}
+window.addEventListener('pointermove',ev=>{if(resizeState){let rs=resizeState,r=ensureDesign().elements[rs.role],dx=(ev.clientX-rs.startX)/rs.box.width*100,dy=(ev.clientY-rs.startY)/rs.box.height*100;Object.assign(r,rs.rect);if(rs.pos.includes('e'))r.w=rs.rect.w+dx;if(rs.pos.includes('s'))r.h=rs.rect.h+dy;if(rs.pos.includes('w')){r.x=rs.rect.x+dx;r.w=rs.rect.w-dx}if(rs.pos.includes('n')){r.y=rs.rect.y+dy;r.h=rs.rect.h-dy}let ed=ensureDesign().editor,g=Number(ed.grid_size||2.5);if(ed.snap_to_grid){r.x=snapValue(r.x,g);r.y=snapValue(r.y,g);r.w=snapValue(r.w,g);r.h=snapValue(r.h,g)}normalizeRect(r);Object.assign(rs.el.style,{left:r.x+'%',top:r.y+'%',width:r.w+'%',height:r.h+'%'});ensureDesign().layout='custom';return}if(activeRole&&ensureDesign()?.editor?.snap_to_grid){let d=ensureDesign(),r=d.elements[activeRole],g=Number(d.editor.grid_size||2.5);r.x=snapValue(r.x,g);r.y=snapValue(r.y,g);normalizeRect(r);let el=stage.querySelector('[data-design-role="'+activeRole+'"]');if(el){el.style.left=r.x+'%';el.style.top=r.y+'%'}}});
+window.addEventListener('pointerup',()=>{if(resizeState){resizeState=null;markDirty();renderCurrent()}activeRole=null});
+stage?.addEventListener('pointerdown',ev=>{let layer=ev.target.closest?.('.advanced-layer');if(!layer)return;let role=layer.dataset.designRole;if(layerMeta(role).locked){ev.preventDefault();ev.stopPropagation();return}activeRole=role},true);
+function reorder(direction){let d=ensureDesign();if(!d)return;let role=roleSel.value,layers=d.editor.layers,ordered=Object.keys(layers).sort((a,b)=>layers[a].z-layers[b].z),idx=ordered.indexOf(role),next=idx+(direction==='up'?1:-1);if(next<0||next>=ordered.length)return;let other=ordered[next],tmp=layers[role].z;layers[role].z=layers[other].z;layers[other].z=tmp;markDirty();renderCurrent();syncControls()}
+up.onclick=()=>reorder('up');down.onclick=()=>reorder('down');lock.onclick=()=>{let d=ensureDesign();if(!d)return;let m=d.editor.layers[roleSel.value];m.locked=!m.locked;markDirty();renderCurrent();syncControls()};roleSel.onchange=syncControls;
+grid.onchange=()=>{let d=ensureDesign();if(!d)return;d.editor.grid_size=Number(grid.value);markDirty();applyToolkitVisuals()};snap.onchange=()=>{let d=ensureDesign();if(!d)return;d.editor.snap_to_grid=snap.checked;markDirty()};guides.onchange=()=>{let d=ensureDesign();if(!d)return;d.editor.show_guides=guides.checked;markDirty();applyToolkitVisuals()};
+copyBtn.onclick=()=>{let d=ensureDesign();if(!d)return;styleClipboard=clone(d);try{localStorage.setItem('lesson-presentation-style-clipboard',JSON.stringify(styleClipboard))}catch(_){}pasteBtn.disabled=false;state.textContent='تم نسخ التصميم.'};
+pasteBtn.onclick=()=>{if(!styleClipboard){try{styleClipboard=JSON.parse(localStorage.getItem('lesson-presentation-style-clipboard')||'null')}catch(_){}}let s=currentSlideObj();if(!s||!styleClipboard)return;s.design_spec=clone(styleClipboard);s.design_spec.editor.template_id='custom';markDirty();renderCurrent();syncControls()};
+resizeBtn.onclick=()=>{resizeMode=!resizeMode;resizeBtn.classList.toggle('drag-on',resizeMode);resizeBtn.textContent=resizeMode?'إنهاء Resize':'Resize Handles';applyToolkitVisuals()};
+applyTemplate.onclick=()=>{let name=template.value,d=ensureDesign();if(!d)return;if(name!=='custom'&&templates[name]){let keepEditor=clone(d.editor||editorDefaults());Object.assign(d,clone(templates[name]));d.editor=keepEditor;d.editor.template_id=name;markDirty();renderCurrent();syncControls()}};
+template.onchange=()=>{if(template.value==='custom'){let d=ensureDesign();if(d){d.editor.template_id='custom';markDirty()}}};
+const oldRenderCurrent=renderCurrent;renderCurrent=function(){oldRenderCurrent();applyToolkitVisuals()};const oldLoadEditor=loadEditor;loadEditor=function(){oldLoadEditor();syncControls()};
+try{styleClipboard=JSON.parse(localStorage.getItem('lesson-presentation-style-clipboard')||'null')}catch(_){}
+syncControls();
+})();
+</script>
+"""
+
+
+_base_workspace = lesson_presentation_studio_ui._workspace
+
+
+def _workspace_with_layout_toolkit(job_id: str) -> str:
+    html = _base_workspace(job_id)
+    marker = "</main></html>"
+    if marker not in html:
+        return html
+    return html.replace(marker, _STYLE + _SCRIPT + marker, 1)
+
+
+lesson_presentation_studio_ui._workspace = _workspace_with_layout_toolkit

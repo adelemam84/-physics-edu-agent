@@ -126,7 +126,7 @@ def generate_visual_suggestion(question_id: int) -> dict:
             a.object_key,a.page_number,a.crop_x,a.crop_y,a.crop_width,a.crop_height,
             d.filename,d.storage_url
           FROM questions q
-          JOIN question_assets a ON a.question_id=q.id
+          LEFT JOIN question_assets a ON a.question_id=q.id
           JOIN documents d ON d.id=q.document_id
           JOIN question_review_notes qr ON qr.question_id=q.id
           WHERE q.id=%s AND qr.reason_code='visual_transcription_required' AND qr.status='open'

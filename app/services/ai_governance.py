@@ -183,7 +183,7 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
             provider="mathpix",
             model="mathpix-v3-text",
             mode="stem_ocr_verification",
-            ready=mathpix_ready,
+            ready=mathpix_ready and not free_only,
             source_grounded=True,
             advisory_only=True,
             can_write_question_bank=False,
@@ -198,7 +198,7 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
             provider="openai",
             model=review_model,
             mode="source_vs_structured_comparison",
-            ready=openai_ready,
+            ready=openai_ready and not free_only,
             source_grounded=True,
             advisory_only=True,
             can_write_question_bank=False,
@@ -265,6 +265,7 @@ def get_task_policy(task: str) -> AITaskPolicy:
 
 def governance_snapshot() -> dict:
     """Build the admin-facing AI operations contract."""
+    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
     providers = provider_status()
     tasks = [asdict(x) for x in task_policies()]
     recommendations: list[dict] = []
@@ -296,18 +297,23 @@ def governance_snapshot() -> dict:
             "reason_ar": "يفيد كمراجع OCR ثانٍ للمعادلات المكتوبة في الصور، وليس شرطًا لتشغيل المنصة.",
         })
 
-    recommendations.extend([
-        {
-            "priority": "architecture",
-            "title_ar": "احتفظ بالنماذج التوليدية في الدور الاستشاري",
-            "reason_ar": "الاعتماد والنشر والدرجة النهائية يجب أن تبقى خلف بوابات حتمية/بشرية.",
-        },
-        {
+    recommendations.append({
+        "priority": "architecture",
+        "title_ar": "احتفظ بالنماذج التوليدية في الدور الاستشاري",
+        "reason_ar": "الاعتماد والنشر والدرجة النهائية يجب أن تبقى خلف بوابات حتمية/بشرية.",
+    })
+    if free_only:
+        recommendations.append({
+            "priority": "free_only",
+            "title_ar": "الاستمرار على Gemini Free Tier",
+            "reason_ar": "المشروع يحظر المزودات المدفوعة افتراضيًا ويستخدم Gemini 2.5 Flash/Flash-Lite فقط في المسارات المسموح بها.",
+        })
+    else:
+        recommendations.append({
             "priority": "cost_quality",
             "title_ar": "استخدم GPT-5.6 Sol فقط للمراجعات عالية المخاطر",
             "reason_ar": "لا حاجة لاستهلاكه في اختيار التدريب أو التصحيح أو كل تفاعل طالب.",
-        },
-    ])
+        })
 
     return {
         "schema_version": "1.1",

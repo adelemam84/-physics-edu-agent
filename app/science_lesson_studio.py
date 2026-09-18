@@ -26,7 +26,7 @@ from .services.rate_limit import enforce_request_policy
 from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
-GEMINI_MODEL = os.getenv('LESSON_STUDIO_GEMINI_MODEL', os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.8-flash')).strip()
+GEMINI_MODEL = os.getenv('LESSON_STUDIO_GEMINI_MODEL', os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-2.5-flash')).strip()
 MATHPIX_APP_ID = os.getenv('MATHPIX_APP_ID', '').strip()
 MATHPIX_APP_KEY = os.getenv('MATHPIX_APP_KEY', '').strip()
 MAX_FILE_BYTES = int(os.getenv('LESSON_STUDIO_MAX_FILE_BYTES', str(12 * 1024 * 1024)))

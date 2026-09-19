@@ -406,6 +406,16 @@ def init_db():
           UNIQUE(attempt_id,position)
         )""")
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_question_order_position ON attempt_question_order(attempt_id,position)")
+        con.execute("""CREATE TABLE IF NOT EXISTS attempt_score_overrides(
+          id bigserial PRIMARY KEY,
+          attempt_id bigint NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+          previous_score numeric NOT NULL,
+          new_score numeric NOT NULL,
+          reason text NOT NULL,
+          actor text NOT NULL DEFAULT 'admin',
+          created_at timestamptz NOT NULL DEFAULT now()
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_score_overrides_attempt ON attempt_score_overrides(attempt_id,created_at DESC)")
         # Legacy adaptive quizzes were globally published before student ownership
         # existed. Archive any still-public legacy rows so they cannot leak across
         # student portals; students can generate a new isolated remedial quiz.

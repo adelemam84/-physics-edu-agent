@@ -31,6 +31,8 @@ def test_personal_exam_engine_schema_is_idempotent_and_noncommercial():
     assert "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS available_from timestamptz" in source
     assert "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS available_until timestamptz" in source
     assert "CREATE TABLE IF NOT EXISTS exam_integrity_events" in source
+    assert "CREATE TABLE IF NOT EXISTS attempt_question_order" in source
+    assert "shuffle_questions boolean NOT NULL DEFAULT false" in source
     assert "uq_quizzes_access_code_upper" in source
     lowered = source.lower()
     assert "exam_billing" not in lowered
@@ -45,6 +47,8 @@ def test_student_exam_runtime_enforces_schedule_and_keeps_autosave_resume():
     assert "تم استكمال محاولتك السابقة" in source
     assert "reportIntegrity" in source
     assert "auto_submit" in source
+    assert "ensure_attempt_question_order" in source
+    assert "question_order" in source
 
 
 def test_integrity_endpoint_is_rate_limited():

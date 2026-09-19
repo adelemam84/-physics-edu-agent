@@ -32,6 +32,7 @@ def test_personal_exam_engine_schema_is_idempotent_and_noncommercial():
     assert "ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS available_until timestamptz" in source
     assert "CREATE TABLE IF NOT EXISTS exam_integrity_events" in source
     assert "CREATE TABLE IF NOT EXISTS attempt_question_order" in source
+    assert "CREATE TABLE IF NOT EXISTS attempt_score_overrides" in source
     assert "shuffle_questions boolean NOT NULL DEFAULT false" in source
     assert "uq_quizzes_access_code_upper" in source
     lowered = source.lower()
@@ -55,3 +56,13 @@ def test_integrity_endpoint_is_rate_limited():
     source = Path("app/security_hardening.py").read_text(encoding="utf-8")
     assert "student_integrity_event" in source
     assert r"^/api/student/attempts/\d+/integrity-event$" in source
+
+
+def test_teacher_score_override_is_audited_and_human_only():
+    source = Path("app/exam_engine.py").read_text(encoding="utf-8")
+    assert "/api/admin/attempts/{attempt_id}/score" in source
+    assert "attempt_score_overrides" in source
+    assert "reason: str = Field(min_length=3" in source
+    assert "لا يمكن تعديل درجة محاولة لم يتم تسليمها" in source
+    assert "الدرجة الجديدة لا يمكن أن تتجاوز الدرجة النهائية" in source
+    assert "actor,'admin'" not in source  # no client-controlled actor field

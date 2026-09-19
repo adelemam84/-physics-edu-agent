@@ -12,7 +12,7 @@ from .security import require_admin
 from .parent_notifications import queue_attempt_notifications
 from .services.grading import grade_answer
 from .student_security import resolve_student_code
-from .exam_engine import ensure_exam_open
+from .exam_engine import ensure_attempt_question_order, ensure_exam_open
 
 def is_correct(answer: str, accepted: str | None) -> bool:
     """Backward-compatible wrapper used by lesson diagnostics and older modules."""
@@ -53,7 +53,7 @@ def student_quiz(quiz_id: int, request: Request):
         st=con.execute("SELECT id FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy,
-          access_code,available_from,available_until,integrity_policy,now() db_now FROM quizzes
+          published,lifecycle_status,access_code,available_from,available_until,integrity_policy,shuffle_questions,now() db_now FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'
             AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
@@ -85,7 +85,8 @@ def start_quiz_attempt(quiz_id:int, request: Request):
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
-        quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
+        quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy,
+          published,lifecycle_status,available_from,available_until,shuffle_questions,now() db_now FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'
             AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
@@ -107,16 +108,22 @@ def start_quiz_attempt(quiz_id:int, request: Request):
             expires_at=con.execute("""SELECT CASE WHEN %s IS NULL THEN NULL
               ELSE %s + (%s * interval '1 minute') END v""",
               (quiz["duration_minutes"],open_attempt["started_at"],quiz["duration_minutes"])).fetchone()["v"]
+            order=ensure_attempt_question_order(con,open_attempt["id"],quiz_id,bool(quiz.get("shuffle_questions")))
             return {"attempt_id":open_attempt["id"],"started_at":open_attempt["started_at"],
-                    "expires_at":expires_at,"resumed":True,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
+                    "expires_at":expires_at,"resumed":True,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,
+                    "max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"],"question_order":order,
+                    "shuffle_questions":bool(quiz.get("shuffle_questions"))}
         max_score=con.execute("SELECT coalesce(sum(points),0) v FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["v"]
         a=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,started_at,submitted_at)
           VALUES(%s,%s,NULL,%s,now(),now()) RETURNING id,started_at""",(st["id"],quiz_id,max_score)).fetchone()
         expires_at=con.execute("""SELECT CASE WHEN %s IS NULL THEN NULL
           ELSE %s + (%s * interval '1 minute') END v""",
           (quiz["duration_minutes"],a["started_at"],quiz["duration_minutes"])).fetchone()["v"]
+        order=ensure_attempt_question_order(con,a["id"],quiz_id,bool(quiz.get("shuffle_questions")))
         return {"attempt_id":a["id"],"started_at":a["started_at"],"expires_at":expires_at,
-                "resumed":False,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
+                "resumed":False,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,
+                "max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"],"question_order":order,
+                "shuffle_questions":bool(quiz.get("shuffle_questions"))}
 
 @app.put("/api/student/attempts/{attempt_id}/answer")
 def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
@@ -341,6 +348,10 @@ async function load(){
     msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'
   }
 }
+function applyQuestionOrder(order){
+  if(!Array.isArray(order)||!order.length)return;
+  order.forEach((qid,i)=>{let el=document.getElementById('q_'+qid);if(el){items.appendChild(el);let b=el.querySelector('.q-head b');if(b)b.textContent='سؤال '+(i+1)}})
+}
 async function startAttempt(){try{await ensureAttempt()}catch(e){msg.textContent=e.message}}
 async function ensureAttempt(){
   if(attemptId)return attemptId;
@@ -350,6 +361,7 @@ async function ensureAttempt(){
   let x=await r.json().catch(()=>null);
   if(!r.ok)throw new Error(apiError(x,'تعذر بدء الاختبار'));
   attemptId=x.attempt_id;expiresAt=x.expires_at?new Date(x.expires_at):null;submitBtn.disabled=false;
+  applyQuestionOrder(x.question_order);
   document.querySelectorAll('.answer').forEach(el=>el.disabled=false);
   startTimer();
   let sr=await fetch('/api/student/attempts/'+attemptId+'/saved',{cache:'no-store'}),sx=await sr.json().catch(()=>null);

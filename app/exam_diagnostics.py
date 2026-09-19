@@ -22,7 +22,7 @@ def _attempt_diagnostic(con, attempt_id: int):
     if not attempt:
         raise HTTPException(404, "المحاولة غير موجودة")
     rows = list(con.execute(
-        """SELECT aa.question_id,aa.answer_text,aa.is_correct,aa.points_awarded,aa.time_spent_seconds,
+        """SELECT min(aa.id) answer_row_id,aa.question_id,aa.answer_text,aa.is_correct,aa.points_awarded,aa.time_spent_seconds,
           q.text_verbatim,q.accepted_answer,q.solution_verbatim,q.difficulty,q.question_type,
           coalesce(q.source_page,q.page) source_page,d.filename source_filename,
           l.id lesson_id,l.title lesson_title,
@@ -40,7 +40,7 @@ def _attempt_diagnostic(con, attempt_id: int):
           GROUP BY aa.question_id,aa.answer_text,aa.is_correct,aa.points_awarded,aa.time_spent_seconds,
             q.text_verbatim,q.accepted_answer,q.solution_verbatim,q.difficulty,q.question_type,
             q.source_page,q.page,d.filename,l.id,l.title
-          ORDER BY aa.id""",
+          ORDER BY answer_row_id""",
         (attempt_id,),
     ).fetchall())
     lessons = list(con.execute(

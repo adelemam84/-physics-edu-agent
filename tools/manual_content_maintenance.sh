@@ -69,7 +69,7 @@ fi
 
 echo "==> Compile maintenance runtime and run deterministic tests"
 python -m compileall -q app index.py status.py
-python -m unittest tests.test_content_completion_contract   tests.test_visual_review_source_page_fallback   tests.test_visual_review_triage   tests.test_visual_review_model_failover   -v
+python -m unittest tests.test_content_completion_contract   tests.test_visual_review_source_page_fallback   tests.test_visual_review_triage   tests.test_edu003_gemini_model_failover   -v
 
 VERCEL=(npx --yes "vercel@${VERCEL_CLI_VERSION}")
 export VERCEL_PROJECT_ID="$PROJECT_ID"

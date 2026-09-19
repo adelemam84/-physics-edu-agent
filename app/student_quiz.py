@@ -12,6 +12,7 @@ from .security import require_admin
 from .parent_notifications import queue_attempt_notifications
 from .services.grading import grade_answer
 from .student_security import resolve_student_code
+from .exam_engine import ensure_exam_open
 
 def is_correct(answer: str, accepted: str | None) -> bool:
     """Backward-compatible wrapper used by lesson diagnostics and older modules."""
@@ -51,10 +52,12 @@ def student_quiz(quiz_id: int, request: Request):
     with connect() as con:
         st=con.execute("SELECT id FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
-        q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
+        q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy,
+          access_code,available_from,available_until,integrity_policy,now() db_now FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'
             AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
+        ensure_exam_open(q)
         items=list(con.execute("""SELECT qq.position,qq.points,x.id,x.text_verbatim,x.question_type,
                     EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id) has_asset
                     FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
@@ -74,7 +77,7 @@ def student_quiz(quiz_id: int, request: Request):
         total=con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
         if not total or len(items)!=total:
             raise HTTPException(409,"تم إيقاف الاختبار مؤقتًا لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")
-        return {**q,"questions":items}
+        return {**q,"questions":items,"delivery_state":"open"}
 
 @app.post("/api/student/quizzes/{quiz_id}/start")
 def start_quiz_attempt(quiz_id:int, request: Request):
@@ -86,6 +89,7 @@ def start_quiz_attempt(quiz_id:int, request: Request):
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'
             AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
+        ensure_exam_open(quiz)
         stats=con.execute("""SELECT count(*) FILTER(WHERE completed_at IS NOT NULL) completed,
           max(completed_at) FILTER(WHERE completed_at IS NOT NULL) last_completed FROM attempts
           WHERE student_id=%s AND quiz_id=%s""",(st["id"],quiz_id)).fetchone()
@@ -285,7 +289,7 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #84ad
 
 <script>
 const quizId=Number(location.pathname.split('/').pop());
-let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false;
+let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false,integrityPolicy={mode:'off'};
 const saveTimers=new Map();
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
@@ -315,7 +319,7 @@ async function ensureSession(){
 async function loadQuiz(){
   let r=await fetch('/api/student/quizzes/'+quizId,{cache:'no-store'}),x=await r.json().catch(()=>null);
   if(!r.ok){msg.textContent=apiError(x,'تعذر تحميل الاختبار');return false}
-  data=x;title.textContent=x.title;
+  data=x;integrityPolicy=x.integrity_policy||{mode:'off'};title.textContent=x.title;
   items.innerHTML=x.questions.map(q=>`<section class="q" id="q_${q.id}">
     <div class="q-head"><b>سؤال ${q.position}</b><span id="save_${q.id}" class="muted"></span></div>
     ${q.has_asset?`<img class="asset" src="/api/practice/questions/${q.id}/asset" alt="صورة السؤال ${q.position}" loading="lazy">`:''}
@@ -361,6 +365,26 @@ function queueSave(qid){
   let badge=document.getElementById('save_'+qid);if(badge){badge.textContent='بانتظار الحفظ';badge.className='muted'}
   saveTimers.set(qid,setTimeout(()=>saveAnswer(qid),500));
 }
+function integrityEnabled(key){
+  return integrityPolicy&&integrityPolicy.mode!=='off'&&integrityPolicy[key]!==false
+}
+async function reportIntegrity(eventType,detail=''){
+  if(!attemptId||!integrityPolicy||integrityPolicy.mode==='off')return;
+  try{
+    let r=await fetch('/api/student/attempts/'+attemptId+'/integrity-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:eventType,detail})});
+    let x=await r.json().catch(()=>null);
+    if(!r.ok)return;
+    if(x.action==='warn')msg.textContent='تنبيه: تم تسجيل خروجك من سياق الامتحان ('+x.violations+' مخالفة).';
+    if(x.action==='auto_submit'&&!autoSubmitting){autoSubmitting=true;msg.textContent='تم بلوغ حد المخالفات وسيتم تسليم آخر إجابات محفوظة.';submitQuiz(true)}
+  }catch(_e){}
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&integrityEnabled('track_tab_switch'))reportIntegrity('tab_hidden')});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&attemptId&&integrityEnabled('track_fullscreen_exit'))reportIntegrity('fullscreen_exit')});
+document.addEventListener('copy',()=>{if(integrityEnabled('track_copy_paste'))reportIntegrity('copy')});
+document.addEventListener('paste',()=>{if(integrityEnabled('track_copy_paste'))reportIntegrity('paste')});
+document.addEventListener('contextmenu',()=>{if(integrityEnabled('track_context_menu'))reportIntegrity('context_menu')});
+window.addEventListener('blur',()=>{if(integrityEnabled('track_window_blur'))reportIntegrity('window_blur')});
+
 function startTimer(){
   clearInterval(timerHandle);
   if(!expiresAt){timer.textContent='بدون وقت محدد';return}

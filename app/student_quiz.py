@@ -31,6 +31,7 @@ class SaveAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question_id: int
     answer: str = Field(max_length=5000)
+    time_spent_seconds: int = Field(default=0, ge=0, le=600)
 
 @app.patch("/api/quizzes/{quiz_id}/publish", dependencies=[Depends(require_admin)])
 def legacy_publish_quiz(quiz_id: int, published: bool = True):
@@ -141,11 +142,12 @@ def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
           WHERE qq.quiz_id=%s AND qq.question_id=%s AND q.published=TRUE AND q.lifecycle_status='published'""",
           (a["quiz_id"],p.question_id)).fetchone():
             raise HTTPException(400,"السؤال غير موجود في الاختبار المنشور")
-        con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)
-          VALUES(%s,%s,%s,NULL,NULL,0)
+        con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded,time_spent_seconds)
+          VALUES(%s,%s,%s,NULL,NULL,0,%s)
           ON CONFLICT (attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL
-          DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=NULL,awarded_score=NULL,points_awarded=0""",
-          (attempt_id,p.question_id,p.answer))
+          DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=NULL,awarded_score=NULL,points_awarded=0,
+            time_spent_seconds=attempt_answers.time_spent_seconds+EXCLUDED.time_spent_seconds""",
+          (attempt_id,p.question_id,p.answer,p.time_spent_seconds))
         return {"ok":True,"attempt_id":attempt_id,"question_id":p.question_id}
 
 @app.get("/api/student/attempts/{attempt_id}/saved")
@@ -224,8 +226,8 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
             ok=bool(grade_answer(ans,r["accepted_answer"]))
             pts=Decimal(str(r["points"])) if ok else Decimal("0")
             score+=pts; correct+=1 if ok else 0
-            con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)
-              VALUES (%s,%s,%s,%s,%s,%s)
+            con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded,time_spent_seconds)
+              VALUES (%s,%s,%s,%s,%s,%s,0)
               ON CONFLICT (attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL
               DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=EXCLUDED.is_correct,
                 awarded_score=EXCLUDED.awarded_score,points_awarded=EXCLUDED.points_awarded""",
@@ -297,6 +299,7 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #84ad
 <script>
 const quizId=Number(location.pathname.split('/').pop());
 let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false,integrityPolicy={mode:'off'};
+const questionClock=new Map();
 const saveTimers=new Map();
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
@@ -331,7 +334,7 @@ async function loadQuiz(){
     <div class="q-head"><b>سؤال ${q.position}</b><span id="save_${q.id}" class="muted"></span></div>
     ${q.has_asset?`<img class="asset" src="/api/practice/questions/${q.id}/asset" alt="صورة السؤال ${q.position}" loading="lazy">`:''}
     <div>${esc(q.text_verbatim)}</div>
-    <input class="answer" id="a_${q.id}" aria-label="إجابة السؤال ${q.position}" placeholder="اكتب الإجابة" disabled oninput="queueSave(${q.id})">
+    <input class="answer" id="a_${q.id}" aria-label="إجابة السؤال ${q.position}" placeholder="اكتب الإجابة" disabled onfocus="startQuestionClock(${q.id})" oninput="queueSave(${q.id})" onblur="queueSave(${q.id},true)">
   </section>`).join('');
   updateProgress();
   return true
@@ -370,12 +373,21 @@ async function ensureAttempt(){
   msg.textContent=x.resumed?'تم استكمال محاولتك السابقة.':'بدأت محاولة جديدة ويتم حفظ كل إجابة تلقائيًا.';
   return attemptId;
 }
-function queueSave(qid){
+function startQuestionClock(qid){
+  if(!questionClock.has(qid))questionClock.set(qid,Date.now())
+}
+function consumeQuestionSeconds(qid){
+  let start=questionClock.get(qid);if(!start)return 0;
+  let seconds=Math.max(0,Math.min(600,Math.round((Date.now()-start)/1000)));
+  questionClock.set(qid,Date.now());
+  return seconds
+}
+function queueSave(qid,immediate=false){
   if(expiresAt&&Date.now()>=expiresAt.getTime())return;
   updateProgress();
   clearTimeout(saveTimers.get(qid));
   let badge=document.getElementById('save_'+qid);if(badge){badge.textContent='بانتظار الحفظ';badge.className='muted'}
-  saveTimers.set(qid,setTimeout(()=>saveAnswer(qid),500));
+  saveTimers.set(qid,setTimeout(()=>saveAnswer(qid),immediate?0:500));
 }
 function integrityEnabled(key){
   return integrityPolicy&&integrityPolicy.mode!=='off'&&integrityPolicy[key]!==false
@@ -415,7 +427,7 @@ function startTimer(){
 async function saveAnswer(qid){
   try{
     let id=await ensureAttempt(),el=document.getElementById('a_'+qid),badge=document.getElementById('save_'+qid);
-    let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({question_id:qid,answer:el.value})});
+    let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({question_id:qid,answer:el.value,time_spent_seconds:consumeQuestionSeconds(qid)})});
     let x=await r.json().catch(()=>null);
     if(!r.ok)throw new Error(apiError(x,'تعذر حفظ الإجابة'));
     if(badge){badge.textContent='تم الحفظ';badge.className='save-ok'}
@@ -438,7 +450,7 @@ async function submitQuiz(fromTimer=false){
     ${x.time_expired?'<p class="muted">تم التسليم بعد انتهاء الوقت باستخدام آخر إجابات محفوظة قبل انتهاء المدة.</p>':''}
     <p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p>
     <p class=muted>تم حفظ النتيجة. التصحيح النهائي حتمي من الإجابات المعتمدة في بنك الأسئلة.</p>
-    <div class=row><button onclick="downloadAttemptReview()">تنزيل الاختبار بإجاباتي PDF</button><button onclick="downloadMistakesReview()">تنزيل مذكرة أخطائي PDF</button></div>
+    <div class=row><button onclick="location.href='/student/results/'+attemptId">فتح التحليل التشخيصي</button><button onclick="downloadAttemptReview()">تنزيل الاختبار بإجاباتي PDF</button><button onclick="downloadMistakesReview()">تنزيل مذكرة أخطائي PDF</button></div>
     ${x.adaptive_recommended?'<button class="primary" onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيستمر النظام في متابعة نقاط القوة والضعف.</p>'}`;
   result.scrollIntoView({behavior:'smooth',block:'start'})
 }

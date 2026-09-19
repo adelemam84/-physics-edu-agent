@@ -44,7 +44,10 @@ def build_exam_analytics(quiz_id: int):
               FROM quiz_questions qq JOIN questions q ON q.id=qq.question_id
               LEFT JOIN lessons l ON l.id=q.lesson_id
               LEFT JOIN attempt_answers aa ON aa.question_id=q.id
-              LEFT JOIN attempts a ON a.id=aa.attempt_id AND a.quiz_id=%s AND a.completed_at IS NOT NULL
+                AND aa.attempt_id IN (
+                  SELECT a0.id FROM attempts a0
+                  WHERE a0.quiz_id=%s AND a0.completed_at IS NOT NULL
+                )
               WHERE qq.quiz_id=%s
               GROUP BY q.id,q.text_verbatim,q.difficulty,q.question_type,l.title,qq.position
               ORDER BY qq.position""",

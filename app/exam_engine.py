@@ -340,3 +340,28 @@ async function loadIntegrity(){let r=await fetch('/api/admin/exams/'+id+'/integr
 @app.get("/admin/exam-engine", response_class=HTMLResponse)
 def exam_engine_page():
     return PAGE
+
+
+STUDENT_CODE_PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>دخول الامتحان بالكود</title><style>
+body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:620px;margin:auto;padding:24px}
+.box{background:#fff;border:1px solid #e4e7ec;border-radius:18px;padding:20px;box-shadow:0 3px 14px #1018280a}
+input,button{width:100%;padding:13px;border:1px solid #cbd2df;border-radius:11px;font:inherit;margin-top:10px}
+input{text-transform:uppercase;letter-spacing:4px;text-align:center;font-size:24px;font-weight:800}
+button{background:#2447a8;color:#fff;border-color:#2447a8;font-weight:800;cursor:pointer}.muted{color:#667085}.bad{color:#b42318}a{color:#2447a8;text-decoration:none}
+</style><main><div class=box><a href="/student">← بوابة الطالب</a><h1>دخول الامتحان بالكود</h1>
+<p class=muted>أدخل كود الامتحان المكوّن من 6 رموز. يجب أن تكون مسجلًا بكود الطالب أولًا.</p>
+<input id=code maxlength=6 autocomplete=one-time-code placeholder="ABC234">
+<button onclick=go()>فتح الامتحان</button><p id=msg class=muted aria-live=polite></p></div>
+<script>
+function err(x){return typeof x?.detail==='string'?x.detail:(x?.detail?.message||'تعذر فتح الامتحان')}
+async function go(){let v=code.value.trim().toUpperCase();if(v.length!==6){msg.className='bad';msg.textContent='أدخل كودًا صحيحًا من 6 رموز';return}
+let r=await fetch('/api/student/exams/resolve/'+encodeURIComponent(v),{cache:'no-store'}),x=await r.json().catch(()=>null);
+if(!r.ok){msg.className='bad';msg.textContent=err(x);return}location.href=x.student_path}
+code.addEventListener('keydown',e=>{if(e.key==='Enter')go()})
+</script></main></html>'''
+
+
+@app.get("/student/exam-code", response_class=HTMLResponse)
+def student_exam_code_page():
+    return STUDENT_CODE_PAGE

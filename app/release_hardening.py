@@ -165,7 +165,8 @@ def next_release_status() -> dict:
             "question_bank_auto_write_must_remain_disabled": True,
         },
         "deployment_policy": (
-            "promote only a green main commit after CI and production smoke checks pass"
+            "promote only a main commit after deterministic regression gates and "
+            "production smoke checks pass, via GitHub Actions or the manual controlled release path"
         ),
     }
 

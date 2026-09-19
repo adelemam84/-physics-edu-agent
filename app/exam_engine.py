@@ -4,6 +4,7 @@ import json
 import secrets
 import string
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Request
@@ -65,6 +66,12 @@ class IntegrityEventIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_type: str = Field(min_length=2, max_length=40)
     detail: str | None = Field(default=None, max_length=500)
+
+
+class ScoreOverrideIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_score: Decimal = Field(ge=0)
+    reason: str = Field(min_length=3, max_length=500)
 
 
 def normalize_access_code(value: str | None) -> str:
@@ -291,6 +298,66 @@ def record_integrity_event(attempt_id: int, payload: IntegrityEventIn, request: 
             "threshold": threshold,
             "action": action,
         }
+
+
+
+
+@app.patch("/api/admin/attempts/{attempt_id}/score", dependencies=[Depends(require_admin)])
+def override_attempt_score(attempt_id: int, payload: ScoreOverrideIn):
+    with connect() as con:
+        row = con.execute(
+            """SELECT a.id,a.score,a.max_score,a.completed_at,a.quiz_id,s.name student_name,q.title quiz_title
+              FROM attempts a
+              JOIN students s ON s.id=a.student_id
+              JOIN quizzes q ON q.id=a.quiz_id
+              WHERE a.id=%s""",
+            (attempt_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "المحاولة غير موجودة")
+        if row["completed_at"] is None:
+            raise HTTPException(409, "لا يمكن تعديل درجة محاولة لم يتم تسليمها")
+        if payload.new_score > Decimal(str(row["max_score"] or 0)):
+            raise HTTPException(400, "الدرجة الجديدة لا يمكن أن تتجاوز الدرجة النهائية")
+        previous = Decimal(str(row["score"] or 0))
+        reason = payload.reason.strip()
+        con.execute(
+            """INSERT INTO attempt_score_overrides(attempt_id,previous_score,new_score,reason,actor)
+              VALUES(%s,%s,%s,%s,'admin')""",
+            (attempt_id, previous, payload.new_score, reason),
+        )
+        con.execute(
+            "UPDATE attempts SET score=%s WHERE id=%s",
+            (payload.new_score, attempt_id),
+        )
+        max_score = Decimal(str(row["max_score"] or 0))
+        percentage = round(float(payload.new_score / max_score * 100), 2) if max_score else 0.0
+        return {
+            "attempt_id": attempt_id,
+            "quiz_id": row["quiz_id"],
+            "student_name": row["student_name"],
+            "quiz_title": row["quiz_title"],
+            "previous_score": float(previous),
+            "new_score": float(payload.new_score),
+            "max_score": float(max_score),
+            "percentage": percentage,
+            "reason": reason,
+        }
+
+
+@app.get("/api/admin/attempts/{attempt_id}/score-history", dependencies=[Depends(require_admin)])
+def attempt_score_history(attempt_id: int):
+    with connect() as con:
+        if not con.execute("SELECT 1 FROM attempts WHERE id=%s", (attempt_id,)).fetchone():
+            raise HTTPException(404, "المحاولة غير موجودة")
+        rows = list(con.execute(
+            """SELECT id,previous_score,new_score,reason,actor,created_at
+              FROM attempt_score_overrides
+              WHERE attempt_id=%s
+              ORDER BY created_at DESC,id DESC""",
+            (attempt_id,),
+        ).fetchall())
+        return {"attempt_id": attempt_id, "history": rows}
 
 
 @app.get("/api/admin/exams/{quiz_id}/integrity", dependencies=[Depends(require_admin)])

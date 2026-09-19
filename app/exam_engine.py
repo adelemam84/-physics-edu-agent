@@ -47,6 +47,7 @@ class ExamSettingsIn(BaseModel):
     track_copy_paste: bool = True
     track_context_menu: bool = False
     track_window_blur: bool = False
+    shuffle_questions: bool = False
 
     @model_validator(mode="after")
     def validate_window(self):
@@ -97,6 +98,35 @@ def ensure_exam_open(row) -> None:
         raise HTTPException(404, "الاختبار غير متاح")
 
 
+
+
+def ensure_attempt_question_order(con, attempt_id: int, quiz_id: int, shuffle: bool) -> list[int]:
+    existing = list(con.execute(
+        "SELECT question_id,position FROM attempt_question_order WHERE attempt_id=%s ORDER BY position",
+        (attempt_id,),
+    ).fetchall())
+    if not existing:
+        seed = f"{attempt_id}:{quiz_id}"
+        con.execute(
+            """INSERT INTO attempt_question_order(attempt_id,question_id,position)
+              SELECT %s,qq.question_id,
+                     row_number() OVER(
+                       ORDER BY CASE WHEN %s
+                         THEN md5(%s || ':' || qq.question_id::text)
+                         ELSE lpad(qq.position::text,12,'0')
+                       END
+                     )
+              FROM quiz_questions qq WHERE qq.quiz_id=%s
+              ON CONFLICT (attempt_id,question_id) DO NOTHING""",
+            (attempt_id, bool(shuffle), seed, quiz_id),
+        )
+        existing = list(con.execute(
+            "SELECT question_id,position FROM attempt_question_order WHERE attempt_id=%s ORDER BY position",
+            (attempt_id,),
+        ).fetchall())
+    return [int(r["question_id"]) for r in existing]
+
+
 def _new_access_code(con) -> str:
     for _ in range(30):
         code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(6))
@@ -120,7 +150,7 @@ def _policy_from_payload(p: ExamSettingsIn) -> dict:
 def _quiz_settings(con, quiz_id: int):
     return con.execute(
         """SELECT id,title,published,lifecycle_status,access_code,available_from,available_until,
-          integrity_policy,now() db_now
+          integrity_policy,shuffle_questions,now() db_now
           FROM quizzes WHERE id=%s""",
         (quiz_id,),
     ).fetchone()
@@ -145,10 +175,11 @@ def update_exam_settings(quiz_id: int, payload: ExamSettingsIn):
         policy = _policy_from_payload(payload)
         row = con.execute(
             """UPDATE quizzes
-              SET access_code=%s, available_from=%s, available_until=%s, integrity_policy=%s::jsonb
+              SET access_code=%s, available_from=%s, available_until=%s, integrity_policy=%s::jsonb,
+                  shuffle_questions=%s
               WHERE id=%s
-              RETURNING id,title,published,lifecycle_status,access_code,available_from,available_until,integrity_policy""",
-            (code, payload.available_from, payload.available_until, json.dumps(policy), quiz_id),
+              RETURNING id,title,published,lifecycle_status,access_code,available_from,available_until,integrity_policy,shuffle_questions""",
+            (code, payload.available_from, payload.available_until, json.dumps(policy), payload.shuffle_questions, quiz_id),
         ).fetchone()
         con.execute(
             """INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,details)
@@ -162,6 +193,7 @@ def update_exam_settings(quiz_id: int, payload: ExamSettingsIn):
                     "available_until": payload.available_until.isoformat() if payload.available_until else None,
                     "integrity_policy": policy,
                     "access_code_rotated": code != old.get("access_code"),
+                    "shuffle_questions": payload.shuffle_questions,
                 }),
             ),
         )
@@ -197,7 +229,7 @@ def resolve_exam_code(access_code: str, request: Request):
             raise HTTPException(404, "كود الطالب غير صحيح")
         row = con.execute(
             """SELECT id,title,published,lifecycle_status,access_code,available_from,available_until,
-              integrity_policy,now() db_now
+              integrity_policy,shuffle_questions,now() db_now
               FROM quizzes
               WHERE upper(access_code)=upper(%s)
                 AND (owner_student_id IS NULL OR owner_student_id=%s)""",
@@ -325,14 +357,15 @@ button{cursor:pointer;background:#fff}.primary{background:#2447a8;color:#fff;bor
 <p class=check><input id=cp type=checkbox checked>تسجيل النسخ واللصق</p>
 <p class=check><input id=ctx type=checkbox>تسجيل القائمة السياقية</p>
 <p class=check><input id=blur type=checkbox>تسجيل فقدان تركيز النافذة</p>
+<p class=check><input id=shuffle type=checkbox>ترتيب مختلف للأسئلة لكل محاولة</p>
 <button class=primary onclick=save()>حفظ الإعدادات</button><p id=msg class=muted></p></div>
 <div class=box><h2>ملخص النزاهة</h2><button onclick=loadIntegrity()>تحديث الملخص</button><div id=integrity class=muted></div></div>
 </div>
 <script>
 let id=null;function isoLocal(v){if(!v)return '';let d=new Date(v),p=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())}
-async function loadExam(){id=Number(qid.value);if(!id)return;let r=await fetch('/api/admin/exams/'+id+'/settings'),x=await r.json().catch(()=>null);if(!r.ok){alert(x?.detail||'تعذر التحميل');return}panel.style.display='block';code.textContent=x.access_code||'------';from.value=isoLocal(x.available_from);until.value=isoLocal(x.available_until);state.textContent=x.delivery_state;let p=x.integrity_policy||{};mode.value=p.mode||'log';maxv.value=p.max_violations||3;tab.checked=p.track_tab_switch!==false;fs.checked=p.track_fullscreen_exit!==false;cp.checked=p.track_copy_paste!==false;ctx.checked=!!p.track_context_menu;blur.checked=!!p.track_window_blur;loadIntegrity()}
+async function loadExam(){id=Number(qid.value);if(!id)return;let r=await fetch('/api/admin/exams/'+id+'/settings'),x=await r.json().catch(()=>null);if(!r.ok){alert(x?.detail||'تعذر التحميل');return}panel.style.display='block';code.textContent=x.access_code||'------';from.value=isoLocal(x.available_from);until.value=isoLocal(x.available_until);state.textContent=x.delivery_state;let p=x.integrity_policy||{};mode.value=p.mode||'log';maxv.value=p.max_violations||3;tab.checked=p.track_tab_switch!==false;fs.checked=p.track_fullscreen_exit!==false;cp.checked=p.track_copy_paste!==false;ctx.checked=!!p.track_context_menu;blur.checked=!!p.track_window_blur;shuffle.checked=!!x.shuffle_questions;loadIntegrity()}
 async function rotateCode(){let r=await fetch('/api/admin/exams/'+id+'/rotate-code',{method:'POST'}),x=await r.json().catch(()=>null);if(r.ok)code.textContent=x.access_code;else alert(x?.detail||'تعذر إنشاء الكود')}
-async function save(){let body={available_from:from.value?new Date(from.value).toISOString():null,available_until:until.value?new Date(until.value).toISOString():null,access_code:code.textContent==='------'?null:code.textContent,integrity_mode:mode.value,max_violations:Number(maxv.value||3),track_tab_switch:tab.checked,track_fullscreen_exit:fs.checked,track_copy_paste:cp.checked,track_context_menu:ctx.checked,track_window_blur:blur.checked};let r=await fetch('/api/admin/exams/'+id+'/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),x=await r.json().catch(()=>null);msg.textContent=r.ok?'تم الحفظ':(x?.detail?.[0]?.msg||x?.detail||'تعذر الحفظ');if(r.ok){code.textContent=x.access_code;state.textContent=x.delivery_state}}
+async function save(){let body={available_from:from.value?new Date(from.value).toISOString():null,available_until:until.value?new Date(until.value).toISOString():null,access_code:code.textContent==='------'?null:code.textContent,integrity_mode:mode.value,max_violations:Number(maxv.value||3),track_tab_switch:tab.checked,track_fullscreen_exit:fs.checked,track_copy_paste:cp.checked,track_context_menu:ctx.checked,track_window_blur:blur.checked,shuffle_questions:shuffle.checked};let r=await fetch('/api/admin/exams/'+id+'/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),x=await r.json().catch(()=>null);msg.textContent=r.ok?'تم الحفظ':(x?.detail?.[0]?.msg||x?.detail||'تعذر الحفظ');if(r.ok){code.textContent=x.access_code;state.textContent=x.delivery_state}}
 async function loadIntegrity(){let r=await fetch('/api/admin/exams/'+id+'/integrity'),x=await r.json().catch(()=>null);if(!r.ok){integrity.textContent='تعذر تحميل الملخص';return}integrity.innerHTML='<p><b>'+x.events+'</b> حدثًا في <b>'+x.attempts_with_events+'</b> محاولة</p><pre>'+JSON.stringify(x.by_type,null,2)+'</pre>'}
 </script></main></html>'''
 

@@ -153,6 +153,13 @@ class ReleaseHardeningReadinessTests(unittest.TestCase):
         self.assertEqual(data["runtime_blockers"], [])
         self.assertEqual(data["release_state"], "runtime_ready")
 
+    def test_deployment_policy_accepts_equivalent_manual_controlled_release(self):
+        data = self._status()
+        policy = data["deployment_policy"]
+        self.assertIn("deterministic regression gates", policy)
+        self.assertIn("production smoke checks", policy)
+        self.assertIn("manual controlled release path", policy)
+
 
 if __name__ == "__main__":
     unittest.main()

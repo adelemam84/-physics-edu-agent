@@ -26,7 +26,7 @@ def student_portal(request: Request):
           FROM attempts a WHERE a.student_id=%s AND a.max_score>0)
           SELECT max(pct) FILTER(WHERE rn=1) latest,max(pct) FILTER(WHERE rn=2) previous FROM x WHERE rn<=2""",(st["id"],)).fetchone()
         available=list(con.execute("""SELECT q.id,q.title,q.duration_minutes,q.quality_score,q.published_at,q.max_attempts,q.retry_wait_minutes,q.score_policy,
-          q.available_from,q.available_until,q.access_code,
+          q.available_from,q.available_until,
           CASE WHEN q.available_from IS NOT NULL AND now()<q.available_from THEN 'scheduled'
                WHEN q.available_until IS NOT NULL AND now()>=q.available_until THEN 'closed'
                ELSE 'open' END delivery_state,

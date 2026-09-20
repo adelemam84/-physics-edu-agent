@@ -111,7 +111,8 @@ def student_attempt_diagnostic(attempt_id: int, request: Request):
     code = resolve_student_code(request)
     with connect() as con:
         owner = con.execute(
-            """SELECT s.external_code FROM attempts a JOIN students s ON s.id=a.student_id WHERE a.id=%s""",
+            """SELECT s.external_code FROM attempts a JOIN students s ON s.id=a.student_id
+               WHERE a.id=%s AND a.completed_at IS NOT NULL""",
             (attempt_id,),
         ).fetchone()
         if not owner or owner["external_code"] != code:

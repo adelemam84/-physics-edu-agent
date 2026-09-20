@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - ".maintenance/execute-edu001-edu003.json"
+      - "tools/manual_content_maintenance.sh"
+      - ".github/workflows/execute-edu001-edu003.yml"
 
 permissions:
   contents: read
@@ -22,221 +24,34 @@ env:
 jobs:
   execute:
     name: Staged source coverage and visual transcription assistance
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: production
     timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
+          clean: true
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
-      - name: Install runtime dependencies
-        run: python -m pip install --disable-pip-version-check -r requirements.txt
-
-      - name: Compile maintenance runtime
-        run: python -m compileall -q app index.py
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
 
-      - name: Install pinned Vercel CLI
-        run: npm install --global "vercel@$VERCEL_CLI_VERSION"
+      - name: Verify Git Bash is available
+        shell: powershell
+        run: |
+          $bash = Get-Command bash -ErrorAction SilentlyContinue
+          if (-not $bash) { throw "Git Bash is required on the Windows self-hosted runner." }
+          bash --version
 
-      - name: Pull production configuration
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-
-      - name: Install uv for local Vercel build
-        run: python -m pip install --disable-pip-version-check --upgrade uv
-
-      - name: Build production artifact
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: vercel build --prod --token="$VERCEL_TOKEN"
-
-      - name: Stage isolated maintenance deployment
-        id: stage
+      - name: Run hardened zero-cost EDU maintenance
+        shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          TOKEN="$(python - <<'PY'
-          import secrets
-          print(secrets.token_urlsafe(48))
-          PY
-          )"
-          echo "::add-mask::$TOKEN"
-          URL=""
-          for attempt in 1 2; do
-            echo "staging maintenance deployment attempt=$attempt"
-            OUT="$(vercel deploy --prebuilt --prod --skip-domain --yes --no-wait \
-              --env RELEASE_GIT_REF=main \
-              --env RELEASE_GIT_SHA="$GITHUB_SHA" \
-              --env CONTENT_INGESTION_ENABLED=true \
-              --env CONTENT_MAINTENANCE_TOKEN="$TOKEN" \
-              --token="$VERCEL_TOKEN")"
-            URL="$(printf '%s\n' "$OUT" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 || true)"
-            if [ -z "$URL" ]; then
-              echo "::warning::Vercel did not return a deployment URL on attempt $attempt"
-              continue
-            fi
-            echo "created $URL; waiting for READY"
-            if timeout 180s vercel inspect "$URL" --wait --token="$VERCEL_TOKEN"; then
-              break
-            fi
-            echo "::warning::Staged deployment did not become READY within 180s; removing and retrying."
-            vercel remove "$URL" --yes --token="$VERCEL_TOKEN" || true
-            URL=""
-          done
-          test -n "$URL"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-
-      - name: Register extract and map explanatory sources
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
-          MAINT_TOKEN: ${{ steps.stage.outputs.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p maintenance-evidence
-          vercel curl "/api/internal/content-maintenance/status" \
-            --deployment "$DEPLOYMENT_URL" -- \
-            --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-            --fail-with-body > maintenance-evidence/pre-status.json
-          read -r covered total < <(python - <<'PY'
-          import json
-          data=json.load(open("maintenance-evidence/pre-status.json",encoding="utf-8"))
-          print(int(data.get("covered_lessons") or 0), int(data.get("total_lessons") or 0))
-          PY
-          )
-          if [ "$total" -gt 0 ] && [ "$covered" -eq "$total" ]; then
-            echo "EDU-001 already complete ($covered/$total); skipping source re-import."
-            exit 0
-          fi
-
-          run_source() {
-            key="$1"
-            vercel curl "/api/internal/content-maintenance/source/$key/register" \
-              --deployment "$DEPLOYMENT_URL" -- \
-              --request POST \
-              --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-              --fail-with-body > "maintenance-evidence/$key-register.json"
-
-            read -r doc_id page_count < <(python - "$key" <<'PY'
-          import json,sys
-          key=sys.argv[1]
-          data=json.load(open(f"maintenance-evidence/{key}-register.json",encoding="utf-8"))
-          doc=data["document"]
-          print(int(doc["id"]), int(doc["page_count"]))
-          PY
-            )
-
-            : > "maintenance-evidence/$key-extract.jsonl"
-            start=1
-            while [ "$start" -le "$page_count" ]; do
-              vercel curl "/api/internal/content-maintenance/source/$key/extract?document_id=$doc_id&start_page=$start" \
-                --deployment "$DEPLOYMENT_URL" -- \
-                --request POST \
-                --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-                --fail-with-body >> "maintenance-evidence/$key-extract.jsonl"
-              printf '\n' >> "maintenance-evidence/$key-extract.jsonl"
-              start=$((start + 15))
-            done
-
-            vercel curl "/api/internal/content-maintenance/source/$key/map?document_id=$doc_id" \
-              --deployment "$DEPLOYMENT_URL" -- \
-              --request POST \
-              --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-              --fail-with-body > "maintenance-evidence/$key-map.json"
-          }
-
-          run_source electrical
-          run_source modern
-
-      - name: Generate source-only visual transcription suggestions
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
-          MAINT_TOKEN: ${{ steps.stage.outputs.token }}
-        run: |
-          set -euo pipefail
-          vercel curl "/api/internal/content-maintenance/visual-pending" \
-            --deployment "$DEPLOYMENT_URL" -- \
-            --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-            --fail-with-body > maintenance-evidence/visual-pending.json
-          python - <<'PY' > /tmp/visual-ids.txt
-          import json
-          data=json.load(open("maintenance-evidence/visual-pending.json",encoding="utf-8"))
-          for qid in data.get("question_ids", []):
-              print(int(qid))
-          PY
-          : > maintenance-evidence/visual-results.jsonl
-          : > maintenance-evidence/visual-errors.txt
-          processed=0
-          failed=0
-          while read -r qid; do
-            [ -n "$qid" ] || continue
-            echo "processing visual question $qid"
-            if vercel curl "/api/internal/content-maintenance/visual/$qid" \
-              --deployment "$DEPLOYMENT_URL" -- \
-              --request POST \
-              --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-              --max-time 270 \
-              --fail-with-body > /tmp/visual-one.json; then
-              cat /tmp/visual-one.json >> maintenance-evidence/visual-results.jsonl
-              printf '\n' >> maintenance-evidence/visual-results.jsonl
-              processed=$((processed + 1))
-            else
-              echo "$qid" >> maintenance-evidence/visual-errors.txt
-              failed=$((failed + 1))
-            fi
-          done < /tmp/visual-ids.txt
-          echo "visual processed=$processed failed=$failed"
-
-      - name: Capture final maintenance state
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
-          MAINT_TOKEN: ${{ steps.stage.outputs.token }}
-        run: |
-          set -euo pipefail
-          vercel curl "/api/internal/content-maintenance/status" \
-            --deployment "$DEPLOYMENT_URL" -- \
-            --header "X-Content-Maintenance-Token: $MAINT_TOKEN" \
-            --fail-with-body > maintenance-evidence/final-status.json
-          python - <<'PY'
-          import json
-          data=json.load(open("maintenance-evidence/final-status.json",encoding="utf-8"))
-          print(json.dumps(data,ensure_ascii=False,indent=2))
-          if int(data.get("covered_lessons") or 0) != int(data.get("total_lessons") or 0):
-              raise SystemExit("EDU-001 source coverage is not complete")
-          queue=data.get("visual_queue") or {}
-          if int(queue.get("without_suggestion") or 0) > 0:
-              raise SystemExit(
-                  f"EDU-003 is incomplete: {int(queue.get('without_suggestion') or 0)} visual candidates still have no suggestion"
-              )
-          PY
-
-      - name: Remove isolated maintenance deployment
-        if: always() && steps.stage.outputs.url != ''
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          DEPLOYMENT_URL: ${{ steps.stage.outputs.url }}
-        run: vercel remove "$DEPLOYMENT_URL" --yes --token="$VERCEL_TOKEN"
-
-      - name: Upload maintenance evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: edu001-edu003-maintenance-${{ github.run_id }}
-          path: maintenance-evidence
-          if-no-files-found: warn
-          retention-days: 30
+          bash tools/manual_content_maintenance.sh --expected-sha "$GITHUB_SHA"

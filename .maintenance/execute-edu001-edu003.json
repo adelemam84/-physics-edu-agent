@@ -1,5 +1,5 @@
 {
-  "requested_at": "2026-09-18",
+  "requested_at": "2026-09-20",
   "recovery_branch": "br-flat-lake-a5zh4xxu",
   "operations": [
     "EDU-001",
@@ -10,9 +10,9 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 10,
+  "execution_generation": 11,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "isolated Vercel deployment remained INITIALIZING and blocked the maintenance workflow before EDU-003 processing",
+  "previous_attempt": "GitHub Actions runner startup failure persisted through run 35394684906 attempt 5 with steps=null; manual fallback PR #171 is now merged",
   "corrected_mapping": {
     "lesson_id": 20,
     "from": [
@@ -24,12 +24,18 @@
       31
     ]
   },
-  "execution_focus": "bounded no-wait staged deployment readiness with automatic cleanup/retry, then resume EDU-003 model failover",
+  "execution_focus": "fresh latest-main EDU-001/EDU-003 trigger after merging hardened manual fallback; skip EDU-001 when 10/10 covered and resume EDU-003 visual suggestions",
   "provider_policy": {
     "primary": "gemini",
     "fallback": "openai",
     "fallback_only_on_transient_provider_failure": true,
     "source_image_unchanged": true,
+    "auto_approval": false
+  },
+  "manual_fallback": {
+    "merged_main_sha": "127002811a5834385634b87b515b3fcad6b93c81",
+    "isolated_skip_domain": true,
+    "ai_free_only": true,
     "auto_approval": false
   }
 }

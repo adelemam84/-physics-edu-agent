@@ -243,7 +243,7 @@ def build_learning_suite(student_code: str):
         }
         student_id = st["id"]
     weakness_progression = build_weakness_progression(student_id)
-    dynamic_study_queue = build_personal_study_queue(student_id, 10)
+    dynamic_study_queue = build_personal_study_queue(student_id, 10, weakness_progression)
     return {
         "student": st,
         "source_grounded_tutor": tutor,

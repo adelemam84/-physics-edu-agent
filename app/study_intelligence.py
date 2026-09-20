@@ -170,14 +170,6 @@ def build_personal_study_queue(student_id: int, limit: int = 10):
     candidates.sort(key=lambda x: (-x["priority_score"], x["dimension"], x["item_title"]))
 
     with connect() as con:
-        latest_bad_attempt = con.execute(
-            """SELECT a.id
-              FROM attempts a
-              WHERE a.student_id=%s AND a.completed_at IS NOT NULL
-                AND EXISTS(SELECT 1 FROM attempt_answers aa WHERE aa.attempt_id=a.id AND aa.is_correct=FALSE)
-              ORDER BY a.completed_at DESC,a.id DESC LIMIT 1""",
-            (student_id,),
-        ).fetchone()
         queue = []
         seen_lessons = set()
         for item in candidates:
@@ -187,9 +179,6 @@ def build_personal_study_queue(student_id: int, limit: int = 10):
             source = _lesson_source(con, lesson_id)
             action = "adaptive_practice"
             action_url = "/api/student/adaptive-practice/create?count=10"
-            if latest_bad_attempt:
-                action = "attempt_weakness_practice"
-                action_url = f"/api/student/attempts/{latest_bad_attempt['id']}/weakness-practice/create?count=10"
             if lesson_id and lesson_id not in seen_lessons and source:
                 task_type = "study_then_practice"
                 seen_lessons.add(lesson_id)

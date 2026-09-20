@@ -36,8 +36,8 @@ def _trend_rows(con, student_id: int, dimension: str):
         key = "d.id"
         title = "d.title"
         extra = "LEFT JOIN lessons l ON l.id=d.lesson_id"
-        lesson_id = "l.id"
-        lesson_title = "l.title"
+        lesson_id = "min(l.id)"
+        lesson_title = "min(l.title)"
     elif dimension == "skill":
         join = "JOIN question_skills qd ON qd.question_id=aa.question_id JOIN skills d ON d.id=qd.skill_id"
         key = "d.id"

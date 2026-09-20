@@ -10,7 +10,7 @@ VERCEL_CLI_VERSION="${VERCEL_CLI_VERSION:-59.17.0}"
 PROJECT_ID="${VERCEL_PROJECT_ID:-prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL}"
 ORG_ID="${VERCEL_ORG_ID:-team_GsqjHJAXTirB3YVlUto63rma}"
 EXPECTED_SHA=""
-EVIDENCE_DIR="${EVIDENCE_DIR:-maintenance-evidence/manual-$(date -u +%Y%m%dT%H%M%SZ)}"
+EVIDENCE_DIR="${EVIDENCE_DIR:-${TMPDIR:-/tmp}/physics-edu-maintenance/manual-$(date -u +%Y%m%dT%H%M%SZ)}"
 
 usage() {
   cat <<'EOF'
@@ -101,8 +101,12 @@ print(secrets.token_urlsafe(48))
 PY
 )"
 DEPLOYMENT_URL=""
+VISUAL_TMP=""
 
 cleanup() {
+  if [ -n "$VISUAL_TMP" ] && [ -e "$VISUAL_TMP" ]; then
+    rm -f -- "$VISUAL_TMP" || true
+  fi
   if [ -n "$DEPLOYMENT_URL" ]; then
     "${VERCEL[@]}" remove "$DEPLOYMENT_URL" --yes >/dev/null 2>&1 || true
   fi
@@ -182,20 +186,23 @@ failed=0
 while read -r qid; do
   [ -n "$qid" ] || continue
   echo "==> EDU-003 question $qid"
-  if vcurl "/api/internal/content-maintenance/visual/$qid"       --request POST --max-time 270 --fail-with-body > /tmp/visual-one.json; then
-    python - /tmp/visual-one.json "$qid" <<'PY'
+  VISUAL_TMP="$(mktemp "${TMPDIR:-/tmp}/physics-edu-visual.XXXXXX.json")"
+  if vcurl "/api/internal/content-maintenance/visual/$qid"       --request POST --max-time 270 --fail-with-body > "$VISUAL_TMP"; then
+    python - "$VISUAL_TMP" "$qid" <<'PY'
 import json,sys
 data=json.load(open(sys.argv[1],encoding="utf-8"))
 if data.get("status") != "suggested":
     raise SystemExit(f"question {sys.argv[2]} did not produce a suggestion: {data}")
 PY
-    cat /tmp/visual-one.json >> "$EVIDENCE_DIR/visual-results.jsonl"
+    cat "$VISUAL_TMP" >> "$EVIDENCE_DIR/visual-results.jsonl"
     printf '\n' >> "$EVIDENCE_DIR/visual-results.jsonl"
     processed=$((processed + 1))
   else
     echo "$qid" >> "$EVIDENCE_DIR/visual-errors.txt"
     failed=$((failed + 1))
   fi
+  rm -f -- "$VISUAL_TMP"
+  VISUAL_TMP=""
 done < "$EVIDENCE_DIR/visual-ids.txt"
 
 echo "EDU-003 processed=$processed failed=$failed"

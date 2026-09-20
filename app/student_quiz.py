@@ -379,7 +379,8 @@ function startQuestionClock(qid){
 function consumeQuestionSeconds(qid){
   let start=questionClock.get(qid);if(!start)return 0;
   let seconds=Math.max(0,Math.min(600,Math.round((Date.now()-start)/1000)));
-  questionClock.set(qid,Date.now());
+  questionClock.delete(qid);
+  if(document.activeElement===document.getElementById('a_'+qid))questionClock.set(qid,Date.now());
   return seconds
 }
 function queueSave(qid,immediate=false){

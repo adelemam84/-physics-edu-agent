@@ -34,14 +34,14 @@ class Edu003GeminiModelFailoverTests(unittest.TestCase):
                 raise HTTPException(502, {"message":"Gemini request failed","status":429})
             return '{"question_text":"ok","options":[],"visible_answer":null,"question_type":"unknown","difficulty_guess":"unclassified","uncertain_parts":[],"visual_description":"","confidence":0.5}'
         with patch.object(visual, "_gemini_text", side_effect=fake), patch.object(
-            visual, "GEMINI_VISUAL_FALLBACK_MODELS", ("gemini-3.5-flash-lite",)
+            visual, "GEMINI_VISUAL_FALLBACK_MODELS", ("gemini-2.5-flash-lite",)
         ), patch.object(
             visual, "model_settings", return_value={"gemini_lesson_studio":"gemini-3.8-flash"}
         ):
             raw, provider, attempted=visual._gemini_visual_json(image,"prompt",row)
         self.assertIn('"question_text":"ok"', raw)
-        self.assertEqual(provider,"gemini:gemini-3.5-flash-lite")
-        self.assertEqual(attempted,["gemini-3.8-flash","gemini-3.5-flash-lite"])
+        self.assertEqual(provider,"gemini:gemini-2.5-flash-lite")
+        self.assertEqual(attempted,["gemini-3.8-flash","gemini-2.5-flash-lite"])
 
     def test_non_transient_gemini_failure_does_not_switch_models(self):
         row={"filename":"source.pdf","source_page":10}
@@ -49,7 +49,7 @@ class Edu003GeminiModelFailoverTests(unittest.TestCase):
             visual, "_gemini_text",
             side_effect=HTTPException(502, {"message":"Gemini request failed","status":400})
         ), patch.object(
-            visual, "GEMINI_VISUAL_FALLBACK_MODELS", ("gemini-3.5-flash-lite",)
+            visual, "GEMINI_VISUAL_FALLBACK_MODELS", ("gemini-2.5-flash-lite",)
         ), patch.object(
             visual, "model_settings", return_value={"gemini_lesson_studio":"gemini-3.8-flash"}
         ):

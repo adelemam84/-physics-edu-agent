@@ -20,7 +20,7 @@ class Edu003GeminiModelFailoverTests(unittest.TestCase):
         self.assertIn("models/{effective_model}:generateContent", STUDIO)
 
     def test_visual_failover_chain_has_high_volume_fallbacks(self):
-        self.assertIn("gemini-3.5-flash-lite", visual.GEMINI_VISUAL_FALLBACK_MODELS)
+        self.assertEqual(visual.GEMINI_VISUAL_PRIMARY_MODEL, "gemini-2.5-flash")
         self.assertIn("gemini-2.5-flash-lite", visual.GEMINI_VISUAL_FALLBACK_MODELS)
 
     def test_429_moves_to_next_gemini_model(self):

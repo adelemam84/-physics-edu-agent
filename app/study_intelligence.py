@@ -36,8 +36,8 @@ def _trend_rows(con, student_id: int, dimension: str):
         key = "d.id"
         title = "d.title"
         extra = "LEFT JOIN lessons l ON l.id=d.lesson_id"
-        lesson_id = "min(l.id)"
-        lesson_title = "min(l.title)"
+        lesson_id = "CASE WHEN count(DISTINCT l.id)=1 THEN min(l.id) END"
+        lesson_title = "CASE WHEN count(DISTINCT l.id)=1 THEN min(l.title) END"
     elif dimension == "skill":
         join = "JOIN question_skills qd ON qd.question_id=aa.question_id JOIN skills d ON d.id=qd.skill_id"
         key = "d.id"
@@ -145,9 +145,9 @@ def _lesson_source(con, lesson_id: int | None):
     ).fetchone()
 
 
-def build_personal_study_queue(student_id: int, limit: int = 10):
+def build_personal_study_queue(student_id: int, limit: int = 10, progression=None):
     limit = max(1, min(limit, 20))
-    progression = build_weakness_progression(student_id)
+    progression = progression or build_weakness_progression(student_id)
     candidates = []
     weights = {
         "worsening": 100,

@@ -19,11 +19,14 @@ jobs:
   python-dependency-audit:
     name: Python dependency CVE audit
     runs-on: self-hosted
+    env:
+      PSExecutionPolicyPreference: Bypass
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Verify local Python
-        run: python --version
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
       - name: Install pinned audit tool
         run: python -m pip install --disable-pip-version-check "pip-audit==2.10.1"
       - name: Audit pinned runtime requirements

@@ -52,6 +52,7 @@ from app import exam_blueprint  # noqa: F401,E402
 from app import exam_engine  # noqa: F401,E402
 from app import exam_diagnostics  # noqa: F401,E402
 from app import exam_advanced_analytics  # noqa: F401,E402
+from app import study_intelligence  # noqa: F401,E402
 from app import corpus_public_status  # noqa: F401,E402
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402

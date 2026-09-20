@@ -46,3 +46,32 @@ def test_personal_platform_has_no_exam_commercial_layer():
     text = "\n".join(files)
     for forbidden in ("subscription_plan", "exam_credit", "paywall", "billing_customer"):
         assert forbidden not in text
+
+
+def test_student_diagnostics_require_completed_attempt():
+    source = Path("app/exam_diagnostics.py").read_text(encoding="utf-8")
+    assert "WHERE a.id=%s AND a.completed_at IS NOT NULL" in source
+
+
+def test_exam_schedule_errors_serialize_datetimes():
+    source = Path("app/exam_engine.py").read_text(encoding="utf-8")
+    assert "start.isoformat() if start else None" in source
+    assert "end.isoformat() if end else None" in source
+
+
+def test_student_portal_does_not_expose_exam_access_codes():
+    source = Path("app/student_portal.py").read_text(encoding="utf-8")
+    assert "q.available_from,q.available_until,q.access_code" not in source
+
+
+def test_window_blur_checkbox_is_not_bound_to_window_blur_method():
+    source = Path("app/exam_engine.py").read_text(encoding="utf-8")
+    assert 'id=blurTrack' in source
+    assert "blurTrack.checked" in source
+    assert "blur.checked" not in source
+
+
+def test_question_clock_stops_when_field_loses_focus():
+    source = Path("app/student_quiz.py").read_text(encoding="utf-8")
+    assert "questionClock.delete(qid)" in source
+    assert "document.activeElement===document.getElementById('a_'+qid)" in source

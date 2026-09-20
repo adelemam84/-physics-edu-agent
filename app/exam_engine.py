@@ -97,10 +97,12 @@ def exam_delivery_state(row, now: datetime | None = None) -> str:
 
 def ensure_exam_open(row) -> None:
     state = exam_delivery_state(row)
+    start = row.get("available_from")
+    end = row.get("available_until")
     if state == "scheduled":
-        raise HTTPException(409, {"message": "الاختبار لم يفتح بعد", "available_from": row.get("available_from")})
+        raise HTTPException(409, {"message": "الاختبار لم يفتح بعد", "available_from": start.isoformat() if start else None})
     if state == "closed":
-        raise HTTPException(409, {"message": "انتهت نافذة إتاحة الاختبار", "available_until": row.get("available_until")})
+        raise HTTPException(409, {"message": "انتهت نافذة إتاحة الاختبار", "available_until": end.isoformat() if end else None})
     if state != "open":
         raise HTTPException(404, "الاختبار غير متاح")
 

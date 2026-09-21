@@ -37,6 +37,14 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Install uv for local Vercel Python build
+        shell: powershell
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir uv
+          $uv = (python -c "import shutil; print(shutil.which('uv') or '')").Trim()
+          if (-not $uv) { throw "uv installation completed but uv is not available on PATH." }
+          uv --version
+
       - name: Resolve Git Bash
         shell: powershell
         run: |

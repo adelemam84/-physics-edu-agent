@@ -71,6 +71,10 @@ echo "==> Compile and deterministic regression suite"
 python -m compileall -q app index.py status.py
 python -m unittest discover -s tests -v
 
+echo "==> Install uv for local Vercel build"
+python -m pip install --disable-pip-version-check --upgrade uv
+command -v uv >/dev/null
+
 echo "==> Install pinned Vercel CLI locally via npx"
 VERCEL=(npx --yes "vercel@${VERCEL_CLI_VERSION}")
 

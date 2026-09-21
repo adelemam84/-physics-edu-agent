@@ -142,8 +142,33 @@ cleanup() {
 }
 trap cleanup EXIT
 
+deploy_isolated() {
+  local label="$1"
+  shift
+  local out=""
+  local url=""
+  for attempt in 1 2 3; do
+    echo "==> $label attempt=$attempt" >&2
+    if out="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes --no-wait "$@" 2>&1)"; then
+      printf '%s\n' "$out" >&2
+      url="$(printf '%s\n' "$out" | grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' | tail -n 1 || true)"
+      if [ -n "$url" ]; then
+        if "${VERCEL[@]}" inspect "$url" --wait >/dev/null; then
+          printf '%s\n' "$url"
+          return 0
+        fi
+      fi
+    else
+      printf '%s\n' "$out" >&2
+    fi
+    sleep $((attempt * 5))
+  done
+  echo "$label failed after 3 attempts" >&2
+  return 1
+}
+
 echo "==> Create isolated bootstrap deployment"
-BOOTSTRAP_URL="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN")"
+BOOTSTRAP_URL="$(deploy_isolated "bootstrap deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN")"
 
 test -n "$BOOTSTRAP_URL"
 "${VERCEL[@]}" curl /api/internal/release-bootstrap   --deployment "$BOOTSTRAP_URL" --   --request POST   --header "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN"   --fail-with-body > /tmp/physics-release-bootstrap.json
@@ -158,7 +183,7 @@ print("Runtime bootstrap passed")
 PY
 
 echo "==> Stage production deployment without bootstrap credential"
-STAGE_URL="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA")"
+STAGE_URL="$(deploy_isolated "staged production deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA")"
 test -n "$STAGE_URL"
 
 "${VERCEL[@]}" curl /health --deployment "$STAGE_URL" > /tmp/physics-stage-health.json

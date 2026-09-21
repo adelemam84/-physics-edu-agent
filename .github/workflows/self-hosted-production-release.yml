@@ -1,0 +1,61 @@
+name: Self-hosted Production Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .release/self-hosted-production.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-self-hosted-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Verify and promote from self-hosted runner
+    runs-on: self-hosted
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          clean: true
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Resolve Git Bash
+        shell: powershell
+        run: |
+          $candidates = @(
+            "$env:ProgramFiles\Git\bin\bash.exe",
+            "$env:ProgramFiles\Git\usr\bin\bash.exe",
+            "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe"
+          )
+          $cmd = Get-Command bash.exe -ErrorAction SilentlyContinue
+          if ($cmd) { $candidates += $cmd.Source }
+          $bash = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $bash) { throw "Git Bash was not found on the Windows self-hosted runner." }
+          "GIT_BASH=$bash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $bash --version
+
+      - name: Run controlled fresh production release
+        shell: powershell
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          & $env:GIT_BASH tools/manual_production_release.sh --expected-sha $env:GITHUB_SHA --promote
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

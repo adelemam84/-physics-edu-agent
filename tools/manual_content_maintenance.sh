@@ -49,6 +49,7 @@ done
 command -v git >/dev/null
 command -v python >/dev/null
 command -v npm >/dev/null
+command -v timeout >/dev/null
 
 if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
   echo "Maintenance must run from main" >&2
@@ -114,12 +115,25 @@ cleanup() {
 trap cleanup EXIT
 
 echo "==> Create isolated maintenance deployment"
-OUT="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env CONTENT_INGESTION_ENABLED=true   --env CONTENT_MAINTENANCE_TOKEN="$MAINT_TOKEN"   --env AI_FREE_ONLY=true)"
-DEPLOYMENT_URL="$(printf '%s\n' "$OUT" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 || true)"
-test -n "$DEPLOYMENT_URL"
+for attempt in 1 2; do
+  echo "staging maintenance deployment attempt=$attempt"
+  OUT="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes --no-wait   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env CONTENT_INGESTION_ENABLED=true   --env CONTENT_MAINTENANCE_TOKEN="$MAINT_TOKEN"   --env AI_FREE_ONLY=true)"
+  DEPLOYMENT_URL="$(printf '%s\n' "$OUT" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 || true)"
+  if [ -z "$DEPLOYMENT_URL" ]; then
+    echo "Vercel did not return a deployment URL on attempt $attempt" >&2
+    continue
+  fi
 
-echo "==> Wait for isolated deployment readiness"
-"${VERCEL[@]}" inspect "$DEPLOYMENT_URL" --wait
+  echo "==> Wait for isolated deployment readiness"
+  if timeout 180s "${VERCEL[@]}" inspect "$DEPLOYMENT_URL" --wait; then
+    break
+  fi
+
+  echo "Staged deployment did not become READY within 180s; removing and retrying." >&2
+  "${VERCEL[@]}" remove "$DEPLOYMENT_URL" --yes || true
+  DEPLOYMENT_URL=""
+done
+test -n "$DEPLOYMENT_URL"
 
 vcurl() {
   local path="$1"

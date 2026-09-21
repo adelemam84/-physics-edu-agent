@@ -1,0 +1,7 @@
+{
+  "requested_code_sha": "e488d7fe7f6fae7e49f6c23d5b730849b8ca60da",
+  "requested_at": "2026-09-22",
+  "reason": "Fresh production deployment via zero-cost self-hosted release path using latest Vercel production environment and project settings",
+  "content_ingestion": "locked",
+  "promote": true
+}

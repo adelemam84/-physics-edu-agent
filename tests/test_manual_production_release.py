@@ -22,7 +22,7 @@ class ManualProductionReleaseTests(unittest.TestCase):
     def test_installs_uv_before_local_vercel_build(self):
         uv_install = SCRIPT.index("python -m pip install --disable-pip-version-check --upgrade uv")
         uv_check = SCRIPT.index("command -v uv")
-        build = SCRIPT.index('"\${VERCEL[@]}" build --prod')
+        build = SCRIPT.index('"${VERCEL[@]}" build --prod')
         self.assertLess(uv_install, uv_check)
         self.assertLess(uv_check, build)
 

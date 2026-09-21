@@ -11,6 +11,7 @@ import app.visual_review_assistant as visual
 
 STUDIO = Path("app/science_lesson_studio.py").read_text(encoding="utf-8")
 WORKFLOW = Path(".github/workflows/execute-edu001-edu003.yml").read_text(encoding="utf-8")
+SCRIPT = Path("tools/manual_content_maintenance.sh").read_text(encoding="utf-8")
 
 
 class Edu003GeminiModelFailoverTests(unittest.TestCase):
@@ -56,9 +57,10 @@ class Edu003GeminiModelFailoverTests(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 visual._gemini_visual_json(b"jpeg","prompt",row)
 
-    def test_workflow_fails_closed_when_visual_candidates_remain(self):
-        self.assertIn('without_suggestion', WORKFLOW)
-        self.assertIn('EDU-003 is incomplete', WORKFLOW)
+    def test_maintenance_fails_closed_when_visual_candidates_remain(self):
+        self.assertIn("tools/manual_content_maintenance.sh", WORKFLOW)
+        self.assertIn('without_suggestion', SCRIPT)
+        self.assertIn('EDU-003 incomplete', SCRIPT)
 
 
 if __name__ == "__main__":

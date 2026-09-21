@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "19ec545cea5e1547ed9509fc2c632c0cbb3dcf87",
-  "requested_at": "2026-09-18",
-  "reason": "Release Physics Education AI Agent 1.8.27 with subject-aware science profiles and end-to-end Presentation acceptance across physics, chemistry, and middle-school science",
+  "requested_code_sha": "4a6d06b695e451dacac9a65ea42423ed2befb295",
+  "requested_at": "2026-09-22",
+  "reason": "Fresh production rebuild using the latest Vercel production environment variables and project settings after CI maintenance-runner repair",
   "content_ingestion": "locked",
-  "scope": "subject_aware_science_profiles"
+  "scope": "fresh_production_rebuild"
 }

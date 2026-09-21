@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "cf85a152b191348b9266a223b32ff15e156b9363",
+  "requested_code_sha": "50f1a3cebfa7146079509983d8bd3bba9ff2d767",
   "requested_at": "2026-09-22",
-  "reason": "Retry fresh production deployment after installing uv prerequisite on the zero-cost self-hosted release path",
+  "reason": "Retry controlled production release with bounded Vercel deploy retries after transient fetch failure",
   "content_ingestion": "locked",
   "promote": true
 }

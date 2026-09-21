@@ -41,17 +41,26 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Verify Git Bash is available
+      - name: Resolve Git Bash
         shell: powershell
         run: |
-          $bash = Get-Command bash -ErrorAction SilentlyContinue
-          if (-not $bash) { throw "Git Bash is required on the Windows self-hosted runner." }
-          bash --version
+          $candidates = @()
+          $cmd = Get-Command bash.exe -ErrorAction SilentlyContinue
+          if ($cmd) { $candidates += $cmd.Source }
+          $candidates += @(
+            "$env:ProgramFiles\Git\bin\bash.exe",
+            "$env:ProgramFiles\Git\usr\bin\bash.exe",
+            "$env:LOCALAPPDATA\Programs\Git\bin\bash.exe"
+          )
+          $bash = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $bash) { throw "Git Bash was not found on the Windows self-hosted runner." }
+          "GIT_BASH=$bash" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & $bash --version
 
       - name: Run hardened zero-cost EDU maintenance
-        shell: bash
+        shell: powershell
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          set -euo pipefail
-          bash tools/manual_content_maintenance.sh --expected-sha "$GITHUB_SHA"
+          & $env:GIT_BASH tools/manual_content_maintenance.sh --expected-sha $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

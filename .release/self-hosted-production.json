@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "34393d82219784435acec88fc9eb44471891fd3d",
+  "requested_code_sha": "5f4fd8d14393b708f05c6c41da547ef1a37b27d7",
   "requested_at": "2026-09-22",
-  "reason": "Supersede stale release run and validate post-release technical readiness gate",
+  "reason": "Deploy admin dashboard schema fix and preserve authenticated session on dashboard server errors",
   "content_ingestion": "locked",
   "promote": true
 }

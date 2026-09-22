@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "5f4fd8d14393b708f05c6c41da547ef1a37b27d7",
+  "requested_code_sha": "225a7013746c78ac2c91eaa561574b53b2e939f6",
   "requested_at": "2026-09-22",
-  "reason": "Deploy admin dashboard schema fix and preserve authenticated session on dashboard server errors",
+  "reason": "Validate resilient self-hosted checkout and complete post-release technical readiness after admin dashboard schema fix",
   "content_ingestion": "locked",
   "promote": true
 }

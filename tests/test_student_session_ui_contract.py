@@ -31,7 +31,7 @@ class StudentSessionUiContractTests(unittest.TestCase):
         self.assertNotIn("student_code:code.value", page)
         self.assertIn("/api/student/session", page)
         self.assertIn("/saved',{cache:'no-store'}", page)
-        self.assertIn("body:JSON.stringify({question_id:qid,answer:el.value})", page)
+        self.assertIn("body:JSON.stringify({question_id:qid,answer:el.value,time_spent_seconds:consumeQuestionSeconds(qid)})", page)
 
 
 if __name__ == "__main__":

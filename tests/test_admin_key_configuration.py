@@ -51,7 +51,7 @@ class AdminKeyConfigurationStateTests(unittest.TestCase):
         ):
             data = admin_key_configuration_state()
         self.assertFalse(data["configured"])
-        self.assertEqual(data["format"], "clean")
+        self.assertEqual(data["format"], "missing")
         self.assertIsNone(data["revision"])
 
 

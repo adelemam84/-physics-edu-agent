@@ -49,13 +49,21 @@ class ManualProductionReleaseTests(unittest.TestCase):
         self.assertNotIn('ADMIN_LOGIN_BODY', SCRIPT)
 
     def test_admin_key_runtime_presence_is_checked_before_and_after_promotion(self):
-        staged = SCRIPT.index('/api/admin/session --deployment "$STAGE_URL"')
+        staged = SCRIPT.index('"${STAGE_URL}/api/admin/session"')
         promote = SCRIPT.index('promote "$STAGE_URL" --yes')
         production = SCRIPT.index('$PRODUCTION_URL/api/admin/session"', promote)
         self.assertLess(staged, promote)
         self.assertLess(promote, production)
         self.assertIn('Staged ADMIN_API_KEY is not configured at runtime', SCRIPT)
         self.assertIn('Production ADMIN_API_KEY is not configured after promotion', SCRIPT)
+
+    def test_vercel_curl_uses_full_deployment_urls_and_native_curl_flags(self):
+        self.assertIn('curl "${BOOTSTRAP_URL}/api/internal/release-bootstrap" -X POST', SCRIPT)
+        self.assertIn('curl "${STAGE_URL}/health" --fail-with-body', SCRIPT)
+        self.assertIn('curl "${STAGE_URL}/health/ready" --fail-with-body', SCRIPT)
+        self.assertIn('curl "${STAGE_URL}/api/admin/session" --fail-with-body', SCRIPT)
+        self.assertNotIn('--deployment "$BOOTSTRAP_URL"', SCRIPT)
+        self.assertNotIn('--deployment "$STAGE_URL"', SCRIPT)
 
     def test_async_vercel_deploy_waits_on_exact_url_without_duplicate_poll_deploys(self):
         self.assertIn(r"grep -Eo 'https://[^[:space:]]+\.vercel\.app'", SCRIPT)

@@ -37,6 +37,24 @@ class ManualProductionReleaseTests(unittest.TestCase):
             2,
         )
 
+    def test_admin_key_is_verified_without_putting_secret_on_command_line(self):
+        self.assertIn('ADMIN_LOGIN_BODY="$(mktemp)"', SCRIPT)
+        self.assertIn('chmod 600 "$ADMIN_LOGIN_BODY"', SCRIPT)
+        self.assertGreaterEqual(SCRIPT.count("/api/admin/login"), 2)
+        self.assertGreaterEqual(SCRIPT.count('--data-binary "@$ADMIN_LOGIN_BODY"'), 2)
+        self.assertIn("Staged ADMIN_API_KEY verification failed", SCRIPT)
+        self.assertIn("Production ADMIN_API_KEY verification failed after promotion", SCRIPT)
+        self.assertIn('rm -f -- "$ADMIN_LOGIN_BODY"', SCRIPT)
+        self.assertNotIn('echo "$ADMIN_API_KEY"', SCRIPT)
+        self.assertNotIn('--data "$ADMIN_API_KEY"', SCRIPT)
+
+    def test_admin_key_gate_runs_before_and_after_promotion(self):
+        staged = SCRIPT.index('/api/admin/login --deployment "$STAGE_URL"')
+        promote = SCRIPT.index('promote "$STAGE_URL" --yes')
+        production = SCRIPT.index('$PRODUCTION_URL/api/admin/login"', promote)
+        self.assertLess(staged, promote)
+        self.assertLess(promote, production)
+
     def test_production_smoke_runs_after_promotion(self):
         promote = SCRIPT.index('promote "$STAGE_URL" --yes')
         health = SCRIPT.index('$PRODUCTION_URL/health"', promote)

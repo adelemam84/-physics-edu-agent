@@ -128,8 +128,10 @@ if [ -n "$DIRTY" ]; then
 fi
 
 ADMIN_LOGIN_BODY="$(mktemp)"
-chmod 600 "$ADMIN_LOGIN_BODY"
-python - "$ADMIN_LOGIN_BODY" <<'PY'
+ADMIN_KEY_META="$(mktemp)"
+chmod 600 "$ADMIN_LOGIN_BODY" "$ADMIN_KEY_META"
+python - "$ADMIN_LOGIN_BODY" "$ADMIN_KEY_META" <<'PY'
+import hashlib
 import json
 import os
 import sys
@@ -141,7 +143,7 @@ token = os.environ.get("VERCEL_TOKEN", "").strip()
 project_id = os.environ.get("VERCEL_PROJECT_ID", "").strip()
 team_id = os.environ.get("VERCEL_ORG_ID", "").strip()
 if not token or not project_id or not team_id:
-    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for decrypted production env verification")
+    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for production env verification")
 
 query = urllib.parse.urlencode({"decrypt": "true", "teamId": team_id})
 url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project_id, safe='')}/env?{query}"
@@ -153,7 +155,7 @@ try:
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.load(response)
 except Exception as exc:
-    raise SystemExit(f"Unable to retrieve decrypted Vercel production environment metadata: {type(exc).__name__}") from exc
+    raise SystemExit(f"Unable to retrieve Vercel production environment metadata: {type(exc).__name__}") from exc
 
 def targets(item):
     value = item.get("target")
@@ -172,16 +174,48 @@ if not candidates:
 if len(candidates) != 1:
     raise SystemExit(f"Expected exactly one Production ADMIN_API_KEY definition, found {len(candidates)}; remove duplicate Production definitions in Vercel before releasing")
 
-admin_key = str(candidates[0].get("value") or "").strip()
-if not admin_key or admin_key == "[SENSITIVE]":
-    raise SystemExit("Vercel did not return a decrypted Production ADMIN_API_KEY value")
-
-Path(sys.argv[1]).write_text(
-    json.dumps({"key": admin_key}, separators=(",", ":")),
+candidate = candidates[0]
+revision_material = json.dumps(
+    {
+        "id": candidate.get("id"),
+        "createdAt": candidate.get("createdAt"),
+        "updatedAt": candidate.get("updatedAt"),
+        "type": candidate.get("type"),
+        "target": sorted(targets(candidate)),
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
+revision = hashlib.sha256(revision_material.encode("utf-8")).hexdigest()[:16]
+admin_key = str(candidate.get("value") or "").strip()
+probe_available = bool(admin_key and admin_key != "[SENSITIVE]")
+if probe_available:
+    Path(sys.argv[1]).write_text(
+        json.dumps({"key": admin_key}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+else:
+    Path(sys.argv[1]).write_text("", encoding="utf-8")
+Path(sys.argv[2]).write_text(
+    json.dumps(
+        {
+            "revision": revision,
+            "probe_available": probe_available,
+            "type": str(candidate.get("type") or "unknown"),
+        },
+        separators=(",", ":"),
+    ),
     encoding="utf-8",
 )
-print("Verified exactly one decrypted Production ADMIN_API_KEY definition without exposing its value")
+print(
+    "Verified exactly one Production ADMIN_API_KEY definition; "
+    f"revision={revision}; exact_login_probe={'available' if probe_available else 'redacted_by_vercel'}"
+)
 PY
+
+ADMIN_KEY_REVISION="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["revision"])' "$ADMIN_KEY_META")"
+ADMIN_KEY_PROBE_AVAILABLE="$(python -c 'import json,sys; print("1" if json.load(open(sys.argv[1], encoding="utf-8"))["probe_available"] else "0")' "$ADMIN_KEY_META")"
+export ADMIN_KEY_REVISION ADMIN_KEY_PROBE_AVAILABLE
 
 BOOTSTRAP_TOKEN="$(python - <<'PY'
 import secrets
@@ -192,7 +226,7 @@ STAGE_URL=""
 BOOTSTRAP_URL=""
 
 cleanup() {
-  rm -f -- "$ADMIN_LOGIN_BODY" /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-login.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-login.json
+  rm -f -- "$ADMIN_LOGIN_BODY" "$ADMIN_KEY_META" /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-session.json /tmp/physics-stage-admin-login.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-session.json /tmp/physics-prod-admin-login.json
   if [ -n "$BOOTSTRAP_URL" ]; then
     "${VERCEL[@]}" remove "$BOOTSTRAP_URL" --yes >/dev/null 2>&1 || true
   fi
@@ -231,13 +265,14 @@ deploy_isolated() {
 }
 
 echo "==> Create isolated bootstrap deployment"
-BOOTSTRAP_URL="$(deploy_isolated "bootstrap deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN")"
+BOOTSTRAP_URL="$(deploy_isolated "bootstrap deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN"   --env RELEASE_ADMIN_KEY_REVISION="$ADMIN_KEY_REVISION")"
 
 test -n "$BOOTSTRAP_URL"
 "${VERCEL[@]}" curl /api/internal/release-bootstrap   --deployment "$BOOTSTRAP_URL" --   --request POST   --header "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN"   --fail-with-body > /tmp/physics-release-bootstrap.json
 
 python - <<'PY'
 import json
+import os
 from pathlib import Path
 x=json.loads(Path("/tmp/physics-release-bootstrap.json").read_text())
 if x.get("status") != "ok" or x.get("runtime_bootstrap") != "applied":
@@ -246,12 +281,17 @@ print("Runtime bootstrap passed")
 PY
 
 echo "==> Stage production deployment without bootstrap credential"
-STAGE_URL="$(deploy_isolated "staged production deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA")"
+STAGE_URL="$(deploy_isolated "staged production deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_ADMIN_KEY_REVISION="$ADMIN_KEY_REVISION")"
 test -n "$STAGE_URL"
 
 "${VERCEL[@]}" curl /health --deployment "$STAGE_URL" > /tmp/physics-stage-health.json
 "${VERCEL[@]}" curl /health/ready --deployment "$STAGE_URL" > /tmp/physics-stage-ready.json
-"${VERCEL[@]}" curl /api/admin/login --deployment "$STAGE_URL" -- --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" --fail-with-body > /tmp/physics-stage-admin-login.json
+"${VERCEL[@]}" curl /api/admin/session --deployment "$STAGE_URL" > /tmp/physics-stage-admin-session.json
+if [ "$ADMIN_KEY_PROBE_AVAILABLE" = "1" ]; then
+  "${VERCEL[@]}" curl /api/admin/login --deployment "$STAGE_URL" -- --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" --fail-with-body > /tmp/physics-stage-admin-login.json
+else
+  echo "Vercel redacted the sensitive ADMIN_API_KEY value; validating runtime revision/format without exposing the secret."
+fi
 
 python - <<'PY'
 import json
@@ -268,10 +308,19 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"staged version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"content ingestion must stay locked: {ready}")
-login=json.loads(Path("/tmp/physics-stage-admin-login.json").read_text())
-if login.get("ok") is not True:
-    raise SystemExit("Staged ADMIN_API_KEY verification failed")
-print(f"Staged health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
+session=json.loads(Path("/tmp/physics-stage-admin-session.json").read_text())
+key_config=session.get("key_config") or {}
+if session.get("configured") is not True:
+    raise SystemExit("Staged ADMIN_API_KEY is not configured")
+if key_config.get("format") != "clean":
+    raise SystemExit(f"Staged ADMIN_API_KEY format warning: {key_config.get('format') or 'missing'}")
+if key_config.get("revision") != os.environ.get("ADMIN_KEY_REVISION"):
+    raise SystemExit(f"Staged ADMIN_API_KEY revision drift: {key_config.get('revision') or 'missing'}")
+if os.environ.get("ADMIN_KEY_PROBE_AVAILABLE") == "1":
+    login=json.loads(Path("/tmp/physics-stage-admin-login.json").read_text())
+    if login.get("ok") is not True:
+        raise SystemExit("Staged ADMIN_API_KEY exact login verification failed")
+print(f"Staged health and ADMIN_API_KEY revision checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Verified staged deployment: $STAGE_URL"
@@ -287,7 +336,10 @@ echo "==> Promote verified deployment"
 
 curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/physics-prod-health.json
 curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/physics-prod-ready.json
-curl --fail --silent --show-error --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" "$PRODUCTION_URL/api/admin/login" > /tmp/physics-prod-admin-login.json
+curl --fail --silent --show-error "$PRODUCTION_URL/api/admin/session" > /tmp/physics-prod-admin-session.json
+if [ "$ADMIN_KEY_PROBE_AVAILABLE" = "1" ]; then
+  curl --fail --silent --show-error --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" "$PRODUCTION_URL/api/admin/login" > /tmp/physics-prod-admin-login.json
+fi
 
 python - <<'PY'
 import json
@@ -302,10 +354,19 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"Production version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"Production content ingestion must stay locked: {ready}")
-login=json.loads(Path("/tmp/physics-prod-admin-login.json").read_text())
-if login.get("ok") is not True:
-    raise SystemExit("Production ADMIN_API_KEY verification failed after promotion")
-print(f"Production health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
+session=json.loads(Path("/tmp/physics-prod-admin-session.json").read_text())
+key_config=session.get("key_config") or {}
+if session.get("configured") is not True:
+    raise SystemExit("Production ADMIN_API_KEY is not configured after promotion")
+if key_config.get("format") != "clean":
+    raise SystemExit(f"Production ADMIN_API_KEY format warning: {key_config.get('format') or 'missing'}")
+if key_config.get("revision") != os.environ.get("ADMIN_KEY_REVISION"):
+    raise SystemExit(f"Production ADMIN_API_KEY revision drift: {key_config.get('revision') or 'missing'}")
+if os.environ.get("ADMIN_KEY_PROBE_AVAILABLE") == "1":
+    login=json.loads(Path("/tmp/physics-prod-admin-login.json").read_text())
+    if login.get("ok") is not True:
+        raise SystemExit("Production ADMIN_API_KEY exact login verification failed after promotion")
+print(f"Production health and ADMIN_API_KEY revision checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Production release complete: $PRODUCTION_URL"

@@ -21,8 +21,8 @@ from .services.rate_limit import enforce_request_policy
 from .services.provider_http import provider_attempts, provider_error_attempts, request_with_retries
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
-_CONFIGURED_GEMINI_MODEL = os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-2.5-flash').strip() or 'gemini-2.5-flash'
-GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only() else _CONFIGURED_GEMINI_MODEL
+_CONFIGURED_GEMINI_MODEL = os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.5-flash').strip() or 'gemini-3.5-flash'
+GEMINI_MODEL = 'gemini-3.5-flash' if project_free_only() else _CONFIGURED_GEMINI_MODEL
 GEMINI_FILE_SEARCH_STORE = os.getenv('GEMINI_FILE_SEARCH_STORE', '').strip()
 MAX_PAGES_PER_REQUEST = int(os.getenv('GEMINI_RESEARCH_MAX_PAGES', '12'))
 MAX_INLINE_PDF_BYTES = int(os.getenv('GEMINI_RESEARCH_MAX_INLINE_BYTES', str(12 * 1024 * 1024)))

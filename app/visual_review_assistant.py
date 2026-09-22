@@ -29,15 +29,15 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_VISUAL_MODEL = os.getenv("VISUAL_REVIEW_OPENAI_MODEL", "gpt-5.6-terra").strip() or "gpt-5.6-terra"
 VISUAL_REVIEW_FREE_ONLY = os.getenv("VISUAL_REVIEW_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
 GEMINI_VISUAL_PRIMARY_MODEL = (
-    os.getenv("VISUAL_REVIEW_GEMINI_PRIMARY_MODEL", "gemini-2.5-flash").strip()
-    or "gemini-2.5-flash"
+    os.getenv("VISUAL_REVIEW_GEMINI_PRIMARY_MODEL", "gemini-3.5-flash").strip()
+    or "gemini-3.5-flash"
 )
 GEMINI_VISUAL_FALLBACK_MODELS = tuple(
     dict.fromkeys(
         model.strip()
         for model in os.getenv(
             "VISUAL_REVIEW_GEMINI_FALLBACK_MODELS",
-            "gemini-2.5-flash-lite",
+            "gemini-3.5-flash-lite,gemini-3.1-flash-lite",
         ).split(",")
         if model.strip()
     )
@@ -276,7 +276,7 @@ def _provider_status_code(exc: HTTPException) -> int | None:
 def _should_gemini_model_failover(exc: HTTPException) -> bool:
     provider_status = _provider_status_code(exc)
     return bool(
-        provider_status in {408, 429, 500, 502, 503, 504}
+        provider_status in {404, 408, 429, 500, 502, 503, 504}
         or (provider_status is None and exc.status_code == 503)
     )
 

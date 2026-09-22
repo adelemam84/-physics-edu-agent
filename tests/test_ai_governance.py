@@ -49,7 +49,7 @@ class AIGovernanceTests(unittest.TestCase):
         with patch.dict(os.environ, {"PROJECT_FREE_ONLY": "true"}, clear=False):
             by_id = {x.task: x for x in task_policies()}
             snap = governance_snapshot()
-        self.assertEqual(by_id["source_analysis"].model, "gemini-2.5-flash")
+        self.assertEqual(by_id["source_analysis"].model, "gemini-3.5-flash")
         self.assertEqual(by_id["visual_review"].mode, "exact_source_image_free_tier_gemini")
         self.assertFalse(by_id["independent_scientific_review"].ready)
         self.assertFalse(by_id["handwriting_ocr_verifier"].ready)
@@ -58,8 +58,8 @@ class AIGovernanceTests(unittest.TestCase):
         self.assertNotIn("GPT-5.6 Sol", repr(snap["recommendations"]))
 
     def test_runtime_modules_force_free_model_even_if_old_env_value_exists(self):
-        self.assertIn("GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only()", SCIENCE)
-        self.assertIn("GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only()", RESEARCH)
+        self.assertIn("GEMINI_MODEL = 'gemini-3.5-flash' if project_free_only()", SCIENCE)
+        self.assertIn("GEMINI_MODEL = 'gemini-3.5-flash' if project_free_only()", RESEARCH)
 
     def test_snapshot_is_secret_free_and_fail_safe(self):
         snap = governance_snapshot()

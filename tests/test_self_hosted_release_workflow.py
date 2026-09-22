@@ -8,9 +8,16 @@ ROOT = Path(__file__).resolve().parents[1]
 CI = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 SECURITY = (ROOT / ".github/workflows/security-audit.yml").read_text(encoding="utf-8")
 RELEASE = (ROOT / ".github/workflows/self-hosted-production-release.yml").read_text(encoding="utf-8")
+FINAL_READINESS = (ROOT / ".github/workflows/final-technical-readiness.yml").read_text(encoding="utf-8")
+PRODUCTION_SMOKE = (ROOT / ".github/workflows/production-smoke.yml").read_text(encoding="utf-8")
 
 
 class SelfHostedReleaseWorkflowTests(unittest.TestCase):
+    def test_all_windows_self_hosted_workflows_share_one_serial_concurrency_group(self):
+        for workflow in (CI, SECURITY, RELEASE, FINAL_READINESS, PRODUCTION_SMOKE):
+            self.assertIn("group: physics-edu-agent-windows-self-hosted", workflow)
+            self.assertIn("cancel-in-progress: false", workflow)
+
     def test_release_marker_only_pushes_do_not_relaunch_ci_or_security(self):
         for workflow in (CI, SECURITY):
             self.assertIn("paths-ignore:", workflow)

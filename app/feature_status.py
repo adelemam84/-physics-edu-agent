@@ -6,6 +6,7 @@ from fastapi import Depends
 from fastapi.responses import HTMLResponse
 
 from .content_phase_guard import content_ingestion_enabled
+from .external_creative_integrations import integration_status
 from .main import app
 from .security import require_admin
 
@@ -18,8 +19,23 @@ def _has(prefix: str) -> bool:
     return any(path == prefix or path.startswith(prefix.rstrip("/") + "/") for path in _paths())
 
 
+def _whatsapp_configured() -> bool:
+    required = (
+        "WHATSAPP_ACCESS_TOKEN",
+        "WHATSAPP_PHONE_NUMBER_ID",
+        "WHATSAPP_GRAPH_VERSION",
+        "WHATSAPP_RESULT_TEMPLATE",
+        "WHATSAPP_LOW_SCORE_TEMPLATE",
+        "WHATSAPP_WEEKLY_TEMPLATE",
+        "WHATSAPP_WEBHOOK_VERIFY_TOKEN",
+        "META_APP_SECRET",
+    )
+    return all(bool(os.getenv(name, "").strip()) for name in required)
+
+
 def feature_status_snapshot() -> dict:
     routes = _paths()
+    creative = integration_status()
     items = [
         {
             "id": "admin_command_center",
@@ -68,7 +84,28 @@ def feature_status_snapshot() -> dict:
             "name": "التكاملات الإبداعية",
             "state": "active" if _has("/api/admin/lesson-studio/integrations") else "needs_attention",
             "path": "/admin/lesson-studio/integrations",
-            "detail": "Canva وGoogle Slides اختياريان ولا يمنعان التشغيل الداخلي",
+            "detail": "المسار الداخلي يعمل حتى لو كانت التكاملات الخارجية غير مضبوطة",
+        },
+        {
+            "id": "canva",
+            "name": "Canva Autofill",
+            "state": "configured" if creative["canva"]["configured"] else "optional",
+            "path": "/admin/lesson-studio/integrations",
+            "detail": "اختياري؛ يستخدم OAuth وDesign Autofill عند توفر الإعدادات",
+        },
+        {
+            "id": "google_slides",
+            "name": "Google Slides",
+            "state": "configured" if creative["google_slides"]["configured"] else "optional",
+            "path": "/admin/lesson-studio/integrations",
+            "detail": "اختياري؛ الاستيراد إلى Drive لا يمنع التصدير الداخلي",
+        },
+        {
+            "id": "gemini_notebook_enterprise",
+            "name": "Gemini Notebook Enterprise",
+            "state": "deferred" if creative["gemini_notebook_enterprise"].get("blocked_by_free_only_policy") else ("configured" if creative["gemini_notebook_enterprise"]["configured"] else "optional"),
+            "path": "/admin/lesson-studio/integrations",
+            "detail": "مؤجل تلقائيًا أثناء سياسة AI_FREE_ONLY" if creative["gemini_notebook_enterprise"].get("blocked_by_free_only_policy") else "تكامل اختياري",
         },
         {
             "id": "ai_operations",
@@ -80,7 +117,7 @@ def feature_status_snapshot() -> dict:
         {
             "id": "whatsapp",
             "name": "WhatsApp لأولياء الأمور",
-            "state": "configured" if bool(os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()) else "optional",
+            "state": "configured" if _whatsapp_configured() else "optional",
             "path": "/admin/whatsapp-monitor",
             "detail": "التكامل اختياري ويحتاج مفاتيح Meta عند تفعيله",
         },

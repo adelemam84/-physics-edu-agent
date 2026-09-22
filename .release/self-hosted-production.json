@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "50f1a3cebfa7146079509983d8bd3bba9ff2d767",
+  "requested_code_sha": "bd806655b14ee44dc107b910fd3e59b014a5a36b",
   "requested_at": "2026-09-22",
-  "reason": "Retry controlled production release with bounded Vercel deploy retries after transient fetch failure",
+  "reason": "Retry controlled production release with bounded asynchronous Vercel readiness polling",
   "content_ingestion": "locked",
   "promote": true
 }

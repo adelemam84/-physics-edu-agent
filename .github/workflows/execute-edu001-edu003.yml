@@ -26,9 +26,9 @@ env:
 
 jobs:
   execute:
-    # One-shot execution explicitly requested to validate EDU-001/EDU-003 on the
-    # latest main SHA. This will be returned to the deferred state after startup.
-    if: ${{ true }}
+    # Content/question maintenance is intentionally deferred while the technical
+    # platform is being completed. Re-enable only by an explicit maintenance change.
+    if: ${{ false }}
     name: Staged source coverage and visual transcription assistance
     runs-on: self-hosted
     environment: production

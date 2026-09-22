@@ -55,10 +55,18 @@ class ManualContentMaintenanceTests(unittest.TestCase):
         self.assertIn('trap cleanup EXIT', SCRIPT)
         self.assertIn('remove "$DEPLOYMENT_URL" --yes', SCRIPT)
 
-    def test_default_evidence_is_outside_checkout_and_visual_temp_is_unique(self):
-        self.assertIn('${TMPDIR:-/tmp}/physics-edu-maintenance/', SCRIPT)
-        self.assertIn('mktemp "${TMPDIR:-/tmp}/physics-edu-visual.XXXXXX.json"', SCRIPT)
+    def test_default_evidence_is_cross_platform_and_visual_temp_is_unique(self):
+        self.assertIn('EVIDENCE_DIR="${EVIDENCE_DIR:-maintenance-evidence}"', SCRIPT)
+        self.assertIn("'/maintenance-evidence/'", SCRIPT)
+        self.assertIn('mktemp "$EVIDENCE_DIR/visual.XXXXXX.json"', SCRIPT)
+        self.assertNotIn("${TMPDIR:-/tmp}/physics-edu-maintenance/", SCRIPT)
+        self.assertNotIn("${TMPDIR:-/tmp}/physics-edu-visual.", SCRIPT)
         self.assertIn('rm -f -- "$VISUAL_TMP"', SCRIPT)
+
+    def test_vercel_curl_uses_full_isolated_deployment_url(self):
+        self.assertIn('curl "${DEPLOYMENT_URL}${path}"', SCRIPT)
+        self.assertIn('-H "X-Content-Maintenance-Token: $MAINT_TOKEN"', SCRIPT)
+        self.assertNotIn('--deployment "$DEPLOYMENT_URL"', SCRIPT)
 
 
 if __name__ == "__main__":

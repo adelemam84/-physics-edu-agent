@@ -15,8 +15,8 @@ MAINT = Path("app/content_maintenance_api.py").read_text(encoding="utf-8")
 class Edu003OpenAIFallbackContractTests(unittest.TestCase):
     def test_free_only_is_default_and_disables_openai_fallback(self):
         self.assertIn('VISUAL_REVIEW_FREE_ONLY = os.getenv("VISUAL_REVIEW_FREE_ONLY", "true")', VISUAL)
-        self.assertIn('"gemini-3.5-flash"', VISUAL)
-        self.assertIn('"gemini-3.5-flash-lite,gemini-3.1-flash-lite"', VISUAL)
+        self.assertIn('"gemini-3.5-flash-lite"', VISUAL)
+        self.assertIn('"gemini-3.1-flash-lite,gemini-2.5-flash-lite"', VISUAL)
         with patch.object(visual_review_assistant, "VISUAL_REVIEW_FREE_ONLY", True), patch.object(
             visual_review_assistant, "OPENAI_API_KEY", "configured-but-must-not-be-used"
         ):

@@ -10,7 +10,7 @@ VERCEL_CLI_VERSION="${VERCEL_CLI_VERSION:-59.17.0}"
 PROJECT_ID="${VERCEL_PROJECT_ID:-prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL}"
 ORG_ID="${VERCEL_ORG_ID:-team_GsqjHJAXTirB3YVlUto63rma}"
 EXPECTED_SHA=""
-EVIDENCE_DIR="${EVIDENCE_DIR:-${TMPDIR:-/tmp}/physics-edu-maintenance/manual-$(date -u +%Y%m%dT%H%M%SZ)}"
+EVIDENCE_DIR="${EVIDENCE_DIR:-maintenance-evidence}"
 
 usage() {
   cat <<'EOF'
@@ -60,6 +60,11 @@ HEAD_SHA="$(git rev-parse HEAD)"
 if [ -n "$EXPECTED_SHA" ] && [ "$EXPECTED_SHA" != "$HEAD_SHA" ]; then
   echo "Expected SHA $EXPECTED_SHA but current HEAD is $HEAD_SHA" >&2
   exit 1
+fi
+
+if [ "$EVIDENCE_DIR" = "maintenance-evidence" ]; then
+  grep -qxF '/maintenance-evidence/' .git/info/exclude 2>/dev/null || printf '/maintenance-evidence/\n' >> .git/info/exclude
+  rm -rf -- "$EVIDENCE_DIR"
 fi
 
 if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
@@ -138,7 +143,7 @@ test -n "$DEPLOYMENT_URL"
 vcurl() {
   local path="$1"
   shift
-  "${VERCEL[@]}" curl "$path" --deployment "$DEPLOYMENT_URL" --     --header "X-Content-Maintenance-Token: $MAINT_TOKEN"     "$@"
+  "${VERCEL[@]}" curl "${DEPLOYMENT_URL}${path}" -H "X-Content-Maintenance-Token: $MAINT_TOKEN" "$@"
 }
 
 echo "==> Capture pre-maintenance status"
@@ -200,7 +205,7 @@ failed=0
 while read -r qid; do
   [ -n "$qid" ] || continue
   echo "==> EDU-003 question $qid"
-  VISUAL_TMP="$(mktemp "${TMPDIR:-/tmp}/physics-edu-visual.XXXXXX.json")"
+  VISUAL_TMP="$(mktemp "$EVIDENCE_DIR/visual.XXXXXX.json")"
   if vcurl "/api/internal/content-maintenance/visual/$qid"       --request POST --max-time 270 --fail-with-body > "$VISUAL_TMP"; then
     python - "$VISUAL_TMP" "$qid" <<'PY'
 import json,sys

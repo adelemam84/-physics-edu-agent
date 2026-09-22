@@ -25,11 +25,12 @@ class AdminKeyConfigurationStateTests(unittest.TestCase):
         self.assertNotIn("high-entropy-admin-key", repr(data))
 
     def test_common_copy_paste_format_issues_are_reported_without_normalizing_secret(self):
+        marker = "private-value-9917"
         cases = {
-            "  secret  ": "surrounding_whitespace",
-            "ADMIN_API_KEY=secret": "assignment_prefix",
-            '"secret"': "wrapped_quotes",
-            "'secret'": "wrapped_quotes",
+            f"  {marker}  ": "surrounding_whitespace",
+            f"ADMIN_API_KEY={marker}": "assignment_prefix",
+            f'"{marker}"': "wrapped_quotes",
+            f"'{marker}'": "wrapped_quotes",
         }
         for raw, expected_issue in cases.items():
             with self.subTest(raw=raw), patch.dict(
@@ -41,7 +42,7 @@ class AdminKeyConfigurationStateTests(unittest.TestCase):
                 self.assertTrue(data["configured"])
                 self.assertIn(expected_issue, data["format"])
                 self.assertIsNone(data["revision"])
-                self.assertNotIn("secret", repr(data))
+                self.assertNotIn(marker, repr(data))
 
     def test_missing_key_is_reported_without_value(self):
         with patch.dict(

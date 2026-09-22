@@ -62,6 +62,11 @@ class ExamSettingsIn(BaseModel):
         return self
 
 
+class ExamCodeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    access_code: str = Field(min_length=1, max_length=12)
+
+
 class IntegrityEventIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_type: str = Field(min_length=2, max_length=40)
@@ -181,6 +186,11 @@ def update_exam_settings(quiz_id: int, payload: ExamSettingsIn):
         if not old:
             raise HTTPException(404, "Quiz not found")
         code = payload.access_code or old.get("access_code") or _new_access_code(con)
+        if code and con.execute(
+            "SELECT 1 FROM quizzes WHERE upper(access_code)=upper(%s) AND id<>%s",
+            (code, quiz_id),
+        ).fetchone():
+            raise HTTPException(409, "كود الاختبار مستخدم بالفعل؛ اختر كودًا آخر")
         policy = _policy_from_payload(payload)
         row = con.execute(
             """UPDATE quizzes
@@ -226,11 +236,10 @@ def rotate_exam_code(quiz_id: int):
         return {"quiz_id": quiz_id, "access_code": code}
 
 
-@app.get("/api/student/exams/resolve/{access_code}")
-def resolve_exam_code(access_code: str, request: Request):
+def _resolve_exam_code(access_code: str, request: Request):
     student_code = resolve_student_code(request)
     code = normalize_access_code(access_code)
-    if len(code) != 6:
+    if len(code) != 6 or any(ch not in CODE_ALPHABET for ch in code):
         raise HTTPException(404, "كود الاختبار غير صحيح")
     with connect() as con:
         student = con.execute("SELECT id FROM students WHERE external_code=%s", (student_code,)).fetchone()
@@ -253,6 +262,16 @@ def resolve_exam_code(access_code: str, request: Request):
             "student_path": f"/student/quiz/{row['id']}",
             "delivery_state": "open",
         }
+
+
+@app.post("/api/student/exams/resolve")
+def resolve_exam_code(payload: ExamCodeIn, request: Request):
+    return _resolve_exam_code(payload.access_code, request)
+
+
+@app.get("/api/student/exams/resolve/{access_code}", deprecated=True)
+def resolve_exam_code_legacy(access_code: str, request: Request):
+    return _resolve_exam_code(access_code, request)
 
 
 @app.post("/api/student/attempts/{attempt_id}/integrity-event")
@@ -458,7 +477,7 @@ button{background:#2447a8;color:#fff;border-color:#2447a8;font-weight:800;cursor
 <script>
 function err(x){return typeof x?.detail==='string'?x.detail:(x?.detail?.message||'تعذر فتح الامتحان')}
 async function go(){let v=code.value.trim().toUpperCase();if(v.length!==6){msg.className='bad';msg.textContent='أدخل كودًا صحيحًا من 6 رموز';return}
-let r=await fetch('/api/student/exams/resolve/'+encodeURIComponent(v),{cache:'no-store'}),x=await r.json().catch(()=>null);
+let r=await fetch('/api/student/exams/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_code:v}),cache:'no-store'}),x=await r.json().catch(()=>null);
 if(!r.ok){msg.className='bad';msg.textContent=err(x);return}location.href=x.student_path}
 code.addEventListener('keydown',e=>{if(e.key==='Enter')go()})
 </script></main></html>'''

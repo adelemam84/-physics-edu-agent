@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "3487e068b92459215addf5ca571a07207a939516",
+  "requested_code_sha": "ff93bb643b38dbe8d91958c8b444bf5807f37281",
   "requested_at": "2026-09-22",
-  "reason": "Redeploy production to refresh ADMIN_API_KEY environment snapshot and verify admin login deployment path",
+  "reason": "Deploy admin dashboard session-loop fix; preserve authenticated session when dashboard data returns server error",
   "content_ingestion": "locked",
   "promote": true
 }

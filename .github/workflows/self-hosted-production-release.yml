@@ -22,10 +22,45 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout exact release commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
-          clean: true
+        shell: powershell
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config --global --add safe.directory $env:GITHUB_WORKSPACE
+
+          if (-not (Test-Path ".git")) {
+            git init .
+            git remote add origin "https://github.com/$env:RELEASE_REPOSITORY.git"
+          } elseif (-not (git remote | Select-String -SimpleMatch "origin")) {
+            git remote add origin "https://github.com/$env:RELEASE_REPOSITORY.git"
+          } else {
+            git remote set-url origin "https://github.com/$env:RELEASE_REPOSITORY.git"
+          }
+
+          $env:GIT_CONFIG_COUNT = "1"
+          $env:GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader"
+          $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: bearer $env:RELEASE_TOKEN"
+
+          git fetch --force --no-tags --prune --depth=2 origin $env:RELEASE_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          git checkout --force -B main $env:RELEASE_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          git reset --hard $env:RELEASE_SHA
+          git clean -ffdx
+
+          $actual = (git rev-parse HEAD).Trim()
+          if ($actual -ne $env:RELEASE_SHA) {
+            throw "Release checkout drift: expected $env:RELEASE_SHA but got $actual"
+          }
+
+          Remove-Item Env:GIT_CONFIG_COUNT -ErrorAction SilentlyContinue
+          Remove-Item Env:GIT_CONFIG_KEY_0 -ErrorAction SilentlyContinue
+          Remove-Item Env:GIT_CONFIG_VALUE_0 -ErrorAction SilentlyContinue
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

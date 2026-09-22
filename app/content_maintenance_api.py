@@ -239,7 +239,7 @@ def content_maintenance_status(request: Request):
                 x.strip()
                 for x in os.getenv(
                     "VISUAL_REVIEW_GEMINI_FALLBACK_MODELS",
-                    "gemini-3.5-flash-lite,gemini-2.5-flash-lite",
+                    "gemini-3.5-flash-lite,gemini-3.1-flash-lite",
                 ).split(",")
                 if x.strip()
             ],

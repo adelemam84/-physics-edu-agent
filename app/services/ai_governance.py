@@ -42,10 +42,10 @@ def _review_effort() -> str:
 def model_settings() -> dict:
     """Return secret-free model configuration used across the platform."""
     free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
-    configured_research = _value("GEMINI_RESEARCH_MODEL", "gemini-2.5-flash")
+    configured_research = _value("GEMINI_RESEARCH_MODEL", "gemini-3.5-flash")
     configured_lesson = _value("LESSON_STUDIO_GEMINI_MODEL", configured_research)
-    gemini_research = "gemini-2.5-flash" if free_only else configured_research
-    gemini_lesson = "gemini-2.5-flash" if free_only else configured_lesson
+    gemini_research = "gemini-3.5-flash" if free_only else configured_research
+    gemini_lesson = "gemini-3.5-flash" if free_only else configured_lesson
     return {
         "gemini_research": gemini_research,
         "gemini_lesson_studio": gemini_lesson,
@@ -308,7 +308,7 @@ def governance_snapshot() -> dict:
         recommendations.append({
             "priority": "free_only",
             "title_ar": "الاستمرار على Gemini Free Tier",
-            "reason_ar": "المشروع يحظر المزودات المدفوعة افتراضيًا ويستخدم Gemini 2.5 Flash/Flash-Lite فقط في المسارات المسموح بها.",
+            "reason_ar": "المشروع يحظر المزودات المدفوعة افتراضيًا ويستخدم Gemini 3.5 Flash مع Flash-Lite المجاني فقط في المسارات المسموح بها.",
         })
     else:
         recommendations.append({

@@ -28,9 +28,9 @@ from .services.provider_http import provider_attempts, provider_error_attempts, 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
 _CONFIGURED_GEMINI_MODEL = os.getenv(
     'LESSON_STUDIO_GEMINI_MODEL',
-    os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-2.5-flash'),
-).strip() or 'gemini-2.5-flash'
-GEMINI_MODEL = 'gemini-2.5-flash' if project_free_only() else _CONFIGURED_GEMINI_MODEL
+    os.getenv('GEMINI_RESEARCH_MODEL', 'gemini-3.5-flash'),
+).strip() or 'gemini-3.5-flash'
+GEMINI_MODEL = 'gemini-3.5-flash' if project_free_only() else _CONFIGURED_GEMINI_MODEL
 MATHPIX_APP_ID = os.getenv('MATHPIX_APP_ID', '').strip()
 MATHPIX_APP_KEY = os.getenv('MATHPIX_APP_KEY', '').strip()
 MAX_FILE_BYTES = int(os.getenv('LESSON_STUDIO_MAX_FILE_BYTES', str(12 * 1024 * 1024)))

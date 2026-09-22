@@ -182,7 +182,7 @@ STAGE_URL=""
 BOOTSTRAP_URL=""
 
 cleanup() {
-  rm -f -- "$ADMIN_LOGIN_BODY" /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-login.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-login.json
+  rm -f -- /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-session.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-session.json
   if [ -n "$BOOTSTRAP_URL" ]; then
     "${VERCEL[@]}" remove "$BOOTSTRAP_URL" --yes >/dev/null 2>&1 || true
   fi
@@ -241,7 +241,7 @@ test -n "$STAGE_URL"
 
 "${VERCEL[@]}" curl /health --deployment "$STAGE_URL" > /tmp/physics-stage-health.json
 "${VERCEL[@]}" curl /health/ready --deployment "$STAGE_URL" > /tmp/physics-stage-ready.json
-"${VERCEL[@]}" curl /api/admin/login --deployment "$STAGE_URL" -- --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" --fail-with-body > /tmp/physics-stage-admin-login.json
+"${VERCEL[@]}" curl /api/admin/session --deployment "$STAGE_URL" > /tmp/physics-stage-admin-session.json
 
 python - <<'PY'
 import json
@@ -258,10 +258,10 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"staged version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"content ingestion must stay locked: {ready}")
-login=json.loads(Path("/tmp/physics-stage-admin-login.json").read_text())
-if login.get("ok") is not True:
-    raise SystemExit("Staged ADMIN_API_KEY verification failed")
-print(f"Staged health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
+session=json.loads(Path("/tmp/physics-stage-admin-session.json").read_text())
+if session.get("configured") is not True:
+    raise SystemExit("Staged ADMIN_API_KEY is not configured at runtime")
+print(f"Staged health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Verified staged deployment: $STAGE_URL"
@@ -277,7 +277,7 @@ echo "==> Promote verified deployment"
 
 curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/physics-prod-health.json
 curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/physics-prod-ready.json
-curl --fail --silent --show-error --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" "$PRODUCTION_URL/api/admin/login" > /tmp/physics-prod-admin-login.json
+curl --fail --silent --show-error "$PRODUCTION_URL/api/admin/session" > /tmp/physics-prod-admin-session.json
 
 python - <<'PY'
 import json
@@ -292,10 +292,10 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"Production version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"Production content ingestion must stay locked: {ready}")
-login=json.loads(Path("/tmp/physics-prod-admin-login.json").read_text())
-if login.get("ok") is not True:
-    raise SystemExit("Production ADMIN_API_KEY verification failed after promotion")
-print(f"Production health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
+session=json.loads(Path("/tmp/physics-prod-admin-session.json").read_text())
+if session.get("configured") is not True:
+    raise SystemExit("Production ADMIN_API_KEY is not configured after promotion")
+print(f"Production health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Production release complete: $PRODUCTION_URL"

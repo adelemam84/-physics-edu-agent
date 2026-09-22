@@ -16,7 +16,7 @@ from app import (
     source_indexing,
 )
 from app.ai_budget_guard import ai_route_policy
-from app.services.ai_budget import budget_snapshot, enforce_ai_budget
+from app.services.ai_budget import budget_snapshot, enforce_ai_budget, project_free_only
 
 
 class AIBudgetGuardTests(unittest.TestCase):

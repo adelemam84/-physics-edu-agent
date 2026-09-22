@@ -62,6 +62,12 @@ class ManualProductionReleaseTests(unittest.TestCase):
         self.assertIn('did not reach READY within 5 minutes', SCRIPT)
         self.assertNotIn('for inspect_attempt in $(seq 1 24)', SCRIPT)
 
+    def test_persistent_runner_cleanup_removes_vercel_build_artifacts(self):
+        self.assertIn("rm -rf -- .vercel", SCRIPT)
+        self.assertIn("for generated in pyproject.toml uv.lock", SCRIPT)
+        self.assertIn('git ls-files --error-unmatch "$generated"', SCRIPT)
+        self.assertIn('rm -f -- "$generated"', SCRIPT)
+
     def test_admin_key_revision_gate_runs_before_and_after_promotion(self):
         staged = SCRIPT.index('/api/admin/session --deployment "$STAGE_URL"')
         promote = SCRIPT.index('promote "$STAGE_URL" --yes')

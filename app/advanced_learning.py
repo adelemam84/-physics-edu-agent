@@ -202,10 +202,10 @@ def _source_tutor_context(con, student_id: int):
     if not target or not target["lesson_id"]:
         return {"available": False, "reason": "لا توجد بيانات كافية لتحديد درس مستهدف."}
     mapping = con.execute(
-        """SELECT lsm.lesson_id,lsm.document_id,lsm.start_page,lsm.end_page,d.filename,d.source_kind
+        """SELECT lsm.lesson_id,lsm.document_id,lsm.start_page,lsm.end_page,d.filename,d.kind
           FROM lesson_source_mappings lsm JOIN documents d ON d.id=lsm.document_id
-          WHERE lsm.lesson_id=%s AND lsm.approved=TRUE
-            AND d.source_kind IN ('lesson','explanation','textbook','notes')
+          WHERE lsm.lesson_id=%s AND lsm.mapping_status='approved'
+            AND d.kind IN ('lesson','explanation','textbook','notes')
           ORDER BY lsm.id DESC LIMIT 1""",
         (target["lesson_id"],),
     ).fetchone()

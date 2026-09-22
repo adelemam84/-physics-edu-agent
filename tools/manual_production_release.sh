@@ -230,6 +230,14 @@ cleanup() {
   if [ -n "$BOOTSTRAP_URL" ]; then
     "${VERCEL[@]}" remove "$BOOTSTRAP_URL" --yes >/dev/null 2>&1 || true
   fi
+  # Keep the persistent Windows runner lean. Vercel's local build can leave
+  # thousands of ignored files that make the next actions/checkout cleanup hang.
+  rm -rf -- .vercel
+  for generated in pyproject.toml uv.lock; do
+    if [ -e "$generated" ] && ! git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
+      rm -f -- "$generated"
+    fi
+  done
 }
 trap cleanup EXIT
 

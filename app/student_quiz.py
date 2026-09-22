@@ -12,6 +12,7 @@ from .security import require_admin
 from .parent_notifications import queue_attempt_notifications
 from .services.grading import grade_answer
 from .student_security import resolve_student_code
+from .exam_engine import ensure_attempt_question_order, ensure_exam_open
 
 def is_correct(answer: str, accepted: str | None) -> bool:
     """Backward-compatible wrapper used by lesson diagnostics and older modules."""
@@ -30,6 +31,7 @@ class SaveAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question_id: int
     answer: str = Field(max_length=5000)
+    time_spent_seconds: int = Field(default=0, ge=0, le=600)
 
 @app.patch("/api/quizzes/{quiz_id}/publish", dependencies=[Depends(require_admin)])
 def legacy_publish_quiz(quiz_id: int, published: bool = True):
@@ -51,10 +53,12 @@ def student_quiz(quiz_id: int, request: Request):
     with connect() as con:
         st=con.execute("SELECT id FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
-        q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
+        q=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy,
+          published,lifecycle_status,access_code,available_from,available_until,integrity_policy,shuffle_questions,now() db_now FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'
             AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not q: raise HTTPException(404,"الاختبار غير متاح")
+        ensure_exam_open(q)
         items=list(con.execute("""SELECT qq.position,qq.points,x.id,x.text_verbatim,x.question_type,
                     EXISTS(SELECT 1 FROM question_assets a WHERE a.question_id=x.id) has_asset
                     FROM quiz_questions qq JOIN questions x ON x.id=qq.question_id
@@ -74,7 +78,7 @@ def student_quiz(quiz_id: int, request: Request):
         total=con.execute("SELECT count(*) n FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["n"]
         if not total or len(items)!=total:
             raise HTTPException(409,"تم إيقاف الاختبار مؤقتًا لأن أحد الأسئلة لم يعد مستوفيًا لشروط الاعتماد")
-        return {**q,"questions":items}
+        return {**q,"questions":items,"delivery_state":"open"}
 
 @app.post("/api/student/quizzes/{quiz_id}/start")
 def start_quiz_attempt(quiz_id:int, request: Request):
@@ -82,10 +86,12 @@ def start_quiz_attempt(quiz_id:int, request: Request):
     with connect() as con:
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
-        quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy FROM quizzes
+        quiz=con.execute("""SELECT id,title,duration_minutes,max_attempts,retry_wait_minutes,score_policy,
+          published,lifecycle_status,available_from,available_until,shuffle_questions,now() db_now FROM quizzes
           WHERE id=%s AND published=TRUE AND lifecycle_status='published'
             AND (owner_student_id IS NULL OR owner_student_id=%s)""",(quiz_id,st["id"])).fetchone()
         if not quiz: raise HTTPException(404,"الاختبار غير متاح")
+        ensure_exam_open(quiz)
         stats=con.execute("""SELECT count(*) FILTER(WHERE completed_at IS NOT NULL) completed,
           max(completed_at) FILTER(WHERE completed_at IS NOT NULL) last_completed FROM attempts
           WHERE student_id=%s AND quiz_id=%s""",(st["id"],quiz_id)).fetchone()
@@ -103,16 +109,22 @@ def start_quiz_attempt(quiz_id:int, request: Request):
             expires_at=con.execute("""SELECT CASE WHEN %s IS NULL THEN NULL
               ELSE %s + (%s * interval '1 minute') END v""",
               (quiz["duration_minutes"],open_attempt["started_at"],quiz["duration_minutes"])).fetchone()["v"]
+            order=ensure_attempt_question_order(con,open_attempt["id"],quiz_id,bool(quiz.get("shuffle_questions")))
             return {"attempt_id":open_attempt["id"],"started_at":open_attempt["started_at"],
-                    "expires_at":expires_at,"resumed":True,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
+                    "expires_at":expires_at,"resumed":True,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,
+                    "max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"],"question_order":order,
+                    "shuffle_questions":bool(quiz.get("shuffle_questions"))}
         max_score=con.execute("SELECT coalesce(sum(points),0) v FROM quiz_questions WHERE quiz_id=%s",(quiz_id,)).fetchone()["v"]
         a=con.execute("""INSERT INTO attempts(student_id,quiz_id,score,max_score,started_at,submitted_at)
           VALUES(%s,%s,NULL,%s,now(),now()) RETURNING id,started_at""",(st["id"],quiz_id,max_score)).fetchone()
         expires_at=con.execute("""SELECT CASE WHEN %s IS NULL THEN NULL
           ELSE %s + (%s * interval '1 minute') END v""",
           (quiz["duration_minutes"],a["started_at"],quiz["duration_minutes"])).fetchone()["v"]
+        order=ensure_attempt_question_order(con,a["id"],quiz_id,bool(quiz.get("shuffle_questions")))
         return {"attempt_id":a["id"],"started_at":a["started_at"],"expires_at":expires_at,
-                "resumed":False,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,"max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"]}
+                "resumed":False,"duration_minutes":quiz["duration_minutes"],"attempt_number":completed+1,
+                "max_attempts":quiz["max_attempts"],"score_policy":quiz["score_policy"],"question_order":order,
+                "shuffle_questions":bool(quiz.get("shuffle_questions"))}
 
 @app.put("/api/student/attempts/{attempt_id}/answer")
 def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
@@ -130,11 +142,12 @@ def save_quiz_answer(attempt_id:int,p:SaveAnswer, request: Request):
           WHERE qq.quiz_id=%s AND qq.question_id=%s AND q.published=TRUE AND q.lifecycle_status='published'""",
           (a["quiz_id"],p.question_id)).fetchone():
             raise HTTPException(400,"السؤال غير موجود في الاختبار المنشور")
-        con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)
-          VALUES(%s,%s,%s,NULL,NULL,0)
+        con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded,time_spent_seconds)
+          VALUES(%s,%s,%s,NULL,NULL,0,%s)
           ON CONFLICT (attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL
-          DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=NULL,awarded_score=NULL,points_awarded=0""",
-          (attempt_id,p.question_id,p.answer))
+          DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=NULL,awarded_score=NULL,points_awarded=0,
+            time_spent_seconds=attempt_answers.time_spent_seconds+EXCLUDED.time_spent_seconds""",
+          (attempt_id,p.question_id,p.answer,p.time_spent_seconds))
         return {"ok":True,"attempt_id":attempt_id,"question_id":p.question_id}
 
 @app.get("/api/student/attempts/{attempt_id}/saved")
@@ -213,8 +226,8 @@ def submit_quiz(quiz_id:int,p:SubmitAttempt, request: Request):
             ok=bool(grade_answer(ans,r["accepted_answer"]))
             pts=Decimal(str(r["points"])) if ok else Decimal("0")
             score+=pts; correct+=1 if ok else 0
-            con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded)
-              VALUES (%s,%s,%s,%s,%s,%s)
+            con.execute("""INSERT INTO attempt_answers(attempt_id,question_id,answer_text,is_correct,awarded_score,points_awarded,time_spent_seconds)
+              VALUES (%s,%s,%s,%s,%s,%s,0)
               ON CONFLICT (attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL
               DO UPDATE SET answer_text=EXCLUDED.answer_text,is_correct=EXCLUDED.is_correct,
                 awarded_score=EXCLUDED.awarded_score,points_awarded=EXCLUDED.points_awarded""",
@@ -285,7 +298,8 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #84ad
 
 <script>
 const quizId=Number(location.pathname.split('/').pop());
-let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false;
+let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false,integrityPolicy={mode:'off'};
+const questionClock=new Map();
 const saveTimers=new Map();
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
@@ -315,12 +329,12 @@ async function ensureSession(){
 async function loadQuiz(){
   let r=await fetch('/api/student/quizzes/'+quizId,{cache:'no-store'}),x=await r.json().catch(()=>null);
   if(!r.ok){msg.textContent=apiError(x,'تعذر تحميل الاختبار');return false}
-  data=x;title.textContent=x.title;
+  data=x;integrityPolicy=x.integrity_policy||{mode:'off'};title.textContent=x.title;
   items.innerHTML=x.questions.map(q=>`<section class="q" id="q_${q.id}">
     <div class="q-head"><b>سؤال ${q.position}</b><span id="save_${q.id}" class="muted"></span></div>
     ${q.has_asset?`<img class="asset" src="/api/practice/questions/${q.id}/asset" alt="صورة السؤال ${q.position}" loading="lazy">`:''}
     <div>${esc(q.text_verbatim)}</div>
-    <input class="answer" id="a_${q.id}" aria-label="إجابة السؤال ${q.position}" placeholder="اكتب الإجابة" disabled oninput="queueSave(${q.id})">
+    <input class="answer" id="a_${q.id}" aria-label="إجابة السؤال ${q.position}" placeholder="اكتب الإجابة" disabled onfocus="startQuestionClock(${q.id})" oninput="queueSave(${q.id})" onblur="queueSave(${q.id},true)">
   </section>`).join('');
   updateProgress();
   return true
@@ -337,6 +351,10 @@ async function load(){
     msg.textContent='أدخل كود الطالب لبدء أو استكمال المحاولة.'
   }
 }
+function applyQuestionOrder(order){
+  if(!Array.isArray(order)||!order.length)return;
+  order.forEach((qid,i)=>{let el=document.getElementById('q_'+qid);if(el){items.appendChild(el);let b=el.querySelector('.q-head b');if(b)b.textContent='سؤال '+(i+1)}})
+}
 async function startAttempt(){try{await ensureAttempt()}catch(e){msg.textContent=e.message}}
 async function ensureAttempt(){
   if(attemptId)return attemptId;
@@ -346,6 +364,7 @@ async function ensureAttempt(){
   let x=await r.json().catch(()=>null);
   if(!r.ok)throw new Error(apiError(x,'تعذر بدء الاختبار'));
   attemptId=x.attempt_id;expiresAt=x.expires_at?new Date(x.expires_at):null;submitBtn.disabled=false;
+  applyQuestionOrder(x.question_order);
   document.querySelectorAll('.answer').forEach(el=>el.disabled=false);
   startTimer();
   let sr=await fetch('/api/student/attempts/'+attemptId+'/saved',{cache:'no-store'}),sx=await sr.json().catch(()=>null);
@@ -354,13 +373,43 @@ async function ensureAttempt(){
   msg.textContent=x.resumed?'تم استكمال محاولتك السابقة.':'بدأت محاولة جديدة ويتم حفظ كل إجابة تلقائيًا.';
   return attemptId;
 }
-function queueSave(qid){
+function startQuestionClock(qid){
+  if(!questionClock.has(qid))questionClock.set(qid,Date.now())
+}
+function consumeQuestionSeconds(qid){
+  let start=questionClock.get(qid);if(!start)return 0;
+  let seconds=Math.max(0,Math.min(600,Math.round((Date.now()-start)/1000)));
+  questionClock.delete(qid);
+  if(document.activeElement===document.getElementById('a_'+qid))questionClock.set(qid,Date.now());
+  return seconds
+}
+function queueSave(qid,immediate=false){
   if(expiresAt&&Date.now()>=expiresAt.getTime())return;
   updateProgress();
   clearTimeout(saveTimers.get(qid));
   let badge=document.getElementById('save_'+qid);if(badge){badge.textContent='بانتظار الحفظ';badge.className='muted'}
-  saveTimers.set(qid,setTimeout(()=>saveAnswer(qid),500));
+  saveTimers.set(qid,setTimeout(()=>saveAnswer(qid),immediate?0:500));
 }
+function integrityEnabled(key){
+  return integrityPolicy&&integrityPolicy.mode!=='off'&&integrityPolicy[key]!==false
+}
+async function reportIntegrity(eventType,detail=''){
+  if(!attemptId||!integrityPolicy||integrityPolicy.mode==='off')return;
+  try{
+    let r=await fetch('/api/student/attempts/'+attemptId+'/integrity-event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event_type:eventType,detail})});
+    let x=await r.json().catch(()=>null);
+    if(!r.ok)return;
+    if(x.action==='warn')msg.textContent='تنبيه: تم تسجيل خروجك من سياق الامتحان ('+x.violations+' مخالفة).';
+    if(x.action==='auto_submit'&&!autoSubmitting){autoSubmitting=true;msg.textContent='تم بلوغ حد المخالفات وسيتم تسليم آخر إجابات محفوظة.';submitQuiz(true)}
+  }catch(_e){}
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&integrityEnabled('track_tab_switch'))reportIntegrity('tab_hidden')});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&attemptId&&integrityEnabled('track_fullscreen_exit'))reportIntegrity('fullscreen_exit')});
+document.addEventListener('copy',()=>{if(integrityEnabled('track_copy_paste'))reportIntegrity('copy')});
+document.addEventListener('paste',()=>{if(integrityEnabled('track_copy_paste'))reportIntegrity('paste')});
+document.addEventListener('contextmenu',()=>{if(integrityEnabled('track_context_menu'))reportIntegrity('context_menu')});
+window.addEventListener('blur',()=>{if(integrityEnabled('track_window_blur'))reportIntegrity('window_blur')});
+
 function startTimer(){
   clearInterval(timerHandle);
   if(!expiresAt){timer.textContent='بدون وقت محدد';return}
@@ -379,7 +428,7 @@ function startTimer(){
 async function saveAnswer(qid){
   try{
     let id=await ensureAttempt(),el=document.getElementById('a_'+qid),badge=document.getElementById('save_'+qid);
-    let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({question_id:qid,answer:el.value})});
+    let r=await fetch('/api/student/attempts/'+id+'/answer',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({question_id:qid,answer:el.value,time_spent_seconds:consumeQuestionSeconds(qid)})});
     let x=await r.json().catch(()=>null);
     if(!r.ok)throw new Error(apiError(x,'تعذر حفظ الإجابة'));
     if(badge){badge.textContent='تم الحفظ';badge.className='save-ok'}
@@ -402,7 +451,7 @@ async function submitQuiz(fromTimer=false){
     ${x.time_expired?'<p class="muted">تم التسليم بعد انتهاء الوقت باستخدام آخر إجابات محفوظة قبل انتهاء المدة.</p>':''}
     <p>الدرجة: ${x.score} / ${x.max_score}</p><p>صحيح: ${x.correct} · خطأ: ${x.incorrect}</p>
     <p class=muted>تم حفظ النتيجة. التصحيح النهائي حتمي من الإجابات المعتمدة في بنك الأسئلة.</p>
-    <div class=row><button onclick="downloadAttemptReview()">تنزيل الاختبار بإجاباتي PDF</button><button onclick="downloadMistakesReview()">تنزيل مذكرة أخطائي PDF</button></div>
+    <div class=row><button onclick="location.href='/student/results/'+attemptId">فتح التحليل التشخيصي</button><button onclick="downloadAttemptReview()">تنزيل الاختبار بإجاباتي PDF</button><button onclick="downloadMistakesReview()">تنزيل مذكرة أخطائي PDF</button></div>
     ${x.adaptive_recommended?'<button class="primary" onclick="startAdaptive()">ابدأ تدريبًا علاجيًا مناسبًا لمستواك</button>':'<p class="muted">مستواك الحالي جيد؛ سيستمر النظام في متابعة نقاط القوة والضعف.</p>'}`;
   result.scrollIntoView({behavior:'smooth',block:'start'})
 }

@@ -8,6 +8,7 @@ on:
 jobs:
   python-quality:
     runs-on: self-hosted
+    timeout-minutes: 20
     env:
       PSExecutionPolicyPreference: Bypass
     steps:

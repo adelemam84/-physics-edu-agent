@@ -38,7 +38,9 @@ def make_admin_session_token() -> str:
 
 def validate_admin_key(value: str | None) -> bool:
     expected = _expected_key()
-    return bool(expected and value and hmac.compare_digest(value, expected))
+    if not expected or not value:
+        return False
+    return hmac.compare_digest(value.encode("utf-8"), expected.encode("utf-8"))
 
 
 def admin_session_valid(request: Request) -> bool:

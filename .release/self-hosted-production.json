@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "ff93bb643b38dbe8d91958c8b444bf5807f37281",
+  "requested_code_sha": "d378189801ea9f3cc4e5cd8e6fa9e37dd71964b2",
   "requested_at": "2026-09-22",
-  "reason": "Deploy admin dashboard session-loop fix; preserve authenticated session when dashboard data returns server error",
+  "reason": "Validate post-release technical readiness gate on current main after PR #184",
   "content_ingestion": "locked",
   "promote": true
 }

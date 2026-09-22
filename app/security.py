@@ -39,7 +39,7 @@ def admin_key_configuration_state() -> dict:
     revision = os.getenv("RELEASE_ADMIN_KEY_REVISION", "").strip() or None
     return {
         "configured": bool(trimmed),
-        "format": "clean" if not issues else ",".join(issues),
+        "format": "missing" if not trimmed else ("clean" if not issues else ",".join(issues)),
         "revision": revision,
         "contains_secret_value": False,
     }

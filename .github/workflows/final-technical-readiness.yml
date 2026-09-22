@@ -40,8 +40,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: physics-edu-agent-final-technical-readiness-${{ github.ref }}
-  cancel-in-progress: true
+  group: physics-edu-agent-windows-self-hosted
+  cancel-in-progress: false
 
 jobs:
   readiness:

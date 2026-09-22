@@ -66,3 +66,18 @@ def test_teacher_score_override_is_audited_and_human_only():
     assert "لا يمكن تعديل درجة محاولة لم يتم تسليمها" in source
     assert "الدرجة الجديدة لا يمكن أن تتجاوز الدرجة النهائية" in source
     assert "actor,'admin'" not in source  # no client-controlled actor field
+
+
+def test_exam_code_resolution_uses_post_body_and_is_rate_limited():
+    engine = Path("app/exam_engine.py").read_text(encoding="utf-8")
+    hardening = Path("app/security_hardening.py").read_text(encoding="utf-8")
+    assert '@app.post("/api/student/exams/resolve")' in engine
+    assert "body:JSON.stringify({access_code:v})" in engine
+    assert "student_exam_code_resolve" in hardening
+    assert r"^/api/student/exams/resolve$" in hardening
+
+
+def test_custom_exam_access_code_collision_is_handled_as_conflict():
+    source = Path("app/exam_engine.py").read_text(encoding="utf-8")
+    assert "AND id<>%s" in source
+    assert "كود الاختبار مستخدم بالفعل" in source

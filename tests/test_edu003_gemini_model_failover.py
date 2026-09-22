@@ -41,7 +41,7 @@ class Edu003GeminiModelFailoverTests(unittest.TestCase):
         ):
             raw, provider, attempted=visual._gemini_visual_json(image,"prompt",row)
         self.assertIn('"question_text":"ok"', raw)
-        self.assertEqual(provider,"gemini:gemini-2.5-flash-lite")
+        self.assertEqual(provider,"gemini:gemini-3.1-flash-lite")
         self.assertEqual(attempted,["gemini-3.5-flash","gemini-3.1-flash-lite"])
 
     def test_404_moves_to_next_gemini_model(self):

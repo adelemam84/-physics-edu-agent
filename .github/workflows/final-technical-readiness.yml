@@ -46,7 +46,7 @@ concurrency:
 jobs:
   readiness:
     name: Production technical readiness contract
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 8
     env:
       TECH_READY_BASE_URL: https://physics-edu-agent.vercel.app
@@ -55,8 +55,41 @@ jobs:
       TECH_READY_MAX_LATENCY_MS: "5000"
       TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: "true"
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Materialize exact workflow source
+        shell: powershell
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Join-Path $env:RUNNER_TEMP "physics-source-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.zip"
+          $extract = Join-Path $env:RUNNER_TEMP "physics-source-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          Remove-Item $archive -Force -ErrorAction SilentlyContinue
+          Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+
+          $url = "https://api.github.com/repos/$env:SOURCE_REPOSITORY/zipball/$env:SOURCE_SHA"
+          & curl.exe --fail --location --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 120 `
+            -H "Authorization: Bearer $env:SOURCE_TOKEN" `
+            -H "Accept: application/vnd.github+json" `
+            -H "X-GitHub-Api-Version: 2022-11-28" `
+            -o $archive $url
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Expand-Archive -Path $archive -DestinationPath $extract -Force
+          $root = Get-ChildItem -Path $extract -Directory | Select-Object -First 1
+          if (-not $root) { throw "GitHub archive did not contain a source root." }
+
+          Get-ChildItem -Force -Path $env:GITHUB_WORKSPACE | Remove-Item -Recurse -Force -ErrorAction Stop
+          Get-ChildItem -Force -Path $root.FullName | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $env:GITHUB_WORKSPACE -Recurse -Force
+          }
+
+          if (-not (Test-Path "requirements.txt")) { throw "Workflow archive is missing requirements.txt" }
+          if (-not (Test-Path "index.py")) { throw "Workflow archive is missing index.py" }
+          Remove-Item $archive -Force -ErrorAction SilentlyContinue
+          Remove-Item $extract -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

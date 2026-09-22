@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: physics-edu-agent-windows-self-hosted
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]

@@ -136,7 +136,7 @@ def create_gemini_notebook(job_id: str) -> dict:
     if project_free_only():
         raise HTTPException(
             409,
-            'Gemini Notebook Enterprise is disabled while AI_FREE_ONLY=true',
+            'Gemini Notebook Enterprise is disabled while the project Free-only policy is enabled',
         )
     row, summary, sources = _summary_payload(job_id)
     token = _google_access_token(['https://www.googleapis.com/auth/cloud-platform'])

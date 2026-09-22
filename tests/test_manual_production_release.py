@@ -7,6 +7,13 @@ SCRIPT = Path("tools/manual_production_release.sh").read_text(encoding="utf-8")
 
 
 class ManualProductionReleaseTests(unittest.TestCase):
+    def test_archive_source_can_supply_verified_sha_without_git_fetch_state(self):
+        self.assertIn('SOURCE_SHA="${RELEASE_SOURCE_SHA:-}"', SCRIPT)
+        self.assertIn('SOURCE_REF="${RELEASE_SOURCE_REF:-}"', SCRIPT)
+        self.assertIn('Archive release source must declare RELEASE_SOURCE_REF=main', SCRIPT)
+        self.assertIn('HEAD_SHA="$SOURCE_SHA"', SCRIPT)
+        self.assertIn('Archive source workspace verified without mutable Git network state', SCRIPT)
+
     def test_requires_main_and_clean_workspace(self):
         self.assertIn('git rev-parse --abbrev-ref HEAD', SCRIPT)
         self.assertIn('Release must run from main', SCRIPT)

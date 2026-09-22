@@ -11,6 +11,8 @@ PRODUCTION_URL="${PRODUCTION_URL:-https://physics-edu-agent.vercel.app}"
 PROJECT_ID="${VERCEL_PROJECT_ID:-prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL}"
 ORG_ID="${VERCEL_ORG_ID:-team_GsqjHJAXTirB3YVlUto63rma}"
 EXPECTED_SHA=""
+SOURCE_SHA="${RELEASE_SOURCE_SHA:-}"
+SOURCE_REF="${RELEASE_SOURCE_REF:-}"
 PROMOTE=0
 
 usage() {
@@ -50,20 +52,39 @@ command -v git >/dev/null
 command -v python >/dev/null
 command -v npm >/dev/null
 
-if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
-  echo "Release must run from main" >&2
-  exit 1
+ARCHIVE_SOURCE=0
+if [ -n "$SOURCE_SHA" ]; then
+  ARCHIVE_SOURCE=1
+  case "$SOURCE_SHA" in
+    *[!0-9a-fA-F]*|"")
+      echo "RELEASE_SOURCE_SHA must be a hexadecimal Git commit SHA" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#SOURCE_SHA}" -ne 40 ]; then
+    echo "RELEASE_SOURCE_SHA must be exactly 40 hexadecimal characters" >&2
+    exit 1
+  fi
+  if [ "$SOURCE_REF" != "main" ]; then
+    echo "Archive release source must declare RELEASE_SOURCE_REF=main" >&2
+    exit 1
+  fi
+  HEAD_SHA="$SOURCE_SHA"
+else
+  if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
+    echo "Release must run from main" >&2
+    exit 1
+  fi
+  HEAD_SHA="$(git rev-parse HEAD)"
+  if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+    echo "Release workspace must be clean" >&2
+    git status --short >&2
+    exit 1
+  fi
 fi
 
-HEAD_SHA="$(git rev-parse HEAD)"
 if [ -n "$EXPECTED_SHA" ] && [ "$EXPECTED_SHA" != "$HEAD_SHA" ]; then
-  echo "Expected SHA $EXPECTED_SHA but current HEAD is $HEAD_SHA" >&2
-  exit 1
-fi
-
-if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-  echo "Release workspace must be clean" >&2
-  git status --short >&2
+  echo "Expected SHA $EXPECTED_SHA but release source is $HEAD_SHA" >&2
   exit 1
 fi
 
@@ -111,12 +132,18 @@ if missing:
 print("Required production environment keys are present")
 PY
 
-echo "==> Verify clean workspace after Vercel pull"
-DIRTY="$(git status --porcelain --untracked-files=all)"
-if [ -n "$DIRTY" ]; then
-  printf '%s\n' "$DIRTY" >&2
-  echo "Vercel pull changed unexpected tracked or unignored files" >&2
-  exit 1
+echo "==> Verify workspace after Vercel pull"
+if [ "$ARCHIVE_SOURCE" -eq 0 ]; then
+  DIRTY="$(git status --porcelain --untracked-files=all)"
+  if [ -n "$DIRTY" ]; then
+    printf '%s\n' "$DIRTY" >&2
+    echo "Vercel pull changed unexpected tracked or unignored files" >&2
+    exit 1
+  fi
+else
+  test -f ".vercel/project.json"
+  test -f ".vercel/.env.production.local"
+  echo "Archive source workspace verified without mutable Git network state"
 fi
 
 BOOTSTRAP_TOKEN="$(python - <<'PY'

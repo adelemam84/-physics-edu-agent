@@ -31,13 +31,16 @@ class SelfHostedReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("group: physics-edu-agent-self-hosted-production", RELEASE)
         self.assertIn("cancel-in-progress: true", RELEASE)
 
-    def test_release_checkout_is_resilient_to_stale_actions_checkout_credentials(self):
+    def test_release_materializes_exact_commit_from_bounded_github_archive(self):
         self.assertNotIn("uses: actions/checkout@", RELEASE)
         self.assertIn('RELEASE_TOKEN: ${{ github.token }}', RELEASE)
-        self.assertIn('GIT_CONFIG_VALUE_0 = "AUTHORIZATION: bearer $env:RELEASE_TOKEN"', RELEASE)
-        self.assertIn("git fetch --force --no-tags --prune --depth=2 origin $env:RELEASE_SHA", RELEASE)
-        self.assertIn("git checkout --force -B main $env:RELEASE_SHA", RELEASE)
-        self.assertIn("Release checkout drift", RELEASE)
+        self.assertIn("/zipball/$env:RELEASE_SHA", RELEASE)
+        self.assertIn("curl.exe --fail --location --silent --show-error --retry 3", RELEASE)
+        self.assertIn("--connect-timeout 15 --max-time 120", RELEASE)
+        self.assertIn("Expand-Archive", RELEASE)
+        self.assertIn("RELEASE_SOURCE_SHA=$env:RELEASE_SHA", RELEASE)
+        self.assertIn("RELEASE_SOURCE_REF=main", RELEASE)
+        self.assertNotIn("git fetch --force", RELEASE)
 
     def test_release_keeps_self_hosted_runner_and_explicit_dependencies(self):
         self.assertIn("runs-on: self-hosted", RELEASE)

@@ -153,10 +153,18 @@ deploy_isolated() {
       printf '%s\n' "$out" >&2
       url="$(printf '%s\n' "$out" | grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' | tail -n 1 || true)"
       if [ -n "$url" ]; then
-        if "${VERCEL[@]}" inspect "$url" --wait >/dev/null; then
-          printf '%s\n' "$url"
-          return 0
-        fi
+        # A successful deploy can return while Vercel is still processing.
+        # Poll inspection with a bounded window instead of treating that state
+        # as another deploy failure (which can create duplicate deployments).
+        for inspect_attempt in $(seq 1 24); do
+          if "${VERCEL[@]}" inspect "$url" >/dev/null 2>&1; then
+            printf '%s\n' "$url"
+            return 0
+          fi
+          sleep 5
+        done
+        echo "$label did not become inspectable within 120 seconds: $url" >&2
+        "${VERCEL[@]}" remove "$url" --yes >/dev/null 2>&1 || true
       fi
     else
       printf '%s\n' "$out" >&2

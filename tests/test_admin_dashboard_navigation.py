@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from app.admin_dashboard import PAGE
 
@@ -60,6 +61,13 @@ class AdminDashboardNavigationTests(unittest.TestCase):
             "/admin/alerts",
         ):
             self.assertIn(path, PAGE)
+
+    def test_dashboard_uses_current_lesson_source_schema(self):
+        source = Path("app/admin_dashboard.py").read_text(encoding="utf-8")
+        self.assertIn("lsm.mapping_status='approved'", source)
+        self.assertIn("d.kind IN ('lesson','explanation','textbook','notes')", source)
+        self.assertNotIn("lsm.approved=TRUE", source)
+        self.assertNotIn("d.source_kind", source)
 
     def test_dashboard_keeps_responsive_kpi_layout(self):
         self.assertIn("@media(max-width:1100px)", PAGE)

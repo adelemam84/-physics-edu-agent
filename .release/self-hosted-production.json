@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "6680ccec822f559eedbcc764fb81134390d7cd07",
+  "requested_code_sha": "d66d07499c851edfb861b1b58db285460ed2d239",
   "requested_at": "2026-09-22",
-  "reason": "Trigger isolated self-hosted production release after remote-build decoupling and sensitive ADMIN_API_KEY runtime verification fixes",
+  "reason": "Trigger isolated production release after native Vercel curl fix",
   "content_ingestion": "locked",
   "promote": true
 }

@@ -65,7 +65,7 @@ class TechnicalReadinessProbeContractTests(unittest.TestCase):
         self.assertNotIn("actions/checkout@", WORKFLOW)
         self.assertIn("actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd", WORKFLOW)
         self.assertIn("GIT_CONFIG_VALUE_0", WORKFLOW)
-        self.assertIn("SOURCE_SHA: ${{ github.sha }}", WORKFLOW)
+        self.assertIn("SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", WORKFLOW)
         self.assertIn("actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97", WORKFLOW)
         self.assertIn("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", WORKFLOW)
 

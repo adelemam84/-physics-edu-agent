@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "9ad6de90fca02a2cf164752c32a329b8ba8e3496",
+  "requested_code_sha": "6680ccec822f559eedbcc764fb81134390d7cd07",
   "requested_at": "2026-09-22",
-  "reason": "Retry controlled production release using runtime-only verification for write-only sensitive ADMIN_API_KEY",
+  "reason": "Trigger isolated self-hosted production release after remote-build decoupling and sensitive ADMIN_API_KEY runtime verification fixes",
   "content_ingestion": "locked",
   "promote": true
 }

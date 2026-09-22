@@ -178,7 +178,7 @@ test -n "$BOOTSTRAP_URL"
 python - <<'PY'
 import json
 from pathlib import Path
-x=json.loads(Path(""$TMP_DIR/bootstrap.json"").read_text())
+x=json.loads(Path(".git/release-tmp/bootstrap.json").read_text())
 if x.get("status") != "ok" or x.get("runtime_bootstrap") != "applied":
     raise SystemExit(f"Runtime bootstrap failed: {x}")
 print("Runtime bootstrap passed")
@@ -197,8 +197,8 @@ import json
 from pathlib import Path
 from app.version import APPLICATION_VERSION
 
-health=json.loads(Path(""$TMP_DIR/stage-health.json"").read_text())
-ready=json.loads(Path(""$TMP_DIR/stage-ready.json"").read_text())
+health=json.loads(Path(".git/release-tmp/stage-health.json").read_text())
+ready=json.loads(Path(".git/release-tmp/stage-ready.json").read_text())
 if health.get("status") != "ok":
     raise SystemExit(f"staged /health failed: {health}")
 if ready.get("status") != "ready":
@@ -207,7 +207,7 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"staged version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"content ingestion must stay locked: {ready}")
-session=json.loads(Path(""$TMP_DIR/stage-admin-session.json"").read_text())
+session=json.loads(Path(".git/release-tmp/stage-admin-session.json").read_text())
 if session.get("configured") is not True:
     raise SystemExit("Staged ADMIN_API_KEY is not configured at runtime")
 print(f"Staged health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")
@@ -233,15 +233,15 @@ import json
 from pathlib import Path
 from app.version import APPLICATION_VERSION
 
-health=json.loads(Path(""$TMP_DIR/prod-health.json"").read_text())
-ready=json.loads(Path(""$TMP_DIR/prod-ready.json"").read_text())
+health=json.loads(Path(".git/release-tmp/prod-health.json").read_text())
+ready=json.loads(Path(".git/release-tmp/prod-ready.json").read_text())
 if health.get("status") != "ok" or ready.get("status") != "ready":
     raise SystemExit(f"Production smoke failed: health={health} ready={ready}")
 if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLICATION_VERSION:
     raise SystemExit(f"Production version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"Production content ingestion must stay locked: {ready}")
-session=json.loads(Path(""$TMP_DIR/prod-admin-session.json"").read_text())
+session=json.loads(Path(".git/release-tmp/prod-admin-session.json").read_text())
 if session.get("configured") is not True:
     raise SystemExit("Production ADMIN_API_KEY is not configured after promotion")
 print(f"Production health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")

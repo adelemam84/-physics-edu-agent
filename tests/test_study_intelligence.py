@@ -21,7 +21,7 @@ def test_personal_study_queue_is_deterministic_and_source_grounded():
     assert "deterministic_priority_score" in source
     assert "lesson_source_mappings" in source
     assert "lsm.mapping_status=\'approved\'" in source
-    assert "d.source_kind IN ('lesson','explanation','textbook','notes')" in source
+    assert "d.kind IN ('lesson','explanation','textbook','notes')" in source
     assert '"/api/student/adaptive-practice/create?count=10"' in source
 
 

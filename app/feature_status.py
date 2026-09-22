@@ -70,7 +70,7 @@ def feature_status_snapshot() -> dict:
             "name": "محرك الامتحانات الشخصي",
             "state": "active" if _has("/api/admin/exams") or _has("/admin/exam-engine") else "deferred",
             "path": "/admin/quizzes",
-            "detail": "أكواد دخول وجدولة ونزاهة الامتحان؛ يبقى مؤجلاً حتى دمج مسار الاختبارات المتقدم",
+            "detail": "أكواد دخول وجدولة ونزاهة الامتحان" if (_has("/api/admin/exams") or _has("/admin/exam-engine")) else "المسار جاهز للمراجعة وسيبقى مؤجلاً حتى الدمج",
         },
         {
             "id": "lesson_studio",
@@ -105,7 +105,7 @@ def feature_status_snapshot() -> dict:
             "name": "Gemini Notebook Enterprise",
             "state": "deferred" if creative["gemini_notebook_enterprise"].get("blocked_by_free_only_policy") else ("configured" if creative["gemini_notebook_enterprise"]["configured"] else "optional"),
             "path": "/admin/lesson-studio/integrations",
-            "detail": "مؤجل تلقائيًا أثناء سياسة AI_FREE_ONLY" if creative["gemini_notebook_enterprise"].get("blocked_by_free_only_policy") else "تكامل اختياري",
+            "detail": "مؤجل تلقائيًا أثناء سياسة Free-only" if creative["gemini_notebook_enterprise"].get("blocked_by_free_only_policy") else "تكامل اختياري",
         },
         {
             "id": "ai_operations",

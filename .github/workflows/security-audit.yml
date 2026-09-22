@@ -3,6 +3,8 @@ name: Security Audit
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - ".release/**"
   pull_request:
   schedule:
     - cron: "29 3 * * 1"

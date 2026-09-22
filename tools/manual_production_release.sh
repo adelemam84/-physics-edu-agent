@@ -111,19 +111,11 @@ if missing:
 print("Required production environment keys are present")
 PY
 
-echo "==> Build production artifact"
-"${VERCEL[@]}" build --prod
-
-for generated in pyproject.toml uv.lock; do
-  if [ -e "$generated" ] && ! git ls-files --error-unmatch "$generated" >/dev/null 2>&1; then
-    printf '/%s\n' "$generated" >> .git/info/exclude
-  fi
-done
-
+echo "==> Verify clean workspace after Vercel pull"
 DIRTY="$(git status --porcelain --untracked-files=all)"
 if [ -n "$DIRTY" ]; then
   printf '%s\n' "$DIRTY" >&2
-  echo "Vercel pull/build changed unexpected tracked or unignored files" >&2
+  echo "Vercel pull changed unexpected tracked or unignored files" >&2
   exit 1
 fi
 
@@ -150,7 +142,7 @@ deploy_isolated() {
   local url=""
   for attempt in 1 2 3; do
     echo "==> $label attempt=$attempt" >&2
-    if out="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes --no-wait "$@" 2>&1)"; then
+    if out="$("${VERCEL[@]}" deploy --prod --skip-domain --yes --no-wait "$@" 2>&1)"; then
       printf '%s\n' "$out" >&2
       url="$(printf '%s\n' "$out" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 || true)"
       if [ -n "$url" ]; then

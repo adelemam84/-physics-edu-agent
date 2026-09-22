@@ -16,8 +16,13 @@ class ManualProductionReleaseTests(unittest.TestCase):
         self.assertLess(SCRIPT.index("python -m compileall"), SCRIPT.index("vercel@"))
         self.assertLess(
             SCRIPT.index("python -m unittest discover -s tests -v"),
-            SCRIPT.index("deploy --prebuilt"),
+            SCRIPT.index("deploy --prod"),
         )
+
+    def test_release_uses_remote_vercel_build_not_local_prebuilt_artifact(self):
+        self.assertNotIn("vercel build --prod", SCRIPT)
+        self.assertNotIn("deploy --prebuilt", SCRIPT)
+        self.assertIn("deploy --prod --skip-domain --yes --no-wait", SCRIPT)
 
     def test_bootstrap_is_isolated_and_ephemeral(self):
         self.assertIn("--skip-domain", SCRIPT)

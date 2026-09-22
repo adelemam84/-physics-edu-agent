@@ -28,8 +28,41 @@ jobs:
       SMOKE_TIMEOUT_SECONDS: "8"
       SMOKE_ATTEMPTS: "3"
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Materialize exact workflow source
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_TOKEN: ${{ github.token }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const workspace = process.env.GITHUB_WORKSPACE;
+            for (const entry of fs.readdirSync(workspace)) {
+              fs.rmSync(path.join(workspace, entry), {
+                recursive: true,
+                force: true,
+                maxRetries: 5,
+                retryDelay: 250,
+              });
+            }
+            const env = {
+              ...process.env,
+              GIT_CONFIG_COUNT: '1',
+              GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
+              GIT_CONFIG_VALUE_0: 'AUTHORIZATION: bearer ' + process.env.SOURCE_TOKEN,
+            };
+            await exec.exec('git', ['init', workspace], {env});
+            await exec.exec('git', ['-C', workspace, 'remote', 'add', 'origin',
+              'https://github.com/' + process.env.SOURCE_REPOSITORY + '.git'], {env});
+            await exec.exec('git', ['-C', workspace, 'fetch', '--depth=1', 'origin',
+              process.env.SOURCE_SHA], {env});
+            await exec.exec('git', ['-C', workspace, 'checkout', '--detach', 'FETCH_HEAD'], {env});
+            if (!fs.existsSync(path.join(workspace, 'requirements.txt')) ||
+                !fs.existsSync(path.join(workspace, 'index.py'))) {
+              core.setFailed('Exact source materialization did not produce the expected repository files.');
+            }
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

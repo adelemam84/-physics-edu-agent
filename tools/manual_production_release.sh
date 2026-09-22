@@ -127,23 +127,19 @@ if [ -n "$DIRTY" ]; then
   exit 1
 fi
 
-ADMIN_LOGIN_BODY="$(mktemp)"
-chmod 600 "$ADMIN_LOGIN_BODY"
-python - "$ADMIN_LOGIN_BODY" <<'PY'
+python - <<'PY'
 import json
 import os
-import sys
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 token = os.environ.get("VERCEL_TOKEN", "").strip()
 project_id = os.environ.get("VERCEL_PROJECT_ID", "").strip()
 team_id = os.environ.get("VERCEL_ORG_ID", "").strip()
 if not token or not project_id or not team_id:
-    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for decrypted production env verification")
+    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for Production environment metadata verification")
 
-query = urllib.parse.urlencode({"decrypt": "true", "teamId": team_id})
+query = urllib.parse.urlencode({"teamId": team_id})
 url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project_id, safe='')}/env?{query}"
 request = urllib.request.Request(
     url,
@@ -153,7 +149,7 @@ try:
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.load(response)
 except Exception as exc:
-    raise SystemExit(f"Unable to retrieve decrypted Vercel production environment metadata: {type(exc).__name__}") from exc
+    raise SystemExit(f"Unable to retrieve Vercel Production environment metadata: {type(exc).__name__}") from exc
 
 def targets(item):
     value = item.get("target")
@@ -172,15 +168,9 @@ if not candidates:
 if len(candidates) != 1:
     raise SystemExit(f"Expected exactly one Production ADMIN_API_KEY definition, found {len(candidates)}; remove duplicate Production definitions in Vercel before releasing")
 
-admin_key = str(candidates[0].get("value") or "").strip()
-if not admin_key or admin_key == "[SENSITIVE]":
-    raise SystemExit("Vercel did not return a decrypted Production ADMIN_API_KEY value")
-
-Path(sys.argv[1]).write_text(
-    json.dumps({"key": admin_key}, separators=(",", ":")),
-    encoding="utf-8",
-)
-print("Verified exactly one decrypted Production ADMIN_API_KEY definition without exposing its value")
+item = candidates[0]
+print("Verified exactly one Production ADMIN_API_KEY definition; sensitive value remains write-only by design")
+print("ADMIN_API_KEY metadata: type=%s updatedAt=%s" % (item.get("type") or "unknown", item.get("updatedAt") or item.get("updated_at") or "unknown"))
 PY
 
 BOOTSTRAP_TOKEN="$(python - <<'PY'

@@ -19,7 +19,7 @@ def admin_dashboard_data():
           (SELECT count(*) FROM parent_notifications WHERE status='failed') failed_notifications,
           (SELECT round(avg(CASE WHEN max_score>0 THEN (score/max_score)*100 END),1) FROM attempts) avg_score,
           (SELECT count(DISTINCT student_id) FROM attempts WHERE completed_at IS NOT NULL) students_with_baseline,
-          (SELECT count(*) FROM lesson_source_mappings lsm JOIN documents d ON d.id=lsm.document_id WHERE lsm.approved=TRUE AND d.source_kind IN ('lesson','explanation','textbook','notes')) approved_lesson_sources
+          (SELECT count(*) FROM lesson_source_mappings lsm JOIN documents d ON d.id=lsm.document_id WHERE lsm.mapping_status='approved' AND d.kind IN ('lesson','explanation','textbook','notes')) approved_lesson_sources
         """).fetchone()
         recent=list(con.execute("""SELECT a.id,s.name student_name,q.title quiz_title,a.score,a.max_score,
           round(CASE WHEN a.max_score>0 THEN (a.score/a.max_score)*100 ELSE 0 END,1) percentage,

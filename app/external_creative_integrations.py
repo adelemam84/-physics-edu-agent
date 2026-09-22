@@ -14,6 +14,7 @@ from .science_lesson_studio import _job
 from .services.storage import get_bytes
 from .services.visual_summary import build_visual_summary, render_slides_pptx
 from .services.canva_master_contract import CANVA_MASTER_DESIGN_ID, CANVA_MASTER_TEXT_FIELDS, canva_master_values
+from .services.ai_budget import project_free_only
 
 
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '').strip()
@@ -29,7 +30,6 @@ CANVA_AUTOFILL_POLL_SECONDS = float(os.getenv('CANVA_AUTOFILL_POLL_SECONDS', '1.
 CANVA_AUTOFILL_MAX_POLLS = int(os.getenv('CANVA_AUTOFILL_MAX_POLLS', '20') or '20')
 
 GOOGLE_SLIDES_FOLDER_ID = os.getenv('GOOGLE_SLIDES_FOLDER_ID', '').strip()
-AI_FREE_ONLY = os.getenv('AI_FREE_ONLY', 'true').strip().lower() in {'1','true','yes','on'}
 
 
 def _google_access_token(scopes: list[str]) -> str:
@@ -67,8 +67,9 @@ def _canva_source() -> tuple[str, str, str]:
 
 
 def integration_status() -> dict:
+    free_only = project_free_only()
     notebook_configured = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GEMINI_NOTEBOOK_PROJECT_NUMBER)
-    notebook_ready = bool(notebook_configured and not AI_FREE_ONLY)
+    notebook_ready = bool(notebook_configured and not free_only)
     canva_source_type, canva_source_id, _ = _canva_source()
     canva_ready = bool(CANVA_CLIENT_ID and CANVA_CLIENT_SECRET and canva_source_id)
     slides_ready = bool(GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_SLIDES_FOLDER_ID)
@@ -76,10 +77,10 @@ def integration_status() -> dict:
         'gemini_notebook_enterprise': {
             'configured': notebook_ready,
             'configured_credentials': notebook_configured,
-            'mode': 'disabled_by_free_only_policy' if AI_FREE_ONLY else 'official_preview_api',
+            'mode': 'disabled_by_free_only_policy' if free_only else 'official_preview_api',
             'requires': ['GOOGLE_SERVICE_ACCOUNT_JSON','GEMINI_NOTEBOOK_PROJECT_NUMBER','Gemini Notebook Enterprise license'],
             'location': GEMINI_NOTEBOOK_LOCATION,
-            'blocked_by_free_only_policy': AI_FREE_ONLY,
+            'blocked_by_free_only_policy': free_only,
         },
         'canva': {
             'configured': canva_ready,
@@ -108,8 +109,8 @@ def integration_status() -> dict:
             'external_integrations_optional': True,
             'source_grounded_payload_only': True,
             'external_failure_does_not_block_internal_exports': True,
-            'free_only': AI_FREE_ONLY,
-            'paid_enterprise_integrations_blocked': AI_FREE_ONLY,
+            'free_only': free_only,
+            'paid_enterprise_integrations_blocked': free_only,
         },
     }
 
@@ -132,7 +133,7 @@ def _notebook_base() -> str:
 
 
 def create_gemini_notebook(job_id: str) -> dict:
-    if AI_FREE_ONLY:
+    if project_free_only():
         raise HTTPException(
             409,
             'Gemini Notebook Enterprise is disabled while AI_FREE_ONLY=true',

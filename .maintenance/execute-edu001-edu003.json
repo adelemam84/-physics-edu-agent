@@ -1,5 +1,5 @@
 {
-  "requested_at": "2026-09-20",
+  "requested_at": "2026-09-22",
   "recovery_branch": "br-flat-lake-a5zh4xxu",
   "operations": [
     "EDU-001",
@@ -10,21 +10,15 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 11,
+  "execution_generation": 12,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "GitHub Actions runner startup failure persisted through run 35394684906 attempt 5 with steps=null; manual fallback PR #171 is now merged",
+  "previous_attempt": "Runner is executing real steps again; trigger latest-main EDU maintenance after PR #171 manual fallback merge",
   "corrected_mapping": {
     "lesson_id": 20,
-    "from": [
-      1,
-      31
-    ],
-    "to": [
-      2,
-      31
-    ]
+    "from": [1, 31],
+    "to": [2, 31]
   },
-  "execution_focus": "fresh latest-main EDU-001/EDU-003 trigger after merging hardened manual fallback; skip EDU-001 when 10/10 covered and resume EDU-003 visual suggestions",
+  "execution_focus": "latest-main EDU-001/EDU-003 execution; skip EDU-001 when 10/10 covered and drive EDU-003 to zero candidates without suggestion",
   "provider_policy": {
     "primary": "gemini",
     "fallback": "openai",

@@ -65,3 +65,28 @@ jobs:
         run: |
           & $env:GIT_BASH tools/manual_production_release.sh --expected-sha $env:GITHUB_SHA --promote
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run post-release technical readiness gate
+        shell: powershell
+        env:
+          TECH_READY_BASE_URL: https://physics-edu-agent.vercel.app
+          TECH_READY_TIMEOUT_SECONDS: "8"
+          TECH_READY_ATTEMPTS: "2"
+          TECH_READY_MAX_LATENCY_MS: "5000"
+          TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: "true"
+          TECH_READY_OUTPUT: technical-readiness-results.json
+        run: |
+          $version = python -c "from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:TECH_READY_EXPECT_VERSION = $version.Trim()
+          python tools/technical_readiness_probe.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload post-release readiness evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: post-release-technical-readiness-${{ github.run_id }}
+          path: technical-readiness-results.json
+          if-no-files-found: warn
+          retention-days: 30

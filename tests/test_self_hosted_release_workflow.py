@@ -21,6 +21,15 @@ class SelfHostedReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("Install runtime dependencies", RELEASE)
         self.assertIn("python -m pip install --disable-pip-version-check -r requirements.txt", RELEASE)
 
+    def test_release_runs_post_promotion_technical_readiness_and_uploads_evidence(self):
+        self.assertIn("Run post-release technical readiness gate", RELEASE)
+        self.assertIn("python tools/technical_readiness_probe.py", RELEASE)
+        self.assertIn("TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED", RELEASE)
+        self.assertIn("TECH_READY_EXPECT_VERSION", RELEASE)
+        self.assertIn("Upload post-release readiness evidence", RELEASE)
+        self.assertIn("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", RELEASE)
+        self.assertIn("technical-readiness-results.json", RELEASE)
+
     def test_release_no_longer_requires_local_vercel_python_build_tooling(self):
         self.assertNotIn("Install uv for local Vercel Python build", RELEASE)
         self.assertNotIn("pip install --disable-pip-version-check --no-cache-dir uv", RELEASE)

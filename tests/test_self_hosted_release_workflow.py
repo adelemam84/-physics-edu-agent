@@ -27,6 +27,10 @@ class SelfHostedReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("paths-ignore:", CI)
         self.assertIn('".release/**"', CI)
 
+    def test_new_release_supersedes_stale_in_progress_release(self):
+        self.assertIn("group: physics-edu-agent-self-hosted-production", RELEASE)
+        self.assertIn("cancel-in-progress: true", RELEASE)
+
     def test_release_keeps_self_hosted_runner_and_explicit_dependencies(self):
         self.assertIn("runs-on: self-hosted", RELEASE)
         self.assertIn("Install runtime dependencies", RELEASE)

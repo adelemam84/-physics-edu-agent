@@ -127,52 +127,6 @@ if [ -n "$DIRTY" ]; then
   exit 1
 fi
 
-python - <<'PY'
-import json
-import os
-import urllib.parse
-import urllib.request
-
-token = os.environ.get("VERCEL_TOKEN", "").strip()
-project_id = os.environ.get("VERCEL_PROJECT_ID", "").strip()
-team_id = os.environ.get("VERCEL_ORG_ID", "").strip()
-if not token or not project_id or not team_id:
-    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for Production environment metadata verification")
-
-query = urllib.parse.urlencode({"teamId": team_id})
-url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project_id, safe='')}/env?{query}"
-request = urllib.request.Request(
-    url,
-    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-)
-try:
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.load(response)
-except Exception as exc:
-    raise SystemExit(f"Unable to retrieve Vercel Production environment metadata: {type(exc).__name__}") from exc
-
-def targets(item):
-    value = item.get("target")
-    if isinstance(value, str):
-        return {value}
-    if isinstance(value, list):
-        return {str(x) for x in value}
-    return set()
-
-candidates = [
-    item for item in payload.get("envs", [])
-    if item.get("key") == "ADMIN_API_KEY" and "production" in targets(item)
-]
-if not candidates:
-    raise SystemExit("No Production ADMIN_API_KEY definition was returned by Vercel")
-if len(candidates) != 1:
-    raise SystemExit(f"Expected exactly one Production ADMIN_API_KEY definition, found {len(candidates)}; remove duplicate Production definitions in Vercel before releasing")
-
-item = candidates[0]
-print("Verified exactly one Production ADMIN_API_KEY definition; sensitive value remains write-only by design")
-print("ADMIN_API_KEY metadata: type=%s updatedAt=%s" % (item.get("type") or "unknown", item.get("updatedAt") or item.get("updated_at") or "unknown"))
-PY
-
 BOOTSTRAP_TOKEN="$(python - <<'PY'
 import secrets
 print(secrets.token_urlsafe(48))

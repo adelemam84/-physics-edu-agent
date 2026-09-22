@@ -41,7 +41,8 @@ def test_feature_status_routes_are_registered():
 
 
 def test_feature_status_tracks_free_only_external_integrations(monkeypatch):
-    monkeypatch.setenv("AI_FREE_ONLY", "true")
+    monkeypatch.setenv("PROJECT_FREE_ONLY", "true")
+    monkeypatch.setenv("AI_FREE_ONLY", "")
     snapshot = feature_status_snapshot()
     by_id = {item["id"]: item for item in snapshot["items"]}
     assert by_id["gemini_notebook_enterprise"]["state"] == "deferred"

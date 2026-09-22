@@ -24,6 +24,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
             "/admin/operations-readiness",
             "/admin/ai-operations",
             "/admin/ai-budget",
+            "/admin/feature-status",
             "/admin/interventions",
             "/admin/research-engine",
             "/admin/lesson-studio/workspace",

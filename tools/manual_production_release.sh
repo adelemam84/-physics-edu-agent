@@ -170,7 +170,7 @@ echo "==> Create isolated bootstrap deployment"
 BOOTSTRAP_URL="$(deploy_isolated "bootstrap deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN")"
 
 test -n "$BOOTSTRAP_URL"
-"${VERCEL[@]}" curl /api/internal/release-bootstrap   --deployment "$BOOTSTRAP_URL" --   --request POST   --header "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN"   --fail-with-body > /tmp/physics-release-bootstrap.json
+"${VERCEL[@]}" curl "${BOOTSTRAP_URL}/api/internal/release-bootstrap" -X POST -H "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN" --fail-with-body > /tmp/physics-release-bootstrap.json
 
 python - <<'PY'
 import json
@@ -185,9 +185,9 @@ echo "==> Stage production deployment without bootstrap credential"
 STAGE_URL="$(deploy_isolated "staged production deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA")"
 test -n "$STAGE_URL"
 
-"${VERCEL[@]}" curl /health --deployment "$STAGE_URL" > /tmp/physics-stage-health.json
-"${VERCEL[@]}" curl /health/ready --deployment "$STAGE_URL" > /tmp/physics-stage-ready.json
-"${VERCEL[@]}" curl /api/admin/session --deployment "$STAGE_URL" > /tmp/physics-stage-admin-session.json
+"${VERCEL[@]}" curl "${STAGE_URL}/health" --fail-with-body > /tmp/physics-stage-health.json
+"${VERCEL[@]}" curl "${STAGE_URL}/health/ready" --fail-with-body > /tmp/physics-stage-ready.json
+"${VERCEL[@]}" curl "${STAGE_URL}/api/admin/session" --fail-with-body > /tmp/physics-stage-admin-session.json
 
 python - <<'PY'
 import json

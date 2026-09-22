@@ -13,8 +13,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: physics-edu-agent-content-maintenance
-  cancel-in-progress: true
+  # A single self-hosted runner uses a shared _temp directory. Keep every
+  # self-hosted workflow in one non-cancelling group so an old Worker cannot
+  # delete runner command files while the next job is starting.
+  group: physics-edu-agent-self-hosted
+  cancel-in-progress: false
 
 env:
   VERCEL_ORG_ID: team_GsqjHJAXTirB3YVlUto63rma

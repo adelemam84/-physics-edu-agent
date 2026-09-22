@@ -127,6 +127,44 @@ if [ -n "$DIRTY" ]; then
   exit 1
 fi
 
+ADMIN_LOGIN_BODY="$(mktemp)"
+chmod 600 "$ADMIN_LOGIN_BODY"
+python - "$ADMIN_LOGIN_BODY" <<'PY'
+import json
+import shlex
+import sys
+from pathlib import Path
+
+source = Path(".vercel/.env.production.local")
+admin_key = None
+for raw in source.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    if key.strip() != "ADMIN_API_KEY":
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in (chr(34), chr(39)):
+        try:
+            parsed = shlex.split(value, posix=True)
+        except ValueError as exc:
+            raise SystemExit("ADMIN_API_KEY could not be parsed from Vercel production configuration") from exc
+        if len(parsed) != 1:
+            raise SystemExit("ADMIN_API_KEY has an invalid Vercel environment representation")
+        value = parsed[0]
+    admin_key = value
+    break
+
+if not admin_key:
+    raise SystemExit("ADMIN_API_KEY is empty in Vercel production configuration")
+
+Path(sys.argv[1]).write_text(
+    json.dumps({"key": admin_key}, separators=(",", ":")),
+    encoding="utf-8",
+)
+PY
+
 BOOTSTRAP_TOKEN="$(python - <<'PY'
 import secrets
 print(secrets.token_urlsafe(48))
@@ -136,6 +174,7 @@ STAGE_URL=""
 BOOTSTRAP_URL=""
 
 cleanup() {
+  rm -f -- "$ADMIN_LOGIN_BODY" /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-login.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-login.json
   if [ -n "$BOOTSTRAP_URL" ]; then
     "${VERCEL[@]}" remove "$BOOTSTRAP_URL" --yes >/dev/null 2>&1 || true
   fi
@@ -196,6 +235,7 @@ test -n "$STAGE_URL"
 
 "${VERCEL[@]}" curl /health --deployment "$STAGE_URL" > /tmp/physics-stage-health.json
 "${VERCEL[@]}" curl /health/ready --deployment "$STAGE_URL" > /tmp/physics-stage-ready.json
+"${VERCEL[@]}" curl /api/admin/login --deployment "$STAGE_URL" -- --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" --fail-with-body > /tmp/physics-stage-admin-login.json
 
 python - <<'PY'
 import json
@@ -212,7 +252,10 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"staged version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"content ingestion must stay locked: {ready}")
-print(f"Staged health checks passed for {APPLICATION_VERSION}")
+login=json.loads(Path("/tmp/physics-stage-admin-login.json").read_text())
+if login.get("ok") is not True:
+    raise SystemExit("Staged ADMIN_API_KEY verification failed")
+print(f"Staged health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Verified staged deployment: $STAGE_URL"
@@ -228,6 +271,7 @@ echo "==> Promote verified deployment"
 
 curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/physics-prod-health.json
 curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/physics-prod-ready.json
+curl --fail --silent --show-error --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" "$PRODUCTION_URL/api/admin/login" > /tmp/physics-prod-admin-login.json
 
 python - <<'PY'
 import json
@@ -242,7 +286,10 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"Production version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"Production content ingestion must stay locked: {ready}")
-print(f"Production smoke passed for {APPLICATION_VERSION}")
+login=json.loads(Path("/tmp/physics-prod-admin-login.json").read_text())
+if login.get("ok") is not True:
+    raise SystemExit("Production ADMIN_API_KEY verification failed after promotion")
+print(f"Production health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Production release complete: $PRODUCTION_URL"

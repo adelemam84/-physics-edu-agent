@@ -10,11 +10,11 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 17,
+  "execution_generation": 18,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "Generation 15 proved failover works: questions 184, 190 and 191 succeeded via gemini-3.5-flash-lite after gemini-3.5-flash returned 503. Generation 16 adds network-error failover but is superseded before processing to avoid repeatedly probing the degraded primary.",
-  "target_main_sha": "d51dae3ed3c3532e15c8096ac7e1dcb3b8fc606b",
-  "execution_focus": "resume remaining EDU-003 candidates using verified successful free-tier gemini-3.5-flash-lite as primary, then gemini-3.1-flash-lite and gemini-2.5-flash-lite fallbacks; retain network/status failover and no auto-approval",
+  "previous_attempt": "Legacy run 35743987755 on b58af1f failed at EDU-003 question 184 with Gemini HTTP 404. Subsequent main fixes aligned the free-only allowlist, added Gemini model/network failover, and promoted the verified free-tier gemini-3.5-flash-lite primary.",
+  "target_main_sha": "1af207f7ff686903066a99509746ba7bf2482746",
+  "execution_focus": "validate latest-main EDU-003 end-to-end after Gemini 404/network failover fixes; preserve EDU-001 10/10, require zero candidates without suggestion, capture provider/fallback metadata and suggestion quality, and clean up isolated deployment",
   "provider_policy": {
     "primary": "gemini-3.5-flash-lite",
     "fallbacks": [

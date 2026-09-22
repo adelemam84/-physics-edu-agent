@@ -27,9 +27,12 @@ class SelfHostedReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("paths-ignore:", CI)
         self.assertIn('".release/**"', CI)
 
-    def test_new_release_supersedes_stale_in_progress_release(self):
-        self.assertIn("group: physics-edu-agent-self-hosted-production", RELEASE)
-        self.assertIn("cancel-in-progress: true", RELEASE)
+    def test_release_is_serialized_and_refuses_stale_queued_sha(self):
+        self.assertIn("group: physics-edu-agent-self-hosted", RELEASE)
+        self.assertIn("cancel-in-progress: false", RELEASE)
+        self.assertIn("Refuse stale queued release", RELEASE)
+        self.assertIn("/commits/main", RELEASE)
+        self.assertIn("$latest.sha -ne $env:RELEASE_SHA", RELEASE)
 
     def test_release_materializes_exact_commit_from_bounded_github_archive(self):
         self.assertNotIn("uses: actions/checkout@", RELEASE)

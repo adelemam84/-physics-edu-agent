@@ -37,9 +37,14 @@ class ManualProductionReleaseTests(unittest.TestCase):
             2,
         )
 
-    def test_admin_key_is_verified_without_putting_secret_on_command_line(self):
+    def test_admin_key_is_verified_from_decrypted_vercel_api_without_logging_secret(self):
         self.assertIn('ADMIN_LOGIN_BODY="$(mktemp)"', SCRIPT)
         self.assertIn('chmod 600 "$ADMIN_LOGIN_BODY"', SCRIPT)
+        self.assertIn('/v10/projects/', SCRIPT)
+        self.assertIn('"decrypt": "true"', SCRIPT)
+        self.assertIn('"Authorization": f"Bearer {token}"', SCRIPT)
+        self.assertIn('Expected exactly one Production ADMIN_API_KEY definition', SCRIPT)
+        self.assertIn('admin_key == "[SENSITIVE]"', SCRIPT)
         self.assertGreaterEqual(SCRIPT.count("/api/admin/login"), 2)
         self.assertGreaterEqual(SCRIPT.count('--data-binary "@$ADMIN_LOGIN_BODY"'), 2)
         self.assertIn("Staged ADMIN_API_KEY verification failed", SCRIPT)
@@ -47,6 +52,12 @@ class ManualProductionReleaseTests(unittest.TestCase):
         self.assertIn('rm -f -- "$ADMIN_LOGIN_BODY"', SCRIPT)
         self.assertNotIn('echo "$ADMIN_API_KEY"', SCRIPT)
         self.assertNotIn('--data "$ADMIN_API_KEY"', SCRIPT)
+
+    def test_async_vercel_deploy_waits_on_exact_url_without_duplicate_poll_deploys(self):
+        self.assertIn(r"grep -Eo 'https://[^[:space:]]+\.vercel\.app'", SCRIPT)
+        self.assertIn('inspect "$url" --wait --timeout=5m', SCRIPT)
+        self.assertIn('did not reach READY within 5 minutes', SCRIPT)
+        self.assertNotIn('for inspect_attempt in $(seq 1 24)', SCRIPT)
 
     def test_admin_key_gate_runs_before_and_after_promotion(self):
         staged = SCRIPT.index('/api/admin/login --deployment "$STAGE_URL"')

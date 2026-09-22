@@ -18,7 +18,22 @@ FREE_ONLY_ALLOWED_GEMINI_MODELS = {
 
 
 def project_free_only() -> bool:
-    return os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1", "true", "yes", "on"}
+    """Return the project-wide zero-cost policy.
+
+    PROJECT_FREE_ONLY is the canonical flag; AI_FREE_ONLY remains a compatible
+    alias used by older deployment/configuration paths. If the two are
+    accidentally contradictory, a truthy value wins so paid providers remain
+    fail-closed until the operator fixes configuration.
+    """
+    truthy = {"1", "true", "yes", "on"}
+    values = [
+        os.getenv("PROJECT_FREE_ONLY", "").strip().lower(),
+        os.getenv("AI_FREE_ONLY", "").strip().lower(),
+    ]
+    configured = [value for value in values if value]
+    if not configured:
+        return True
+    return any(value in truthy for value in configured)
 
 
 def _enforce_free_only_provider(*, provider: str, task: str, model: str | None) -> None:

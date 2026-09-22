@@ -295,6 +295,7 @@ fi
 
 python - <<'PY'
 import json
+import os
 from pathlib import Path
 from app.version import APPLICATION_VERSION
 
@@ -343,6 +344,7 @@ fi
 
 python - <<'PY'
 import json
+import os
 from pathlib import Path
 from app.version import APPLICATION_VERSION
 

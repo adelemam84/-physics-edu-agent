@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "2994bb3db6ddde2f5577b90b884b9fb19e95988a",
+  "requested_code_sha": "01e1e929e9078acfe03d61ce2d388930b778878d",
   "requested_at": "2026-09-22",
-  "reason": "Fresh controlled production release to apply latest Vercel Production environment variables after ADMIN_API_KEY rotation",
+  "reason": "Verify rotated ADMIN_API_KEY on staged and canonical production before accepting the release",
   "content_ingestion": "locked",
   "promote": true
 }

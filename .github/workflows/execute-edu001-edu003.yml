@@ -23,7 +23,6 @@ env:
 
 jobs:
   execute:
-    if: github.event_name == 'workflow_dispatch'
     name: Staged source coverage and visual transcription assistance
     runs-on: self-hosted
     environment: production

@@ -54,7 +54,7 @@ class ManualProductionReleaseTests(unittest.TestCase):
         self.assertNotIn('--data "$ADMIN_API_KEY"', SCRIPT)
 
     def test_async_vercel_deploy_waits_on_exact_url_without_duplicate_poll_deploys(self):
-        self.assertIn("grep -Eo 'https://[^[:space:]]+\\.vercel\\.app'", SCRIPT)
+        self.assertIn(r"grep -Eo 'https://[^[:space:]]+\.vercel\.app'", SCRIPT)
         self.assertIn('inspect "$url" --wait --timeout=5m', SCRIPT)
         self.assertIn('did not reach READY within 5 minutes', SCRIPT)
         self.assertNotIn('for inspect_attempt in $(seq 1 24)', SCRIPT)

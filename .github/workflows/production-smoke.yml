@@ -15,8 +15,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: physics-edu-agent-windows-self-hosted
-  cancel-in-progress: false
+  group: physics-edu-agent-production-smoke
+  cancel-in-progress: true
 
 jobs:
   smoke:

@@ -1,0 +1,88 @@
+name: Self-hosted Runner Repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/self-hosted-runner-repair.yml"
+      - ".runner/repair-trigger.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-self-hosted
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    name: Remove duplicate Runner.Listener instance
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Keep current listener and stop duplicate listener tree
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Get-Proc([int]$id) {
+            Get-CimInstance Win32_Process -Filter "ProcessId=$id" -ErrorAction SilentlyContinue
+          }
+
+          Write-Host "Current shell PID=$PID"
+          $chain = @()
+          $cursor = Get-Proc $PID
+          for ($i = 0; $i -lt 12 -and $cursor; $i++) {
+            $chain += $cursor
+            if (-not $cursor.ParentProcessId -or $cursor.ParentProcessId -eq 0) { break }
+            $cursor = Get-Proc ([int]$cursor.ParentProcessId)
+          }
+
+          Write-Host "=== Current job ancestry ==="
+          $chain | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine | Format-List
+
+          $currentWorker = $chain | Where-Object { $_.Name -ieq "Runner.Worker.exe" } | Select-Object -First 1
+          $currentListener = $chain | Where-Object { $_.Name -ieq "Runner.Listener.exe" } | Select-Object -First 1
+          if (-not $currentWorker -or -not $currentListener) {
+            throw "Could not prove the current job's Runner.Worker -> Runner.Listener ancestry; refusing to stop any process."
+          }
+
+          $listenerPath = $currentListener.ExecutablePath
+          if (-not $listenerPath) {
+            throw "Current Runner.Listener executable path is unavailable; refusing repair."
+          }
+
+          $listeners = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction Stop |
+            Where-Object { $_.ExecutablePath -eq $listenerPath })
+
+          Write-Host "=== Listener instances before repair ==="
+          $listeners | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine | Format-List
+          Write-Host "Current worker PID=$($currentWorker.ProcessId); current listener PID=$($currentListener.ProcessId); matching listeners=$($listeners.Count)"
+
+          if ($listeners.Count -le 1) {
+            Write-Host "No duplicate Runner.Listener instance remains. No process was stopped."
+            exit 0
+          }
+
+          $duplicates = @($listeners | Where-Object { $_.ProcessId -ne $currentListener.ProcessId })
+          foreach ($dup in $duplicates) {
+            Write-Host "Stopping duplicate listener tree PID=$($dup.ProcessId) while preserving current listener PID=$($currentListener.ProcessId)"
+            & taskkill.exe /PID $dup.ProcessId /T /F
+            if ($LASTEXITCODE -ne 0) {
+              throw "taskkill failed for duplicate Runner.Listener PID=$($dup.ProcessId), exit=$LASTEXITCODE"
+            }
+          }
+
+          Start-Sleep -Seconds 4
+          $remaining = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction Stop |
+            Where-Object { $_.ExecutablePath -eq $listenerPath })
+
+          Write-Host "=== Listener instances after repair ==="
+          $remaining | Select-Object ProcessId, ParentProcessId, CreationDate, ExecutablePath, CommandLine | Format-List
+
+          if ($remaining.Count -ne 1 -or $remaining[0].ProcessId -ne $currentListener.ProcessId) {
+            throw "Runner repair did not converge to exactly the current Listener. Remaining PIDs: $($remaining.ProcessId -join ',')"
+          }
+
+          Write-Host "RUNNER_REPAIR_OK preserved_listener=$($currentListener.ProcessId) removed=$($duplicates.ProcessId -join ',')"

@@ -58,7 +58,13 @@ class AIBudgetGuardTests(unittest.TestCase):
             },
             clear=False,
         ):
-            for model in ("gemini-2.5-flash", "gemini-2.5-flash-lite"):
+            for model in (
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemini-3.5-flash",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+            ):
                 snap = enforce_ai_budget(provider="gemini", task="test", model=model)
                 self.assertFalse(snap["hard_block_active"])
 

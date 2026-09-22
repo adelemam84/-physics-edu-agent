@@ -10,11 +10,11 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 14,
+  "execution_generation": 15,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "EDU-001 remained 10/10; EDU-003 on b58af1f failed at question 184 with Gemini HTTP 404 before model-access 404 failover existed",
-  "target_main_sha": "3d46bae09282dbd8e4549c6ffabe9b5d9f93a969",
-  "execution_focus": "latest-main one-shot EDU-003 validation with Gemini 404 model failover; preserve EDU-001 10/10 and drive visual candidates without suggestion to zero",
+  "previous_attempt": "EDU-001 remained 10/10; EDU-003 generation 14 was blocked locally before provider call because Free-only allowlist still contained only Gemini 2.5 models",
+  "target_main_sha": "ebbdbf6800e8cd256657c2419286eeefbf8bfff3",
+  "execution_focus": "retry latest-main EDU-003 after aligning Free-only allowlist with verified free-tier Gemini 3.5/3.1 models; preserve EDU-001 10/10 and drive visual candidates without suggestion to zero",
   "provider_policy": {
     "primary": "gemini-3.5-flash",
     "fallbacks": [
@@ -24,7 +24,8 @@
     "failover_on_model_access_404": true,
     "paid_fallbacks_disabled": true,
     "source_image_unchanged": true,
-    "auto_approval": false
+    "auto_approval": false,
+    "free_only_allowlist_aligned": true
   },
   "manual_fallback": {
     "merged_main_sha": "958bdbd98dca06ec43adfab83af5055016afb4ef",

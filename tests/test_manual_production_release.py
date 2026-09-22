@@ -37,11 +37,9 @@ class ManualProductionReleaseTests(unittest.TestCase):
             2,
         )
 
-    def test_sensitive_admin_key_metadata_is_validated_without_decryption(self):
-        self.assertIn('/v10/projects/', SCRIPT)
+    def test_sensitive_admin_key_does_not_require_plaintext_retrieval(self):
         self.assertIn('ADMIN_API_KEY', SCRIPT)
-        self.assertIn('Expected exactly one Production ADMIN_API_KEY definition', SCRIPT)
-        self.assertIn('sensitive value remains write-only by design', SCRIPT)
+        self.assertNotIn('/v10/projects/', SCRIPT)
         self.assertNotIn('"decrypt": "true"', SCRIPT)
         self.assertNotIn('ADMIN_LOGIN_BODY', SCRIPT)
 

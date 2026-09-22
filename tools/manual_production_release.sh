@@ -126,9 +126,12 @@ PY
 )"
 STAGE_URL=""
 BOOTSTRAP_URL=""
+TMP_DIR=".git/release-tmp"
+rm -rf -- "$TMP_DIR"
+mkdir -p "$TMP_DIR"
 
 cleanup() {
-  rm -f -- /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-session.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-session.json
+  rm -rf -- "$TMP_DIR"
   if [ -n "$BOOTSTRAP_URL" ]; then
     "${VERCEL[@]}" remove "$BOOTSTRAP_URL" --yes >/dev/null 2>&1 || true
   fi
@@ -170,12 +173,12 @@ echo "==> Create isolated bootstrap deployment"
 BOOTSTRAP_URL="$(deploy_isolated "bootstrap deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA"   --env RELEASE_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN")"
 
 test -n "$BOOTSTRAP_URL"
-"${VERCEL[@]}" curl "${BOOTSTRAP_URL}/api/internal/release-bootstrap" -X POST -H "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN" --fail-with-body > /tmp/physics-release-bootstrap.json
+"${VERCEL[@]}" curl "${BOOTSTRAP_URL}/api/internal/release-bootstrap" -X POST -H "X-Release-Bootstrap-Token: $BOOTSTRAP_TOKEN" --fail-with-body > "$TMP_DIR/bootstrap.json"
 
 python - <<'PY'
 import json
 from pathlib import Path
-x=json.loads(Path("/tmp/physics-release-bootstrap.json").read_text())
+x=json.loads(Path(""$TMP_DIR/bootstrap.json"").read_text())
 if x.get("status") != "ok" or x.get("runtime_bootstrap") != "applied":
     raise SystemExit(f"Runtime bootstrap failed: {x}")
 print("Runtime bootstrap passed")
@@ -185,17 +188,17 @@ echo "==> Stage production deployment without bootstrap credential"
 STAGE_URL="$(deploy_isolated "staged production deployment"   --env RELEASE_GIT_REF=main   --env RELEASE_GIT_SHA="$HEAD_SHA")"
 test -n "$STAGE_URL"
 
-"${VERCEL[@]}" curl "${STAGE_URL}/health" --fail-with-body > /tmp/physics-stage-health.json
-"${VERCEL[@]}" curl "${STAGE_URL}/health/ready" --fail-with-body > /tmp/physics-stage-ready.json
-"${VERCEL[@]}" curl "${STAGE_URL}/api/admin/session" --fail-with-body > /tmp/physics-stage-admin-session.json
+"${VERCEL[@]}" curl "${STAGE_URL}/health" --fail-with-body > "$TMP_DIR/stage-health.json"
+"${VERCEL[@]}" curl "${STAGE_URL}/health/ready" --fail-with-body > "$TMP_DIR/stage-ready.json"
+"${VERCEL[@]}" curl "${STAGE_URL}/api/admin/session" --fail-with-body > "$TMP_DIR/stage-admin-session.json"
 
 python - <<'PY'
 import json
 from pathlib import Path
 from app.version import APPLICATION_VERSION
 
-health=json.loads(Path("/tmp/physics-stage-health.json").read_text())
-ready=json.loads(Path("/tmp/physics-stage-ready.json").read_text())
+health=json.loads(Path(""$TMP_DIR/stage-health.json"").read_text())
+ready=json.loads(Path(""$TMP_DIR/stage-ready.json"").read_text())
 if health.get("status") != "ok":
     raise SystemExit(f"staged /health failed: {health}")
 if ready.get("status") != "ready":
@@ -204,7 +207,7 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"staged version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"content ingestion must stay locked: {ready}")
-session=json.loads(Path("/tmp/physics-stage-admin-session.json").read_text())
+session=json.loads(Path(""$TMP_DIR/stage-admin-session.json"").read_text())
 if session.get("configured") is not True:
     raise SystemExit("Staged ADMIN_API_KEY is not configured at runtime")
 print(f"Staged health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")
@@ -221,24 +224,24 @@ fi
 echo "==> Promote verified deployment"
 "${VERCEL[@]}" promote "$STAGE_URL" --yes
 
-curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/physics-prod-health.json
-curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/physics-prod-ready.json
-curl --fail --silent --show-error "$PRODUCTION_URL/api/admin/session" > /tmp/physics-prod-admin-session.json
+curl --fail --silent --show-error "$PRODUCTION_URL/health" > "$TMP_DIR/prod-health.json"
+curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > "$TMP_DIR/prod-ready.json"
+curl --fail --silent --show-error "$PRODUCTION_URL/api/admin/session" > "$TMP_DIR/prod-admin-session.json"
 
 python - <<'PY'
 import json
 from pathlib import Path
 from app.version import APPLICATION_VERSION
 
-health=json.loads(Path("/tmp/physics-prod-health.json").read_text())
-ready=json.loads(Path("/tmp/physics-prod-ready.json").read_text())
+health=json.loads(Path(""$TMP_DIR/prod-health.json"").read_text())
+ready=json.loads(Path(""$TMP_DIR/prod-ready.json"").read_text())
 if health.get("status") != "ok" or ready.get("status") != "ready":
     raise SystemExit(f"Production smoke failed: health={health} ready={ready}")
 if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLICATION_VERSION:
     raise SystemExit(f"Production version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"Production content ingestion must stay locked: {ready}")
-session=json.loads(Path("/tmp/physics-prod-admin-session.json").read_text())
+session=json.loads(Path(""$TMP_DIR/prod-admin-session.json"").read_text())
 if session.get("configured") is not True:
     raise SystemExit("Production ADMIN_API_KEY is not configured after promotion")
 print(f"Production health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")

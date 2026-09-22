@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "f901953d7f4433a850977c1082066a0f4f3905a6",
+  "requested_code_sha": "a0aec68a75194ae703848810d54d98e4130d518c",
   "requested_at": "2026-09-22",
-  "reason": "Retry controlled production release with decrypted ADMIN_API_KEY verification and exact Vercel readiness wait",
+  "reason": "Retry production release with secret-free ADMIN_API_KEY revision and runtime format diagnostics",
   "content_ingestion": "locked",
   "promote": true
 }

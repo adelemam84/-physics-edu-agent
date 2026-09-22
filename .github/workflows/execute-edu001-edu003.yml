@@ -23,10 +23,9 @@ env:
 
 jobs:
   execute:
-    # Content/question maintenance is intentionally deferred while the technical
-    # phase is being completed. Keep this workflow triggerable so a new run can
-    # supersede and cancel any stale in-progress maintenance run safely.
-    if: ${{ false }}
+    # One-shot execution explicitly requested to validate EDU-001/EDU-003 on the
+    # latest main SHA. This will be returned to the deferred state after startup.
+    if: ${{ true }}
     name: Staged source coverage and visual transcription assistance
     runs-on: self-hosted
     environment: production

@@ -1,9 +1,5 @@
 name: CI
 
-concurrency:
-  group: physics-edu-agent-windows-self-hosted
-  cancel-in-progress: false
-
 on:
   push:
     branches: [main]
@@ -27,3 +23,7 @@ jobs:
         run: python -m compileall -q app index.py
       - name: Run deterministic unit tests
         run: python -m unittest discover -s tests -v
+      - name: Install pinned audit tool
+        run: python -m pip install --disable-pip-version-check "pip-audit==2.10.1"
+      - name: Audit pinned runtime requirements
+        run: python -m pip_audit -r requirements.txt --progress-spinner off

@@ -1,0 +1,73 @@
+name: Self-hosted Runner Diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/self-hosted-runner-diagnostics.yml"
+      - ".runner/diagnostic-trigger.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-edu-agent-self-hosted
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect shared Windows runner state
+    runs-on: self-hosted
+    timeout-minutes: 4
+    steps:
+      - name: Inspect runner without checkout
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          Write-Host "=== RUNNER DIAGNOSTIC START ==="
+          Write-Host "UTC=$([DateTime]::UtcNow.ToString('o'))"
+          Write-Host "RUNNER_NAME=$env:RUNNER_NAME"
+          Write-Host "RUNNER_TEMP=$env:RUNNER_TEMP"
+          Write-Host "GITHUB_RUN_ID=$env:GITHUB_RUN_ID"
+
+          Write-Host "=== Runner processes ==="
+          Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProcessName -match 'Runner|powershell|pwsh' } |
+            Sort-Object ProcessName, StartTime |
+            Select-Object Id, ProcessName, StartTime, Path |
+            Format-Table -AutoSize
+
+          Write-Host "=== Runner services ==="
+          Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -like 'actions.runner*' -or $_.PathName -match 'Runner.Listener' } |
+            Select-Object Name, State, StartMode, ProcessId, PathName |
+            Format-List
+
+          Write-Host "=== Runner temp ==="
+          if (Test-Path $env:RUNNER_TEMP) {
+            Get-ChildItem -Force $env:RUNNER_TEMP -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 40 Name, LastWriteTime, Length |
+              Format-Table -AutoSize
+          } else {
+            Write-Host "RUNNER_TEMP_MISSING"
+          }
+
+          $diag = "C:\actions-runner\_diag"
+          Write-Host "=== Recent runner diagnostics ==="
+          if (Test-Path $diag) {
+            $logs = Get-ChildItem $diag -File -Filter "Runner_*.log" -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 4
+            foreach ($log in $logs) {
+              Write-Host "--- $($log.FullName) last=$($log.LastWriteTime.ToString('o')) ---"
+              Get-Content $log.FullName -Tail 1200 -ErrorAction SilentlyContinue |
+                Select-String -Pattern 'JobDispatcher|TempDirectoryManager|Cancel running worker|cancellation message|jobrequest|Running job:|completed with result|_temp|Worker' |
+                Select-Object -Last 180 |
+                ForEach-Object { Write-Host $_.Line }
+            }
+          } else {
+            Write-Host "DIAG_DIR_MISSING=$diag"
+          }
+          Write-Host "=== RUNNER DIAGNOSTIC END ==="

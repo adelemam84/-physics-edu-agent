@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "d66d07499c851edfb861b1b58db285460ed2d239",
+  "requested_code_sha": "abd19d12364b97c9735ed855689f811ba48c007a",
   "requested_at": "2026-09-22",
-  "reason": "Trigger isolated production release after native Vercel curl fix",
+  "reason": "Trigger isolated production release after cross-platform temp path fix",
   "content_ingestion": "locked",
   "promote": true
 }

@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-HOSTED_CHECK_WORKFLOWS = (
+SELF_HOSTED_WORKFLOWS = (
     ".github/workflows/ci.yml",
     ".github/workflows/security-audit.yml",
     ".github/workflows/final-technical-readiness.yml",
@@ -12,22 +12,23 @@ HOSTED_CHECK_WORKFLOWS = (
 )
 
 
-class HostedCheckRunnerTests(unittest.TestCase):
-    def test_non_release_checks_use_isolated_hosted_runner(self):
-        for path in HOSTED_CHECK_WORKFLOWS:
+class SelfHostedSourceMaterializationTests(unittest.TestCase):
+    def test_critical_self_hosted_workflows_do_not_use_actions_checkout(self):
+        for path in SELF_HOSTED_WORKFLOWS:
             source = Path(path).read_text(encoding="utf-8")
-            self.assertIn("runs-on: ubuntu-latest", source)
-            self.assertNotIn("runs-on: self-hosted", source)
+            self.assertIn("runs-on: self-hosted", source)
+            self.assertNotIn("actions/checkout@", source)
 
-    def test_standard_checkout_remains_pinned_on_hosted_runner(self):
-        for path in HOSTED_CHECK_WORKFLOWS:
+    def test_archive_fetch_is_bounded_authenticated_and_exact_sha(self):
+        for path in SELF_HOSTED_WORKFLOWS:
             source = Path(path).read_text(encoding="utf-8")
-            self.assertIn("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", source)
-
-    def test_production_release_stays_separate_from_hosted_check_policy(self):
-        source = Path(".github/workflows/self-hosted-production-release.yml").read_text(encoding="utf-8")
-        self.assertIn("runs-on: self-hosted", source)
-        self.assertIn("Materialize exact release commit archive", source)
+            self.assertIn("/zipball/$env:SOURCE_SHA", source)
+            self.assertIn("Authorization: Bearer $env:SOURCE_TOKEN", source)
+            self.assertIn("--retry 3", source)
+            self.assertIn("--connect-timeout 15 --max-time 120", source)
+            self.assertIn("SOURCE_SHA: ${{ github.sha }}", source)
+            self.assertIn("Workflow archive is missing requirements.txt", source)
+            self.assertIn("Workflow archive is missing index.py", source)
 
 
 if __name__ == "__main__":

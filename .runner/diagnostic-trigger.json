@@ -1,5 +1,5 @@
 {
-  "requested_at": "2026-09-23T02:05:00+03:00",
-  "reason": "inspect self-hosted runner temp cleanup race after stable main CI",
-  "base_sha": "24c7ccf5b4a5ae1bcc3f6d4ac50ef012137754b9"
+  "requested_at": "2026-09-23T02:08:30+03:00",
+  "reason": "verify listener count after guarded repair attempt",
+  "after_repair_run": 35795802642
 }

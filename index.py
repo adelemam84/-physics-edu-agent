@@ -121,3 +121,4 @@ from app import lesson_presentation_approval_ledger  # noqa: F401,E402
 from app import lesson_presentation_approval_ledger_ui  # noqa: F401,E402
 
 from app import content_maintenance_api  # noqa: F401,E402
+from app import feature_status  # noqa: F401,E402

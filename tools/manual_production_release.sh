@@ -131,38 +131,56 @@ ADMIN_LOGIN_BODY="$(mktemp)"
 chmod 600 "$ADMIN_LOGIN_BODY"
 python - "$ADMIN_LOGIN_BODY" <<'PY'
 import json
-import shlex
+import os
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
-source = Path(".vercel/.env.production.local")
-admin_key = None
-for raw in source.read_text(encoding="utf-8").splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    key, value = line.split("=", 1)
-    if key.strip() != "ADMIN_API_KEY":
-        continue
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in (chr(34), chr(39)):
-        try:
-            parsed = shlex.split(value, posix=True)
-        except ValueError as exc:
-            raise SystemExit("ADMIN_API_KEY could not be parsed from Vercel production configuration") from exc
-        if len(parsed) != 1:
-            raise SystemExit("ADMIN_API_KEY has an invalid Vercel environment representation")
-        value = parsed[0]
-    admin_key = value
-    break
+token = os.environ.get("VERCEL_TOKEN", "").strip()
+project_id = os.environ.get("VERCEL_PROJECT_ID", "").strip()
+team_id = os.environ.get("VERCEL_ORG_ID", "").strip()
+if not token or not project_id or not team_id:
+    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for decrypted production env verification")
 
-if not admin_key:
-    raise SystemExit("ADMIN_API_KEY is empty in Vercel production configuration")
+query = urllib.parse.urlencode({"decrypt": "true", "teamId": team_id})
+url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project_id, safe='')}/env?{query}"
+request = urllib.request.Request(
+    url,
+    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+)
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+except Exception as exc:
+    raise SystemExit(f"Unable to retrieve decrypted Vercel production environment metadata: {type(exc).__name__}") from exc
+
+def targets(item):
+    value = item.get("target")
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, list):
+        return {str(x) for x in value}
+    return set()
+
+candidates = [
+    item for item in payload.get("envs", [])
+    if item.get("key") == "ADMIN_API_KEY" and "production" in targets(item)
+]
+if not candidates:
+    raise SystemExit("No Production ADMIN_API_KEY definition was returned by Vercel")
+if len(candidates) != 1:
+    raise SystemExit(f"Expected exactly one Production ADMIN_API_KEY definition, found {len(candidates)}; remove duplicate Production definitions in Vercel before releasing")
+
+admin_key = str(candidates[0].get("value") or "").strip()
+if not admin_key or admin_key == "[SENSITIVE]":
+    raise SystemExit("Vercel did not return a decrypted Production ADMIN_API_KEY value")
 
 Path(sys.argv[1]).write_text(
     json.dumps({"key": admin_key}, separators=(",", ":")),
     encoding="utf-8",
 )
+print("Verified exactly one decrypted Production ADMIN_API_KEY definition without exposing its value")
 PY
 
 BOOTSTRAP_TOKEN="$(python - <<'PY'
@@ -190,20 +208,18 @@ deploy_isolated() {
     echo "==> $label attempt=$attempt" >&2
     if out="$("${VERCEL[@]}" deploy --prebuilt --prod --skip-domain --yes --no-wait "$@" 2>&1)"; then
       printf '%s\n' "$out" >&2
-      url="$(printf '%s\n' "$out" | grep -Eo 'https://[^[:space:]]+\\.vercel\\.app' | tail -n 1 || true)"
+      url="$(printf '%s\n' "$out" | grep -Eo 'https://[^[:space:]]+\.vercel\.app' | tail -n 1 || true)"
       if [ -n "$url" ]; then
-        # A successful deploy can return while Vercel is still processing.
-        # Poll inspection with a bounded window instead of treating that state
-        # as another deploy failure (which can create duplicate deployments).
-        for inspect_attempt in $(seq 1 24); do
-          if "${VERCEL[@]}" inspect "$url" >/dev/null 2>&1; then
-            printf '%s\n' "$url"
-            return 0
-          fi
-          sleep 5
-        done
-        echo "$label did not become inspectable within 120 seconds: $url" >&2
+        # `deploy --no-wait` returns while Vercel may still be processing.
+        # Wait on that exact deployment so retries never create duplicates.
+        if "${VERCEL[@]}" inspect "$url" --wait --timeout=5m >/dev/null 2>&1; then
+          printf '%s\n' "$url"
+          return 0
+        fi
+        echo "$label did not reach READY within 5 minutes: $url" >&2
         "${VERCEL[@]}" remove "$url" --yes >/dev/null 2>&1 || true
+      else
+        echo "$label returned no parseable Vercel deployment URL" >&2
       fi
     else
       printf '%s\n' "$out" >&2

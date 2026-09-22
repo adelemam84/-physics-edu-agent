@@ -68,6 +68,14 @@ class AIBudgetGuardTests(unittest.TestCase):
                 snap = enforce_ai_budget(provider="gemini", task="test", model=model)
                 self.assertFalse(snap["hard_block_active"])
 
+    def test_legacy_ai_free_only_alias_is_fail_safe(self):
+        with patch.dict(os.environ, {"PROJECT_FREE_ONLY": "", "AI_FREE_ONLY": "true"}, clear=False):
+            self.assertTrue(project_free_only())
+        with patch.dict(os.environ, {"PROJECT_FREE_ONLY": "false", "AI_FREE_ONLY": "true"}, clear=False):
+            self.assertTrue(project_free_only())
+        with patch.dict(os.environ, {"PROJECT_FREE_ONLY": "false", "AI_FREE_ONLY": "false"}, clear=False):
+            self.assertFalse(project_free_only())
+
     def test_budget_snapshot_warns_at_eighty_percent(self):
         with patch.dict(
             os.environ,

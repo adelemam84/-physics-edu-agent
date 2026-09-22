@@ -61,6 +61,23 @@ class Edu003GeminiModelFailoverTests(unittest.TestCase):
         self.assertEqual(provider,"gemini:gemini-3.1-flash-lite")
         self.assertEqual(attempted,["gemini-3.5-flash","gemini-3.1-flash-lite"])
 
+    def test_network_unavailability_moves_to_next_gemini_model(self):
+        row={"filename":"source.pdf","source_page":10}
+        attempts=[]
+        def fake(parts, system, **kwargs):
+            model=kwargs["model_override"]
+            attempts.append(model)
+            if len(attempts)==1:
+                raise HTTPException(502, "Gemini is temporarily unavailable")
+            return '{"question_text":"ok","options":[],"visible_answer":null,"question_type":"unknown","difficulty_guess":"unclassified","uncertain_parts":[],"visual_description":"","confidence":0.5}'
+        with patch.object(visual, "_gemini_text", side_effect=fake), patch.object(
+            visual, "GEMINI_VISUAL_FALLBACK_MODELS", ("gemini-3.1-flash-lite",)
+        ):
+            raw, provider, attempted=visual._gemini_visual_json(b"jpeg","prompt",row)
+        self.assertIn('"question_text":"ok"', raw)
+        self.assertEqual(provider,"gemini:gemini-3.1-flash-lite")
+        self.assertEqual(attempted,["gemini-3.5-flash","gemini-3.1-flash-lite"])
+
     def test_non_transient_gemini_failure_does_not_switch_models(self):
         row={"filename":"source.pdf","source_page":10}
         with patch.object(

@@ -277,7 +277,7 @@ def _should_gemini_model_failover(exc: HTTPException) -> bool:
     provider_status = _provider_status_code(exc)
     return bool(
         provider_status in {404, 408, 429, 500, 502, 503, 504}
-        or (provider_status is None and exc.status_code == 503)
+        or (provider_status is None and exc.status_code in {502, 503, 504})
     )
 
 

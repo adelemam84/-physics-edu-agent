@@ -10,11 +10,11 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 15,
+  "execution_generation": 16,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "EDU-001 remained 10/10; EDU-003 generation 14 was blocked locally before provider call because Free-only allowlist still contained only Gemini 2.5 models",
-  "target_main_sha": "ebbdbf6800e8cd256657c2419286eeefbf8bfff3",
-  "execution_focus": "retry latest-main EDU-003 after aligning Free-only allowlist with verified free-tier Gemini 3.5/3.1 models; preserve EDU-001 10/10 and drive visual candidates without suggestion to zero",
+  "previous_attempt": "EDU-003 generation 15 created suggestions for 184, 190 and 191 via failover from gemini-3.5-flash 503 to gemini-3.5-flash-lite; question 192 hit a provider network timeout mapped to local HTTP 502 and did not advance to the next Gemini model",
+  "target_main_sha": "4e3e67f6a1c25400b5161cbad8436aa9dadb061c",
+  "execution_focus": "resume EDU-003 from remaining candidates after treating provider-network HTTP 502/504 as Gemini model failover signals; keep free-only policy and no auto-approval",
   "provider_policy": {
     "primary": "gemini-3.5-flash",
     "fallbacks": [
@@ -25,7 +25,8 @@
     "paid_fallbacks_disabled": true,
     "source_image_unchanged": true,
     "auto_approval": false,
-    "free_only_allowlist_aligned": true
+    "free_only_allowlist_aligned": true,
+    "failover_on_network_502_504": true
   },
   "manual_fallback": {
     "merged_main_sha": "958bdbd98dca06ec43adfab83af5055016afb4ef",

@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "d378189801ea9f3cc4e5cd8e6fa9e37dd71964b2",
+  "requested_code_sha": "34393d82219784435acec88fc9eb44471891fd3d",
   "requested_at": "2026-09-22",
-  "reason": "Validate post-release technical readiness gate on current main after PR #184",
+  "reason": "Supersede stale release run and validate post-release technical readiness gate",
   "content_ingestion": "locked",
   "promote": true
 }

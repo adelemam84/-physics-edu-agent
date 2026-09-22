@@ -64,6 +64,14 @@ class ManualProductionReleaseTests(unittest.TestCase):
         self.assertIn('curl "${STAGE_URL}/api/admin/session" --fail-with-body', SCRIPT)
         self.assertNotIn('--deployment "$BOOTSTRAP_URL"', SCRIPT)
         self.assertNotIn('--deployment "$STAGE_URL"', SCRIPT)
+    def test_release_temp_files_are_portable_between_git_bash_and_windows_python(self):
+        self.assertIn('TMP_DIR=".git/release-tmp"', SCRIPT)
+        self.assertIn('mkdir -p "$TMP_DIR"', SCRIPT)
+        self.assertIn('rm -rf -- "$TMP_DIR"', SCRIPT)
+        self.assertNotIn("/tmp/physics-", SCRIPT)
+        self.assertIn('Path(".git/release-tmp/bootstrap.json")', SCRIPT)
+        self.assertIn('Path(".git/release-tmp/stage-health.json")', SCRIPT)
+        self.assertIn('Path(".git/release-tmp/prod-health.json")', SCRIPT)
 
     def test_async_vercel_deploy_waits_on_exact_url_without_duplicate_poll_deploys(self):
         self.assertIn(r"grep -Eo 'https://[^[:space:]]+\.vercel\.app'", SCRIPT)

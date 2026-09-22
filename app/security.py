@@ -15,6 +15,36 @@ def admin_configured() -> bool:
     return bool(os.getenv("ADMIN_API_KEY", "").strip())
 
 
+def admin_key_configuration_state() -> dict:
+    """Return secret-free diagnostics for the configured admin key.
+
+    This deliberately reports only presence/format and a release metadata
+    revision supplied by the controlled release path. It never hashes or
+    returns the secret itself.
+    """
+    raw = os.getenv("ADMIN_API_KEY", "")
+    trimmed = raw.strip()
+    issues: list[str] = []
+    if raw != trimmed:
+        issues.append("surrounding_whitespace")
+    if trimmed.startswith("ADMIN_API_KEY="):
+        issues.append("assignment_prefix")
+    if (
+        len(trimmed) >= 2
+        and trimmed[0] == trimmed[-1]
+        and trimmed[0] in {'"', "'"}
+    ):
+        issues.append("wrapped_quotes")
+
+    revision = os.getenv("RELEASE_ADMIN_KEY_REVISION", "").strip() or None
+    return {
+        "configured": bool(trimmed),
+        "format": "clean" if not issues else ",".join(issues),
+        "revision": revision,
+        "contains_secret_value": False,
+    }
+
+
 def _expected_key() -> str:
     return os.getenv("ADMIN_API_KEY", "").strip()
 

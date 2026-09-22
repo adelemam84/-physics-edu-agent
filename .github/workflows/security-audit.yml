@@ -1,11 +1,6 @@
 name: Security Audit
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - ".release/**"
-  pull_request:
   schedule:
     - cron: "29 3 * * 1"
   workflow_dispatch:
@@ -14,8 +9,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: physics-edu-agent-windows-self-hosted
-  cancel-in-progress: false
+  group: physics-edu-agent-security-audit-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   python-dependency-audit:

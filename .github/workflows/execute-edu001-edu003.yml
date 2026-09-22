@@ -23,6 +23,10 @@ env:
 
 jobs:
   execute:
+    # Content/question maintenance is intentionally deferred while the technical
+    # phase is being completed. Keep this workflow triggerable so a new run can
+    # supersede and cancel any stale in-progress maintenance run safely.
+    if: ${{ false }}
     name: Staged source coverage and visual transcription assistance
     runs-on: self-hosted
     environment: production

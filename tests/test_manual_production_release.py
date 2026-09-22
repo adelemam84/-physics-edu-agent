@@ -37,34 +37,28 @@ class ManualProductionReleaseTests(unittest.TestCase):
             2,
         )
 
-    def test_admin_key_is_verified_from_decrypted_vercel_api_without_logging_secret(self):
-        self.assertIn('ADMIN_LOGIN_BODY="$(mktemp)"', SCRIPT)
-        self.assertIn('chmod 600 "$ADMIN_LOGIN_BODY"', SCRIPT)
+    def test_sensitive_admin_key_metadata_is_validated_without_decryption(self):
         self.assertIn('/v10/projects/', SCRIPT)
-        self.assertIn('"decrypt": "true"', SCRIPT)
-        self.assertIn('"Authorization": f"Bearer {token}"', SCRIPT)
+        self.assertIn('ADMIN_API_KEY', SCRIPT)
         self.assertIn('Expected exactly one Production ADMIN_API_KEY definition', SCRIPT)
-        self.assertIn('admin_key == "[SENSITIVE]"', SCRIPT)
-        self.assertGreaterEqual(SCRIPT.count("/api/admin/login"), 2)
-        self.assertGreaterEqual(SCRIPT.count('--data-binary "@$ADMIN_LOGIN_BODY"'), 2)
-        self.assertIn("Staged ADMIN_API_KEY verification failed", SCRIPT)
-        self.assertIn("Production ADMIN_API_KEY verification failed after promotion", SCRIPT)
-        self.assertIn('rm -f -- "$ADMIN_LOGIN_BODY"', SCRIPT)
-        self.assertNotIn('echo "$ADMIN_API_KEY"', SCRIPT)
-        self.assertNotIn('--data "$ADMIN_API_KEY"', SCRIPT)
+        self.assertIn('sensitive value remains write-only by design', SCRIPT)
+        self.assertNotIn('"decrypt": "true"', SCRIPT)
+        self.assertNotIn('ADMIN_LOGIN_BODY', SCRIPT)
+
+    def test_admin_key_runtime_presence_is_checked_before_and_after_promotion(self):
+        staged = SCRIPT.index('/api/admin/session --deployment "$STAGE_URL"')
+        promote = SCRIPT.index('promote "$STAGE_URL" --yes')
+        production = SCRIPT.index('$PRODUCTION_URL/api/admin/session"', promote)
+        self.assertLess(staged, promote)
+        self.assertLess(promote, production)
+        self.assertIn('Staged ADMIN_API_KEY is not configured at runtime', SCRIPT)
+        self.assertIn('Production ADMIN_API_KEY is not configured after promotion', SCRIPT)
 
     def test_async_vercel_deploy_waits_on_exact_url_without_duplicate_poll_deploys(self):
         self.assertIn(r"grep -Eo 'https://[^[:space:]]+\.vercel\.app'", SCRIPT)
         self.assertIn('inspect "$url" --wait --timeout=5m', SCRIPT)
         self.assertIn('did not reach READY within 5 minutes', SCRIPT)
         self.assertNotIn('for inspect_attempt in $(seq 1 24)', SCRIPT)
-
-    def test_admin_key_gate_runs_before_and_after_promotion(self):
-        staged = SCRIPT.index('/api/admin/login --deployment "$STAGE_URL"')
-        promote = SCRIPT.index('promote "$STAGE_URL" --yes')
-        production = SCRIPT.index('$PRODUCTION_URL/api/admin/login"', promote)
-        self.assertLess(staged, promote)
-        self.assertLess(promote, production)
 
     def test_production_smoke_runs_after_promotion(self):
         promote = SCRIPT.index('promote "$STAGE_URL" --yes')

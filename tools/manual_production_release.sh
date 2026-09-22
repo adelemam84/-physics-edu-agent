@@ -127,23 +127,19 @@ if [ -n "$DIRTY" ]; then
   exit 1
 fi
 
-ADMIN_LOGIN_BODY="$(mktemp)"
-chmod 600 "$ADMIN_LOGIN_BODY"
-python - "$ADMIN_LOGIN_BODY" <<'PY'
+python - <<'PY'
 import json
 import os
-import sys
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 token = os.environ.get("VERCEL_TOKEN", "").strip()
 project_id = os.environ.get("VERCEL_PROJECT_ID", "").strip()
 team_id = os.environ.get("VERCEL_ORG_ID", "").strip()
 if not token or not project_id or not team_id:
-    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for decrypted production env verification")
+    raise SystemExit("VERCEL_TOKEN, VERCEL_PROJECT_ID and VERCEL_ORG_ID are required for Production environment metadata verification")
 
-query = urllib.parse.urlencode({"decrypt": "true", "teamId": team_id})
+query = urllib.parse.urlencode({"teamId": team_id})
 url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project_id, safe='')}/env?{query}"
 request = urllib.request.Request(
     url,
@@ -153,7 +149,7 @@ try:
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.load(response)
 except Exception as exc:
-    raise SystemExit(f"Unable to retrieve decrypted Vercel production environment metadata: {type(exc).__name__}") from exc
+    raise SystemExit(f"Unable to retrieve Vercel Production environment metadata: {type(exc).__name__}") from exc
 
 def targets(item):
     value = item.get("target")
@@ -172,15 +168,9 @@ if not candidates:
 if len(candidates) != 1:
     raise SystemExit(f"Expected exactly one Production ADMIN_API_KEY definition, found {len(candidates)}; remove duplicate Production definitions in Vercel before releasing")
 
-admin_key = str(candidates[0].get("value") or "").strip()
-if not admin_key or admin_key == "[SENSITIVE]":
-    raise SystemExit("Vercel did not return a decrypted Production ADMIN_API_KEY value")
-
-Path(sys.argv[1]).write_text(
-    json.dumps({"key": admin_key}, separators=(",", ":")),
-    encoding="utf-8",
-)
-print("Verified exactly one decrypted Production ADMIN_API_KEY definition without exposing its value")
+item = candidates[0]
+print("Verified exactly one Production ADMIN_API_KEY definition; sensitive value remains write-only by design")
+print("ADMIN_API_KEY metadata: type=%s updatedAt=%s" % (item.get("type") or "unknown", item.get("updatedAt") or item.get("updated_at") or "unknown"))
 PY
 
 BOOTSTRAP_TOKEN="$(python - <<'PY'
@@ -192,7 +182,7 @@ STAGE_URL=""
 BOOTSTRAP_URL=""
 
 cleanup() {
-  rm -f -- "$ADMIN_LOGIN_BODY" /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-login.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-login.json
+  rm -f -- /tmp/physics-release-bootstrap.json /tmp/physics-stage-health.json /tmp/physics-stage-ready.json /tmp/physics-stage-admin-session.json /tmp/physics-prod-health.json /tmp/physics-prod-ready.json /tmp/physics-prod-admin-session.json
   if [ -n "$BOOTSTRAP_URL" ]; then
     "${VERCEL[@]}" remove "$BOOTSTRAP_URL" --yes >/dev/null 2>&1 || true
   fi
@@ -251,7 +241,7 @@ test -n "$STAGE_URL"
 
 "${VERCEL[@]}" curl /health --deployment "$STAGE_URL" > /tmp/physics-stage-health.json
 "${VERCEL[@]}" curl /health/ready --deployment "$STAGE_URL" > /tmp/physics-stage-ready.json
-"${VERCEL[@]}" curl /api/admin/login --deployment "$STAGE_URL" -- --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" --fail-with-body > /tmp/physics-stage-admin-login.json
+"${VERCEL[@]}" curl /api/admin/session --deployment "$STAGE_URL" > /tmp/physics-stage-admin-session.json
 
 python - <<'PY'
 import json
@@ -268,10 +258,10 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"staged version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"content ingestion must stay locked: {ready}")
-login=json.loads(Path("/tmp/physics-stage-admin-login.json").read_text())
-if login.get("ok") is not True:
-    raise SystemExit("Staged ADMIN_API_KEY verification failed")
-print(f"Staged health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
+session=json.loads(Path("/tmp/physics-stage-admin-session.json").read_text())
+if session.get("configured") is not True:
+    raise SystemExit("Staged ADMIN_API_KEY is not configured at runtime")
+print(f"Staged health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Verified staged deployment: $STAGE_URL"
@@ -287,7 +277,7 @@ echo "==> Promote verified deployment"
 
 curl --fail --silent --show-error "$PRODUCTION_URL/health" > /tmp/physics-prod-health.json
 curl --fail --silent --show-error "$PRODUCTION_URL/health/ready" > /tmp/physics-prod-ready.json
-curl --fail --silent --show-error --request POST --header "Content-Type: application/json" --data-binary "@$ADMIN_LOGIN_BODY" "$PRODUCTION_URL/api/admin/login" > /tmp/physics-prod-admin-login.json
+curl --fail --silent --show-error "$PRODUCTION_URL/api/admin/session" > /tmp/physics-prod-admin-session.json
 
 python - <<'PY'
 import json
@@ -302,10 +292,10 @@ if health.get("version") != APPLICATION_VERSION or ready.get("version") != APPLI
     raise SystemExit(f"Production version drift: health={health} ready={ready}")
 if ready.get("content_ingestion") != "locked":
     raise SystemExit(f"Production content ingestion must stay locked: {ready}")
-login=json.loads(Path("/tmp/physics-prod-admin-login.json").read_text())
-if login.get("ok") is not True:
-    raise SystemExit("Production ADMIN_API_KEY verification failed after promotion")
-print(f"Production health and ADMIN_API_KEY checks passed for {APPLICATION_VERSION}")
+session=json.loads(Path("/tmp/physics-prod-admin-session.json").read_text())
+if session.get("configured") is not True:
+    raise SystemExit("Production ADMIN_API_KEY is not configured after promotion")
+print(f"Production health and ADMIN_API_KEY presence checks passed for {APPLICATION_VERSION}")
 PY
 
 echo "Production release complete: $PRODUCTION_URL"

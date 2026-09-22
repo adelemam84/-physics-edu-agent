@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: physics-edu-agent-security-audit-${{ github.ref }}
-  cancel-in-progress: true
+  group: physics-edu-agent-windows-self-hosted
+  cancel-in-progress: false
 
 jobs:
   python-dependency-audit:

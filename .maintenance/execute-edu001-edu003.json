@@ -10,24 +10,34 @@
     "195PEdaVl-in1SXud-lZv3JKycXJ1y6GN",
     "19kBzJp8OeLRqVNtHb2Uk8s-XUPTg1h92"
   ],
-  "execution_generation": 12,
+  "execution_generation": 13,
   "execution_mode": "isolated_vercel_maintenance_deployment",
-  "previous_attempt": "Runner is executing real steps again; trigger latest-main EDU maintenance after PR #171 manual fallback merge",
+  "previous_attempt": "EDU-001 reached 10/10; EDU-003 reached provider call but gemini-2.5-flash returned HTTP 404",
   "corrected_mapping": {
     "lesson_id": 20,
-    "from": [1, 31],
-    "to": [2, 31]
+    "from": [
+      1,
+      31
+    ],
+    "to": [
+      2,
+      31
+    ]
   },
-  "execution_focus": "latest-main EDU-001/EDU-003 execution; skip EDU-001 when 10/10 covered and drive EDU-003 to zero candidates without suggestion",
+  "execution_focus": "retry EDU-003 on current free Gemini models; keep EDU-001 skipped when 10/10 covered and drive visual candidates to zero suggestions missing",
   "provider_policy": {
-    "primary": "gemini",
-    "fallback": "openai",
-    "fallback_only_on_transient_provider_failure": true,
+    "primary": "gemini-3.5-flash",
+    "fallbacks": [
+      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite"
+    ],
+    "failover_on_model_access_404": true,
+    "paid_fallbacks_disabled": true,
     "source_image_unchanged": true,
     "auto_approval": false
   },
   "manual_fallback": {
-    "merged_main_sha": "127002811a5834385634b87b515b3fcad6b93c81",
+    "merged_main_sha": "958bdbd98dca06ec43adfab83af5055016afb4ef",
     "isolated_skip_domain": true,
     "ai_free_only": true,
     "auto_approval": false

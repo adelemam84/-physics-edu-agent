@@ -32,11 +32,32 @@ def question_analytics(limit:int=100):
     limit=max(1,min(limit,300))
     with connect() as con:
         return list(con.execute("""SELECT q.id,q.text_verbatim,q.difficulty,q.question_type,
+          l.title lesson_title,d.filename source_filename,coalesce(q.source_page,q.page) source_page,
           count(aa.id) responses,count(aa.id) FILTER(WHERE aa.is_correct=TRUE) correct,
+          count(aa.id) FILTER(WHERE aa.is_correct=FALSE) incorrect,
           round(100.0*count(aa.id) FILTER(WHERE aa.is_correct=TRUE)/nullif(count(aa.id),0),1) success_rate,
-          round(100.0*count(aa.id) FILTER(WHERE aa.is_correct=FALSE)/nullif(count(aa.id),0),1) error_rate
-          FROM questions q LEFT JOIN attempt_answers aa ON aa.question_id=q.id
-          WHERE q.approved=TRUE GROUP BY q.id,q.text_verbatim,q.difficulty,q.question_type
+          round(100.0*count(aa.id) FILTER(WHERE aa.is_correct=FALSE)/nullif(count(aa.id),0),1) error_rate,
+          round(avg(NULLIF(aa.time_spent_seconds,0)),1) average_time_seconds,
+          (
+            SELECT aw.answer_text FROM attempt_answers aw
+            WHERE aw.question_id=q.id AND aw.is_correct=FALSE AND btrim(coalesce(aw.answer_text,''))<>''
+            GROUP BY aw.answer_text ORDER BY count(*) DESC,aw.answer_text LIMIT 1
+          ) common_wrong_answer,
+          (
+            SELECT count(*) FROM attempt_answers aw
+            WHERE aw.question_id=q.id AND aw.is_correct=FALSE AND btrim(coalesce(aw.answer_text,''))<>''
+              AND aw.answer_text=(
+                SELECT aw2.answer_text FROM attempt_answers aw2
+                WHERE aw2.question_id=q.id AND aw2.is_correct=FALSE AND btrim(coalesce(aw2.answer_text,''))<>''
+                GROUP BY aw2.answer_text ORDER BY count(*) DESC,aw2.answer_text LIMIT 1
+              )
+          ) common_wrong_count
+          FROM questions q
+          LEFT JOIN attempt_answers aa ON aa.question_id=q.id
+          LEFT JOIN lessons l ON l.id=q.lesson_id
+          LEFT JOIN documents d ON d.id=q.document_id
+          WHERE q.approved=TRUE
+          GROUP BY q.id,q.text_verbatim,q.difficulty,q.question_type,l.title,d.filename,q.source_page,q.page
           ORDER BY count(aa.id) DESC,q.id DESC LIMIT %s""",(limit,)).fetchall())
 
 @app.get("/api/admin/coverage",dependencies=[Depends(require_admin)])
@@ -246,3 +267,12 @@ def student_recommendations(request: Request):
         st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
         if not st: raise HTTPException(404,"كود الطالب غير صحيح")
         return {"student":st,**_learning_recommendations(con,st["id"])}
+
+
+QUESTION_ANALYTICS_PAGE=r'''<!doctype html><html lang=ar dir=rtl><meta name=viewport content="width=device-width,initial-scale=1"><title>تحليلات الأسئلة</title><style>
+body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:1200px;margin:auto;padding:16px}.box{background:#fff;border:1px solid #e4e7ec;border-radius:16px;padding:16px;margin:12px 0}.scroll{overflow:auto}table{width:100%;border-collapse:collapse;min-width:980px}td,th{padding:9px;border-bottom:1px solid #eee;text-align:right;vertical-align:top}.bad{color:#b42318}.ok{color:#067647}.muted{color:#667085;font-size:13px}a{color:#175cd3;text-decoration:none}</style><main>
+<div class=box><a href="/admin/dashboard">لوحة التحكم</a> · <a href="/admin/progress">متابعة التقدم</a></div><div class="box scroll"><h1>تحليلات الأسئلة</h1><p class=muted>التحليل حتمي من إجابات الطلاب والزمن المسجل؛ لا يوجد تقييم أو تعديل تلقائي من نموذج ذكاء.</p><table><thead><tr><th>السؤال</th><th>الدرس</th><th>الإجابات</th><th>النجاح</th><th>متوسط الزمن</th><th>أكثر إجابة خاطئة</th><th>المصدر</th></tr></thead><tbody id=rows></tbody></table></div>
+<script>function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}function sec(v){v=Number(v||0);return v?Math.round(v)+' ث':'—'}async function load(){let r=await fetch('/api/admin/question-analytics?limit=300'),x=await r.json();rows.innerHTML=x.map(q=>'<tr><td><b>#'+q.id+'</b><div>'+e(q.text_verbatim)+'</div><div class=muted>'+e(q.difficulty)+' · '+e(q.question_type)+'</div></td><td>'+e(q.lesson_title||'—')+'</td><td>'+q.responses+'<div class=muted>خطأ '+q.incorrect+'</div></td><td class="'+(Number(q.success_rate)<60?'bad':'ok')+'">'+(q.success_rate??'—')+'%</td><td>'+sec(q.average_time_seconds)+'</td><td>'+e(q.common_wrong_answer||'—')+(q.common_wrong_count?'<div class=muted>'+q.common_wrong_count+' مرة</div>':'')+'</td><td>'+e(q.source_filename||'—')+'<div class=muted>ص '+e(q.source_page||'—')+'</div></td></tr>').join('')}load()</script></main></html>'''
+
+@app.get("/admin/question-analytics",response_class=HTMLResponse)
+def question_analytics_page(): return QUESTION_ANALYTICS_PAGE

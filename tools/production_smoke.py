@@ -48,12 +48,31 @@ CHECKS = (
         lambda data: isinstance(data, dict) and data.get("authenticated") is False,
     ),
     (
+        "/api/admin/feature-status",
+        "status",
+        lambda status: status == 401,
+    ),
+    (
+        "/api/student/exams/resolve/SMOKE-LEGACY-CODE",
+        "status",
+        lambda status: status == 410,
+    ),
+    (
         "/student",
         "text",
         _html_has(
             "id=studentLoginForm",
             'onsubmit="loginPortal(event)"',
             "/api/student/session",
+        ),
+    ),
+    (
+        "/admin/dashboard",
+        "text",
+        _html_has(
+            "دخول الإدارة",
+            "HttpOnly",
+            "/api/admin/login",
         ),
     ),
     (
@@ -107,15 +126,31 @@ def _request(path: str, mode: str) -> dict:
             body = response.read()
             status = int(response.status)
         text = body.decode("utf-8")
-        payload = json.loads(text) if mode == "json" else text
+        payload = (
+            json.loads(text)
+            if mode == "json"
+            else status
+            if mode == "status"
+            else text
+        )
         return {
-            "ok": 200 <= status < 300,
+            "ok": 200 <= status < 300 or mode == "status",
             "status": status,
             "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
             "payload": payload,
             "error": "",
         }
-    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except HTTPError as exc:
+        status = int(getattr(exc, "code", 0) or 0)
+        payload = status if mode == "status" else None
+        return {
+            "ok": mode == "status",
+            "status": status,
+            "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
+            "payload": payload,
+            "error": "" if mode == "status" else type(exc).__name__,
+        }
+    except (URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         status = int(getattr(exc, "code", 0) or 0)
         return {
             "ok": False,
@@ -162,6 +197,8 @@ def run() -> dict:
         "expected_version": EXPECT_VERSION or None,
         "content_ingestion_expected": "locked",
         "student_session_expected": "anonymous_false",
+        "admin_api_anonymous_expected": 401,
+        "legacy_exam_code_get_expected": 410,
         "student_shell_contracts": "read_only",
         "checks": results,
         "checked_at_epoch": int(time.time()),

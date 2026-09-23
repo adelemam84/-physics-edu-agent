@@ -173,5 +173,23 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertIn("قبول بشري", PAGE)
         self.assertIn("تدخل المدرس", PAGE)
 
+
+    def test_dashboard_has_priority_action_center(self):
+        for token in (
+            'data-widget="priority-actions"',
+            'id=priorityActions',
+            "/api/admin/alert-center",
+            "buildPriorityActions",
+            "الإجراءات ذات الأولوية",
+            "فتح الإجراء",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_priority_action_center_remains_read_only(self):
+        self.assertIn("قراءة فقط", PAGE)
+        self.assertNotIn("fetch('/api/admin/alert-center',{method:'POST'", PAGE)
+        self.assertNotIn("fetch('/api/admin/acceptance-work-queue',{method:'POST'", PAGE)
+        self.assertNotIn("fetch('/api/admin/intervention-queue',{method:'POST'", PAGE)
+
 if __name__ == "__main__":
     unittest.main()

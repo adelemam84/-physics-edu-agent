@@ -1,0 +1,158 @@
+name: Production Rollback Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_deployment:
+        description: Known-good Vercel deployment ID or generated deployment URL to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  VERCEL_ORG_ID: team_GsqjHJAXTirB3YVlUto63rma
+  VERCEL_PROJECT_ID: prj_YVuUR2a1VFpZQwdXmUwTRpGbE1sL
+  VERCEL_CLI_VERSION: 59.17.0
+
+jobs:
+  preflight:
+    name: Verify rollback candidate without traffic changes
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout recovery contract
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate candidate format
+        env:
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+        run: |
+          set -euo pipefail
+          case "$TARGET_DEPLOYMENT" in
+            dpl_*|physics-edu-agent-*.vercel.app|https://physics-edu-agent-*.vercel.app) ;;
+            *)
+              echo "::error::Target must be a physics-edu-agent deployment ID or generated Vercel deployment URL"
+              exit 1
+              ;;
+          esac
+
+      - name: Require Vercel preflight credential
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN:-}" || {
+            echo "::error::VERCEL_TOKEN is required"
+            exit 1
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Install pinned Vercel CLI
+        run: npm install --global "vercel@${VERCEL_CLI_VERSION}"
+
+      - name: Verify rollback candidate
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+        run: |
+          set -euo pipefail
+          vercel curl /health --deployment "$TARGET_DEPLOYMENT" > /tmp/preflight-health.json
+          vercel curl /health/ready --deployment "$TARGET_DEPLOYMENT" > /tmp/preflight-ready.json
+          vercel curl /api/research-engine/status --deployment "$TARGET_DEPLOYMENT" > /tmp/preflight-research.json
+          vercel curl /api/next-release/status --deployment "$TARGET_DEPLOYMENT" > /tmp/preflight-next-release.json
+          python - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          health = json.loads(Path("/tmp/preflight-health.json").read_text())
+          ready = json.loads(Path("/tmp/preflight-ready.json").read_text())
+          research = json.loads(Path("/tmp/preflight-research.json").read_text())
+          next_release = json.loads(Path("/tmp/preflight-next-release.json").read_text())
+          target = os.environ["TARGET_DEPLOYMENT"]
+          violations = []
+
+          if health.get("status") != "ok":
+              violations.append(f"/health status={health.get('status')!r}")
+          if ready.get("status") != "ready":
+              violations.append(f"/health/ready status={ready.get('status')!r}")
+          health_version = str(health.get("version") or "").strip()
+          ready_version = str(ready.get("version") or "").strip()
+          if not health_version:
+              violations.append("/health version missing")
+          if not ready_version:
+              violations.append("/health/ready version missing")
+          if health_version and ready_version and health_version != ready_version:
+              violations.append(f"version mismatch health={health_version} ready={ready_version}")
+          if ready.get("content_ingestion") != "locked":
+              violations.append(
+                  "content ingestion drift: expected locked, got "
+                  + repr(ready.get("content_ingestion"))
+              )
+
+          result = {
+              "checked_at": datetime.now(timezone.utc).isoformat(),
+              "target_deployment": target,
+              "passed": not violations,
+              "violations": violations,
+              "health": {
+                  "status": health.get("status"),
+                  "version": health_version or None,
+              },
+              "readiness": {
+                  "status": ready.get("status"),
+                  "version": ready_version or None,
+                  "content_ingestion": ready.get("content_ingestion"),
+              },
+              "research_engine": {
+                  "configured": research.get("configured"),
+                  "orchestrator_status": (research.get("orchestrator") or {}).get("status"),
+                  "source_only": (research.get("guardrails") or {}).get("source_only"),
+              },
+              "next_release": {
+                  "release_state": next_release.get("release_state"),
+              },
+              "traffic_changed": False,
+          }
+          Path("rollback-preflight-results.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          if violations:
+              raise SystemExit("rollback candidate preflight failed: " + "; ".join(violations))
+          PY
+
+      - name: Upload rollback preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-rollback-preflight-${{ github.run_id }}
+          path: rollback-preflight-results.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Preflight summary
+        if: success()
+        env:
+          TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
+        run: |
+          {
+            echo "### Production rollback preflight"
+            echo "- Candidate: $TARGET_DEPLOYMENT"
+            echo "- Traffic changed: no"
+            echo "- Gates: health + readiness + version consistency + locked content intake + research/release status evidence"
+            echo "- Next action: use Controlled Production Rollback only if an actual recovery is required"
+          } >> "$GITHUB_STEP_SUMMARY"

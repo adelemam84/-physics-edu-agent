@@ -291,7 +291,8 @@ class AdminDashboardNavigationTests(unittest.TestCase):
     def test_active_group_stays_open_and_search_expands_matches(self):
         for token in (
             "active-nav",
-            "group.classList.remove('group-collapsed')",
+            "active?.closest('.nav-group')",
+            "syncNavGroupState(activeGroup,false)",
             "if(q)g.classList.remove('group-collapsed')",
             "syncNavGroupState",
         ):

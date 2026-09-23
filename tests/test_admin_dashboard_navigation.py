@@ -124,5 +124,32 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertNotIn("localStorage", PAGE)
         self.assertNotIn("sessionStorage", PAGE)
 
+
+    def test_dashboard_customizer_has_accessible_expansion_and_reset(self):
+        for token in (
+            'id=customizerToggle',
+            'aria-controls=customizer',
+            'aria-expanded=false',
+            "setAttribute('aria-expanded'",
+            "resetDashboardPrefs",
+            "إعادة الضبط",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_dashboard_display_cookie_is_strict_and_secure_on_https(self):
+        self.assertIn("SameSite=Strict", PAGE)
+        self.assertIn("location.protocol==='https:'?'; Secure':''", PAGE)
+        self.assertNotIn("SameSite=Lax", PAGE)
+
+    def test_dashboard_customizer_uses_explicit_dom_references(self):
+        for token in (
+            "document.getElementById('customizer')",
+            "document.getElementById('customizerToggle')",
+            "document.getElementById('refreshBtn')",
+            "customizerPanel.hidden",
+            "refreshButton.disabled",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

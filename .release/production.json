@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "e347cd89d6132919bf648d311d55a463b1867078",
+  "requested_code_sha": "3399d4cbc059f970f222018d045f67845d89f7e7",
   "requested_at": "2026-09-23",
-  "reason": "Controlled production release after admin command center customization passed CI, full unittest/pytest coverage, and dependency audit",
+  "reason": "Deploy verified admin command center customization after hosted CI passed",
   "content_ingestion": "locked",
-  "scope": "admin_command_center_customization"
+  "scope": "admin_dashboard_customization_release"
 }

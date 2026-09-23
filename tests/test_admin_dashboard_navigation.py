@@ -38,7 +38,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertNotIn("encodeURIComponent(a.external_code)", PAGE)
 
     def test_mobile_navigation_remains_scrollable_not_hidden(self):
-        self.assertIn(".side nav{display:flex;overflow-x:auto;overflow-y:visible", PAGE)
+        self.assertIn(".side nav{display:flex;flex-direction:column;max-height:42vh;overflow-y:auto;overflow-x:hidden", PAGE)
         self.assertNotIn(".side{display:none", PAGE)
 
     def test_dashboard_uses_command_center_design_system(self):
@@ -201,11 +201,11 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
-    def test_mobile_sidebar_returns_to_horizontal_navigation(self):
+    def test_mobile_sidebar_uses_compact_vertical_navigation(self):
         for token in (
-            ".side{height:auto;position:static;overflow:visible}",
-            ".side nav{display:flex;overflow-x:auto;overflow-y:visible",
-            "scrollbar-gutter:auto",
+            ".side{height:auto;position:static;overflow:visible;padding:8px 10px}",
+            ".side nav{display:flex;flex-direction:column;max-height:42vh;overflow-y:auto;overflow-x:hidden",
+            "overscroll-behavior:contain",
         ):
             self.assertIn(token, PAGE)
 

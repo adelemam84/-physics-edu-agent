@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "c25a474d06e532bec99fe91b035ec0baa5fbbef6",
+  "requested_code_sha": "9ca59bbc2ef5b2fb2e08d4c67157ddd0e0d95fa7",
   "requested_at": "2026-09-23",
-  "reason": "Controlled production release after collapsible mobile admin navigation groups passed full CI",
+  "reason": "Controlled production release after remembered mobile navigation group state passed full CI",
   "content_ingestion": "locked",
-  "scope": "mobile_sidebar_collapsible_groups"
+  "scope": "mobile_sidebar_group_state"
 }

@@ -28,6 +28,11 @@ class WindowsRunnerServiceScriptTests(unittest.TestCase):
         self.assertIn("RegistrationToken", self.text)
         self.assertIn("config.cmd remove", self.text)
 
+    def test_can_acquire_short_lived_tokens_from_authenticated_gh(self):
+        self.assertIn("gh api --method POST", self.text)
+        self.assertIn("actions/runners/remove-token", self.text)
+        self.assertIn("actions/runners/registration-token", self.text)
+
     def test_service_is_automatic_and_has_restart_recovery(self):
         self.assertIn("StartupType Automatic", self.text)
         self.assertIn("sc.exe failure", self.text)

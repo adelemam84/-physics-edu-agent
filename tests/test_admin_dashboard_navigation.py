@@ -222,5 +222,38 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_mobile_sidebar_has_accessible_toggle(self):
+        for token in (
+            'id=mobileNavToggle',
+            'aria-controls=adminNav',
+            'aria-expanded=false',
+            'id=adminNav',
+            "toggleMobileNav",
+            "setAttribute('aria-expanded'",
+            ".mobile-nav-toggle{display:none",
+            ".mobile-nav-toggle{display:flex",
+            ".side nav.mobile-collapsed{display:none}",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_mobile_sidebar_adapts_to_short_viewports(self):
+        for token in (
+            "@media(max-width:850px) and (max-height:700px)",
+            ".side nav{max-height:32vh}",
+            "@media(max-width:520px)",
+            ".side nav{max-height:34vh}",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_mobile_nav_preference_is_non_secret_and_persisted(self):
+        for token in (
+            "mobileNavOpen:false",
+            "parsed.mobileNavOpen",
+            "dashboardPrefs.mobileNavOpen",
+            "persistDashboardPrefs()",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

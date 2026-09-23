@@ -18,6 +18,8 @@ TIMEOUT_SECONDS = max(1.0, min(float(os.getenv("PERF_TIMEOUT_SECONDS", "10")), 3
 MAX_ERROR_RATE = max(0.0, min(float(os.getenv("PERF_MAX_ERROR_RATE", "0.01")), 1.0))
 P95_LIMIT_MS = max(100.0, float(os.getenv("PERF_P95_LIMIT_MS", "2500")))
 MAX_LIMIT_MS = max(P95_LIMIT_MS, float(os.getenv("PERF_MAX_LIMIT_MS", "8000")))
+WARMUP_ROUNDS = max(1, min(int(os.getenv("PERF_WARMUP_ROUNDS", "2")), 4))
+WARMUP_CONCURRENCY = max(1, min(int(os.getenv("PERF_WARMUP_CONCURRENCY", "10")), 16))
 
 ENDPOINTS = (
     "/health",
@@ -120,9 +122,15 @@ def main() -> int:
     # First-hit baseline is kept separate from the load sample.
     first_hits = {path: fetch(path) for path in ENDPOINTS}
 
-    # A tiny warm-up prevents one transient TLS/DNS setup from dominating the sample.
-    for path in ENDPOINTS:
-        fetch(path)
+    # Preserve cold-start evidence, then warm enough serverless capacity for a
+    # steady-state sample. Warm-up is bounded, read-only, and recorded separately.
+    warmup_schedule = [
+        ENDPOINTS[i % len(ENDPOINTS)]
+        for i in range(WARMUP_ROUNDS * WARMUP_CONCURRENCY)
+    ]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=WARMUP_CONCURRENCY) as pool:
+        warmup_rows = list(pool.map(fetch, warmup_schedule))
+    warmup_summary = summarize(warmup_rows)
 
     schedule = [ENDPOINTS[i % len(ENDPOINTS)] for i in range(REQUESTS)]
     started = time.perf_counter()
@@ -132,6 +140,12 @@ def main() -> int:
 
     result = summarize(rows)
     result["first_hit"] = first_hits
+    result["warmup"] = {
+        "rounds": WARMUP_ROUNDS,
+        "concurrency": WARMUP_CONCURRENCY,
+        "request_count": len(warmup_rows),
+        "summary": warmup_summary,
+    }
     result["wall_seconds"] = wall_seconds
     result["throughput_rps"] = round(len(rows) / max(wall_seconds, 0.001), 2)
     result["thresholds"] = {
@@ -180,6 +194,7 @@ def main() -> int:
             f"- Target: `{BASE_URL}`",
             f"- Requests: **{result['request_count']}**",
             f"- Concurrency: **{CONCURRENCY}**",
+            f"- Warm-up: **{WARMUP_ROUNDS} rounds × {WARMUP_CONCURRENCY} concurrency**",
             f"- Success: **{result['successes']} / {result['request_count']}**",
             f"- Throughput: **{result['throughput_rps']} req/s**",
             f"- Overall p50 / p95 / p99: **{result['latency_ms']['p50']} / {result['latency_ms']['p95']} / {result['latency_ms']['p99']} ms**",

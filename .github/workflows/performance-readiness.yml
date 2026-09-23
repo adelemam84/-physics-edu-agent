@@ -33,6 +33,8 @@ jobs:
       PERF_MAX_ERROR_RATE: "0.01"
       PERF_P95_LIMIT_MS: "2500"
       PERF_MAX_LIMIT_MS: "8000"
+      PERF_WARMUP_ROUNDS: "2"
+      PERF_WARMUP_CONCURRENCY: "10"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

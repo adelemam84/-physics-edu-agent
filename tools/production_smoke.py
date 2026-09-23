@@ -30,15 +30,72 @@ def _ready_ok(data: dict) -> bool:
     )
 
 
+def _html_has(*tokens: str):
+    def validate(body: str) -> bool:
+        return isinstance(body, str) and all(token in body for token in tokens)
+
+    return validate
+
+
 CHECKS = (
-    ("/health", _health_ok),
-    ("/health/ready", _ready_ok),
-    ("/api/research-engine/status", lambda data: isinstance(data.get("configured"), bool)),
-    ("/api/next-release/status", lambda data: isinstance(data, dict) and bool(data)),
+    ("/health", "json", _health_ok),
+    ("/health/ready", "json", _ready_ok),
+    ("/api/research-engine/status", "json", lambda data: isinstance(data.get("configured"), bool)),
+    ("/api/next-release/status", "json", lambda data: isinstance(data, dict) and bool(data)),
+    (
+        "/api/student/session",
+        "json",
+        lambda data: isinstance(data, dict) and data.get("authenticated") is False,
+    ),
+    (
+        "/student",
+        "text",
+        _html_has(
+            "id=studentLoginForm",
+            'onsubmit="loginPortal(event)"',
+            "/api/student/session",
+        ),
+    ),
+    (
+        "/student/quiz/1",
+        "text",
+        _html_has(
+            'role="progressbar"',
+            "flushPendingSaves",
+            "submitInFlight",
+            "/api/student/session",
+        ),
+    ),
+    (
+        "/student/results/1",
+        "text",
+        _html_has(
+            "table-wrap",
+            "/api/student/session",
+            "weakBtn.disabled=true",
+        ),
+    ),
+    (
+        "/student/study-queue",
+        "text",
+        _html_has(
+            "statusLabels=",
+            "taskMsg",
+            "/api/student/session",
+        ),
+    ),
+    (
+        "/student/command-center",
+        "text",
+        _html_has(
+            "const msg=document.getElementById('msg')",
+            "/api/student/session",
+        ),
+    ),
 )
 
 
-def _request(path: str) -> dict:
+def _request(path: str, mode: str) -> dict:
     started = time.perf_counter()
     req = Request(
         BASE_URL + path,
@@ -49,7 +106,8 @@ def _request(path: str) -> dict:
         with urlopen(req, timeout=TIMEOUT_SECONDS) as response:
             body = response.read()
             status = int(response.status)
-        payload = json.loads(body.decode("utf-8"))
+        text = body.decode("utf-8")
+        payload = json.loads(text) if mode == "json" else text
         return {
             "ok": 200 <= status < 300,
             "status": status,
@@ -72,16 +130,16 @@ def run() -> dict:
     results: dict[str, dict] = {}
     overall = True
 
-    for path, validator in CHECKS:
+    for path, mode, validator in CHECKS:
         attempts: list[dict] = []
         passed = False
         for index in range(ATTEMPTS):
-            result = _request(path)
+            result = _request(path, mode)
             attempts.append({
                 key: value for key, value in result.items() if key != "payload"
             })
             payload = result.get("payload")
-            if result["ok"] and isinstance(payload, dict) and validator(payload):
+            if result["ok"] and validator(payload):
                 passed = True
                 break
             if index + 1 < ATTEMPTS:
@@ -90,6 +148,7 @@ def run() -> dict:
         last = attempts[-1]
         results[path] = {
             "passed": passed,
+            "mode": mode,
             "attempts": attempts,
             "final_status": last["status"],
             "final_elapsed_ms": last["elapsed_ms"],
@@ -102,6 +161,8 @@ def run() -> dict:
         "passed": overall,
         "expected_version": EXPECT_VERSION or None,
         "content_ingestion_expected": "locked",
+        "student_session_expected": "anonymous_false",
+        "student_shell_contracts": "read_only",
         "checks": results,
         "checked_at_epoch": int(time.time()),
     }

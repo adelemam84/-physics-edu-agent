@@ -20,6 +20,12 @@ This runbook covers the technical production runtime only. Question/source conte
 - Python dependency CVE audit: on push/PR and weekly.
 - CI regression suite: on push/PR.
 
+## Rollback preflight
+
+Before changing production traffic, use the **Production Rollback Preflight** workflow against the intended known-good deployment. The preflight is read-only and does not change production traffic. It verifies the candidate's liveness, readiness, runtime-version consistency, locked content-ingestion state, and records research/release status evidence as a retained artifact.
+
+A successful preflight means the candidate is technically eligible for recovery; it does not perform the recovery. Use **Controlled Production Rollback** only when an actual production traffic rollback is required.
+
 ## Incident sequence
 
 1. Check `/health` and `/health/ready`.

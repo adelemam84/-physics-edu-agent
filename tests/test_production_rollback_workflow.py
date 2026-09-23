@@ -11,7 +11,8 @@ class ControlledProductionRollbackWorkflowTests(unittest.TestCase):
     def test_rollback_derives_expected_version_from_target_health(self):
         self.assertIn("ROLLBACK_EXPECT_VERSION", WORKFLOW)
         self.assertIn('health.get("version")', WORKFLOW)
-        self.assertIn('echo "ROLLBACK_EXPECT_VERSION=$version" >> "$GITHUB_ENV"', WORKFLOW)
+        self.assertIn('with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:', WORKFLOW)
+        self.assertIn('fh.write(f"ROLLBACK_EXPECT_VERSION={version}\\n")', WORKFLOW)
 
     def test_rollback_runs_full_read_only_post_verification(self):
         for token in (

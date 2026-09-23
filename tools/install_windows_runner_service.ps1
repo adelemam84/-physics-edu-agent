@@ -55,6 +55,22 @@ $configCmd = Join-Path $RunnerRoot "config.cmd"
 if (-not (Test-Path $configCmd)) { throw "config.cmd not found under $RunnerRoot" }
 
 Set-Location $RunnerRoot
+
+function Get-GitHubRunnerToken([string]$kind) {
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    if (-not $gh) { return "" }
+    try {
+        $endpoint = if ($kind -eq "remove") {
+            "repos/adelemam84/-physics-edu-agent/actions/runners/remove-token"
+        } else {
+            "repos/adelemam84/-physics-edu-agent/actions/runners/registration-token"
+        }
+        $token = (& gh api --method POST $endpoint --jq .token 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $token) { return ([string]$token).Trim() }
+    } catch {}
+    return ""
+}
+
 Write-Host "=== GitHub Actions Windows runner service bootstrap ==="
 Write-Host "RunnerRoot=$RunnerRoot"
 Write-Host "RepositoryUrl=$RepositoryUrl"
@@ -81,6 +97,14 @@ Stop-InteractiveRunnerListeners
 $runnerConfig = Join-Path $RunnerRoot ".runner"
 $alreadyConfigured = Test-Path $runnerConfig
 if ($alreadyConfigured) {
+    if (-not $RemoveToken) {
+        $RemoveToken = Get-GitHubRunnerToken "remove"
+        if ($RemoveToken) { Write-Host "Acquired short-lived remove token via authenticated GitHub CLI." }
+    }
+    if (-not $RegistrationToken) {
+        $RegistrationToken = Get-GitHubRunnerToken "registration"
+        if ($RegistrationToken) { Write-Host "Acquired short-lived registration token via authenticated GitHub CLI." }
+    }
     try {
         $stored = Get-Content $runnerConfig -Raw | ConvertFrom-Json
         if ($stored.agentName) { $RunnerName = [string]$stored.agentName }
@@ -97,7 +121,11 @@ if ($alreadyConfigured) {
     if ($LASTEXITCODE -ne 0) { throw "config.cmd remove failed with exit code $LASTEXITCODE" }
 }
 
-if (-not $RegistrationToken) { throw "RegistrationToken is required to configure the Windows runner service." }
+if (-not $RegistrationToken) {
+    $RegistrationToken = Get-GitHubRunnerToken "registration"
+    if ($RegistrationToken) { Write-Host "Acquired short-lived registration token via authenticated GitHub CLI." }
+}
+if (-not $RegistrationToken) { throw "RegistrationToken is required to configure the Windows runner service. Supply it explicitly or authenticate GitHub CLI first." }
 
 Write-Host "Configuring runner as Windows Service..."
 $configArgs = @(

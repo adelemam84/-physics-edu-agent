@@ -40,16 +40,13 @@ permissions:
   contents: read
 
 concurrency:
-  # A single self-hosted runner uses a shared _temp directory. Keep every
-  # self-hosted workflow in one non-cancelling group so an old Worker cannot
-  # delete runner command files while the next job is starting.
-  group: physics-edu-agent-self-hosted
-  cancel-in-progress: false
+  group: physics-edu-agent-final-technical-readiness-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   readiness:
     name: Production technical readiness contract
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
       TECH_READY_BASE_URL: https://physics-edu-agent.vercel.app
@@ -67,17 +64,13 @@ jobs:
           python-version: "3.12"
 
       - name: Resolve expected production version
-        shell: powershell
+        shell: bash
         run: |
-          $version = python -c "from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "TECH_READY_EXPECT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          version="$(python -c 'from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)')"
+          echo "TECH_READY_EXPECT_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Run final technical readiness gate
-        shell: powershell
-        run: |
-          python tools/technical_readiness_probe.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: python tools/technical_readiness_probe.py
 
       - name: Upload readiness evidence
         if: always()

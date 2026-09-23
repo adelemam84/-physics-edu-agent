@@ -209,5 +209,18 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_mobile_sidebar_is_compact_scrollable_and_non_overlay(self):
+        for token in (
+            ".side{height:auto;position:static;overflow:visible;padding:8px 10px}",
+            ".side nav{display:flex;flex-direction:column;max-height:42vh;overflow-y:auto;overflow-x:hidden",
+            "-webkit-overflow-scrolling:touch",
+            ".nav-search{position:sticky;top:0;z-index:3",
+            ".nav-group{display:flex;flex-wrap:wrap",
+            ".side a{white-space:normal",
+            ".main{padding:14px;padding-top:10px}",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

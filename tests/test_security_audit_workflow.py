@@ -12,11 +12,15 @@ class SecurityAuditWorkflowTests(unittest.TestCase):
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_standalone_audit_is_scheduled_and_manual_to_avoid_runner_races(self):
+    def test_standalone_audit_is_scheduled_manual_and_change_driven(self):
         self.assertIn("schedule:", self.text)
         self.assertIn("workflow_dispatch:", self.text)
-        self.assertNotIn("pull_request:", self.text)
-        self.assertNotIn("branches: [main]", self.text)
+        self.assertIn("pull_request:", self.text)
+        self.assertIn("branches: [main]", self.text)
+
+    def test_audit_uses_managed_runner_to_avoid_local_runner_races(self):
+        self.assertIn("runs-on: ubuntu-latest", self.text)
+        self.assertNotIn("runs-on: self-hosted", self.text)
 
     def test_pip_audit_is_pinned_and_checks_runtime_requirements(self):
         self.assertIn('"pip-audit==2.10.1"', self.text)

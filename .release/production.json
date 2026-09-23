@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "c10d1499224afcd429dc9d469849107a9041b406",
+  "requested_code_sha": "3695a551651f6d698eff5b32d05da8e77466f0e3",
   "requested_at": "2026-09-23",
-  "reason": "Controlled production release after release bootstrap lock retry hardening passed hosted CI, full pytest, and dependency audit",
+  "reason": "Controlled production release after mobile sidebar toggle and short-screen behavior passed full CI",
   "content_ingestion": "locked",
-  "scope": "release_bootstrap_lock_retry"
+  "scope": "mobile_sidebar_toggle_short_screens"
 }

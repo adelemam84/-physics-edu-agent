@@ -15,16 +15,13 @@ permissions:
   contents: read
 
 concurrency:
-  # A single self-hosted runner uses a shared _temp directory. Keep every
-  # self-hosted workflow in one non-cancelling group so an old Worker cannot
-  # delete runner command files while the next job is starting.
-  group: physics-edu-agent-self-hosted
-  cancel-in-progress: false
+  group: physics-edu-agent-production-smoke
+  cancel-in-progress: true
 
 jobs:
   smoke:
     name: Read-only production health contract
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
       SMOKE_BASE_URL: https://physics-edu-agent.vercel.app
@@ -40,17 +37,13 @@ jobs:
           python-version: "3.12"
 
       - name: Resolve expected production version
-        shell: powershell
+        shell: bash
         run: |
-          $version = python -c "from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "SMOKE_EXPECT_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          version="$(python -c 'from app.version import APPLICATION_VERSION; print(APPLICATION_VERSION)')"
+          echo "SMOKE_EXPECT_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Run bounded read-only smoke checks
-        shell: powershell
-        run: |
-          python tools/production_smoke.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: python tools/production_smoke.py
 
       - name: Upload smoke evidence
         if: always()

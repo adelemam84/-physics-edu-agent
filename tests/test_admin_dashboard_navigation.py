@@ -151,5 +151,27 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_dashboard_surfaces_operational_work_and_ai_activity(self):
+        for token in (
+            'data-widget="operations-attention"',
+            'id=acceptanceSummary',
+            'id=interventionSummary',
+            'id=contentPipeline',
+            'id=aiUsageSummary',
+            "/api/admin/acceptance-work-queue",
+            "/api/admin/intervention-queue",
+            "/api/admin/content-completion",
+            "/api/admin/ai-operations/usage?hours=24",
+            "الوضع المجاني",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_dashboard_operational_widgets_are_customizable(self):
+        self.assertIn("'operations-attention':true", PAGE)
+        self.assertIn("data-widget-toggle=operations-attention", PAGE)
+        self.assertIn("قبول بشري", PAGE)
+        self.assertIn("تدخل المدرس", PAGE)
+
 if __name__ == "__main__":
     unittest.main()

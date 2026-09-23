@@ -108,5 +108,13 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
         self.assertNotIn('method="DELETE"', self.script)
 
 
+
+    def test_monitor_runs_after_successful_controlled_production_release(self):
+        self.assertIn("workflow_run:", self.workflow)
+        self.assertIn('workflows: ["Controlled Production Release"]', self.workflow)
+        self.assertIn("types: [completed]", self.workflow)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", self.workflow)
+        self.assertIn("github.event.workflow_run.head_sha", self.workflow)
+
 if __name__ == "__main__":
     unittest.main()

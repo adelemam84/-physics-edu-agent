@@ -345,5 +345,39 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertIn(init, PAGE)
         self.assertIn("applyRememberedNavGroupStates()", PAGE)
 
+
+    def test_mobile_nav_supports_favorites_and_usage_ordering(self):
+        for token in (
+            "navUsage:{}",
+            "favorites:[]",
+            "trackNavUsage",
+            "renderFavoriteGroup",
+            "sortNavGroupsByUsage",
+            "toggleFavorite",
+            "data-favorite-toggle",
+            "المفضلة",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_mobile_nav_usage_is_bounded_and_non_secret(self):
+        for token in (
+            "MAX_NAV_USAGE_ENTRIES=20",
+            "MAX_FAVORITES=8",
+            "trimNavUsage",
+            "dashboardPrefs.navUsage",
+            "dashboardPrefs.favorites",
+            "persistDashboardPrefs()",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_favorites_group_is_kept_above_usage_sorted_groups(self):
+        for token in (
+            "data-system-group=\"favorites\"",
+            "mobileNav.insertBefore(favoriteGroup",
+            "regularGroups.sort",
+            "usageScoreForGroup",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

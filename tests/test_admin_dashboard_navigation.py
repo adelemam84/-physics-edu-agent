@@ -297,5 +297,25 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_mobile_nav_group_state_is_persisted_safely(self):
+        for token in (
+            "navGroups:{}",
+            "parsed.navGroups",
+            "dashboardPrefs.navGroups",
+            "group.dataset.groupKey",
+            "persistDashboardPrefs()",
+            "applyRememberedNavGroupStates",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_search_clear_restores_remembered_group_state(self):
+        for token in (
+            "if(q)g.classList.remove('group-collapsed')",
+            "if(!q)applyRememberedNavGroupStates()",
+            "active?.closest('.nav-group')",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

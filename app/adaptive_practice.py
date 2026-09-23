@@ -168,3 +168,118 @@ def create_student_adaptive_quiz(request: Request, count:int=10):
           (quiz["id"],'{"system_generated":true,"purpose":"adaptive_practice","audience":"single_student","source_policy":"approved_source_questions_only"}'))
     return {"quiz_id":quiz["id"],"title":quiz["title"],"question_count":len(questions),
             "student_path":f'/student/quiz/{quiz["id"]}',"policy":data.get("policy"),"reused":False}
+
+
+def build_attempt_weakness_practice(student_id:int,attempt_id:int,count:int=10):
+    count=max(1,min(count,30))
+    with connect() as con:
+        attempt=con.execute("""SELECT a.id,a.quiz_id,a.completed_at,q.subject_id,q.grade_level_id,
+          q.curriculum_version_id,q.term_id
+          FROM attempts a JOIN quizzes q ON q.id=a.quiz_id
+          WHERE a.id=%s AND a.student_id=%s AND a.completed_at IS NOT NULL""",
+          (attempt_id,student_id)).fetchone()
+        if not attempt:
+            raise HTTPException(404,"المحاولة المكتملة غير موجودة")
+        weak=list(con.execute("""SELECT aa.question_id,q.lesson_id,
+          array(SELECT qc.concept_id FROM question_concepts qc WHERE qc.question_id=q.id) concept_ids,
+          array(SELECT qs.skill_id FROM question_skills qs WHERE qs.question_id=q.id) skill_ids
+          FROM attempt_answers aa JOIN questions q ON q.id=aa.question_id
+          WHERE aa.attempt_id=%s AND aa.is_correct=FALSE""",(attempt_id,)).fetchall())
+        if not weak:
+            return {"student_id":student_id,"attempt_id":attempt_id,"questions":[],
+                    "reason":"لا توجد أخطاء في هذه المحاولة تحتاج تدريبًا علاجيًا"}
+        lesson_ids=sorted({int(r["lesson_id"]) for r in weak if r["lesson_id"] is not None})
+        concept_ids=sorted({int(x) for r in weak for x in (r["concept_ids"] or [])})
+        skill_ids=sorted({int(x) for r in weak for x in (r["skill_ids"] or [])})
+        original_ids=sorted({int(r["question_id"]) for r in weak})
+        rows=list(con.execute("""SELECT DISTINCT q.id,q.text_verbatim,q.difficulty,q.question_type,
+          l.title lesson_title,d.filename source_filename,coalesce(q.source_page,q.page) source_page,
+          CASE WHEN q.lesson_id=ANY(%s) THEN 1 ELSE 0 END lesson_priority,
+          CASE WHEN EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id AND qc.concept_id=ANY(%s)) THEN 1 ELSE 0 END concept_priority,
+          CASE WHEN EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=ANY(%s)) THEN 1 ELSE 0 END skill_priority,
+          coalesce((SELECT count(*) FROM attempt_answers aa2 JOIN attempts a2 ON a2.id=aa2.attempt_id
+                    WHERE a2.student_id=%s AND aa2.question_id=q.id),0) seen_count
+          FROM questions q
+          JOIN lessons l ON l.id=q.lesson_id
+          JOIN documents d ON d.id=q.document_id
+          WHERE q.approved=TRUE
+            AND q.accepted_answer IS NOT NULL AND btrim(q.accepted_answer)<>''
+            AND q.question_type<>'unknown' AND q.difficulty<>'unclassified'
+            AND q.subject_id=%s AND q.grade_level_id=%s
+            AND q.curriculum_version_id=%s AND q.term_id=%s
+            AND q.id<>ALL(%s)
+            AND NOT EXISTS(SELECT 1 FROM question_review_notes qr WHERE qr.question_id=q.id AND qr.status='open')
+            AND EXISTS(SELECT 1 FROM question_concepts qc0 WHERE qc0.question_id=q.id)
+            AND EXISTS(SELECT 1 FROM question_skills qs0 WHERE qs0.question_id=q.id)
+            AND EXISTS(SELECT 1 FROM question_assets qa WHERE qa.question_id=q.id
+              AND qa.document_id=q.document_id AND qa.page_number=coalesce(q.source_page,q.page))
+            AND (q.lesson_id=ANY(%s)
+              OR EXISTS(SELECT 1 FROM question_concepts qc WHERE qc.question_id=q.id AND qc.concept_id=ANY(%s))
+              OR EXISTS(SELECT 1 FROM question_skills qs WHERE qs.question_id=q.id AND qs.skill_id=ANY(%s)))
+          ORDER BY concept_priority DESC,skill_priority DESC,lesson_priority DESC,seen_count ASC,
+            CASE q.difficulty WHEN 'easy' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,random()
+          LIMIT %s""",
+          (lesson_ids or [-1],concept_ids or [-1],skill_ids or [-1],student_id,
+           attempt["subject_id"],attempt["grade_level_id"],attempt["curriculum_version_id"],attempt["term_id"],
+           original_ids or [-1],lesson_ids or [-1],concept_ids or [-1],skill_ids or [-1],count)).fetchall())
+        return {"student_id":student_id,"attempt_id":attempt_id,"weak_lesson_ids":lesson_ids,
+          "weak_concept_ids":concept_ids,"weak_skill_ids":skill_ids,"original_wrong_question_ids":original_ids,
+          "questions":rows,"academic_context":{"subject_id":attempt["subject_id"],"grade_level_id":attempt["grade_level_id"],
+          "curriculum_version_id":attempt["curriculum_version_id"],"term_id":attempt["term_id"]},
+          "policy":"same_attempt_weakness_targets; exclude_original_wrong_questions; unseen_first; approved_exact_source_asset_only"}
+
+
+@app.get("/api/student/attempts/{attempt_id}/weakness-practice")
+def student_attempt_weakness_practice(attempt_id:int,request:Request,count:int=10):
+    code=resolve_student_code(request)
+    with connect() as con:
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
+    if not st:
+        raise HTTPException(404,"كود الطالب غير صحيح")
+    data=build_attempt_weakness_practice(st["id"],attempt_id,count)
+    data["student_name"]=st["name"]
+    return data
+
+
+@app.post("/api/student/attempts/{attempt_id}/weakness-practice/create")
+def create_attempt_weakness_quiz(attempt_id:int,request:Request,count:int=10):
+    code=resolve_student_code(request)
+    enforce_subject_policy(code,name="attempt_weakness_quiz_create",default_limit=6,default_window_seconds=3600)
+    with connect() as con:
+        st=con.execute("SELECT id,name FROM students WHERE external_code=%s",(code,)).fetchone()
+    if not st:
+        raise HTTPException(404,"كود الطالب غير صحيح")
+    data=build_attempt_weakness_practice(st["id"],attempt_id,count)
+    questions=data.get("questions") or []
+    if not questions:
+        raise HTTPException(409,data.get("reason") or "لا توجد أسئلة تدريب مناسبة حاليًا")
+    with connect() as con:
+        recent=con.execute("""SELECT q.id,q.title FROM quizzes q
+          WHERE q.owner_student_id=%s AND q.published=TRUE AND q.lifecycle_status='published'
+            AND q.created_at>=now()-interval '5 minutes'
+            AND EXISTS(SELECT 1 FROM quiz_audit_log al WHERE al.quiz_id=q.id
+              AND al.action='weakness_publish' AND (al.details->>'source_attempt_id')::bigint=%s)
+          ORDER BY q.id DESC LIMIT 1""",(st["id"],attempt_id)).fetchone()
+        if recent:
+            return {"quiz_id":recent["id"],"title":recent["title"],"question_count":len(questions),
+                    "student_path":f'/student/quiz/{recent["id"]}',"policy":data.get("policy"),"reused":True}
+        first=con.execute("""SELECT subject_id,grade_level_id,curriculum_version_id,term_id
+          FROM questions WHERE id=%s""",(questions[0]["id"],)).fetchone()
+        title='تدريب نقاط الضعف — بعد المحاولة '+str(attempt_id)
+        quiz=con.execute("""INSERT INTO quizzes(
+            title,published,lifecycle_status,quality_score,subject_id,grade_level_id,
+            curriculum_version_id,term_id,max_attempts,retry_wait_minutes,score_policy,
+            published_at,owner_student_id
+          ) VALUES(%s,TRUE,'published',100,%s,%s,%s,%s,1,0,'latest',now(),%s)
+          RETURNING id,title""",
+          (title,first["subject_id"],first["grade_level_id"],first["curriculum_version_id"],first["term_id"],st["id"])).fetchone()
+        for i,q in enumerate(questions,1):
+            con.execute("INSERT INTO quiz_questions(quiz_id,question_id,position) VALUES(%s,%s,%s)",
+                        (quiz["id"],q["id"],i))
+        details=__import__('json').dumps({"system_generated":True,"purpose":"attempt_weakness_practice",
+          "audience":"single_student","source_attempt_id":attempt_id,
+          "source_policy":"approved_exact_source_asset_only","original_wrong_question_ids":data["original_wrong_question_ids"]})
+        con.execute("""INSERT INTO quiz_audit_log(quiz_id,action,from_status,to_status,quality_score,details)
+          VALUES(%s,'weakness_publish',NULL,'published',100,%s::jsonb)""",(quiz["id"],details))
+    return {"quiz_id":quiz["id"],"title":quiz["title"],"question_count":len(questions),
+            "student_path":f'/student/quiz/{quiz["id"]}',"policy":data.get("policy"),"reused":False}

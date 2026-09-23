@@ -17,7 +17,9 @@ _STUDENT_MUTATION_POLICIES: tuple[
     tuple[str, re.Pattern[str], str, int, int], ...
 ] = (
     ("POST", re.compile(r"^/api/student/quizzes/\d+/start$"), "student_quiz_start", 30, 3600),
+    ("POST", re.compile(r"^/api/student/exams/resolve$"), "student_exam_code_resolve", 30, 600),
     ("PUT", re.compile(r"^/api/student/attempts/\d+/answer$"), "student_answer_save", 600, 600),
+    ("POST", re.compile(r"^/api/student/attempts/\d+/integrity-event$"), "student_integrity_event", 180, 600),
     ("POST", re.compile(r"^/api/student/quizzes/\d+/submit$"), "student_quiz_submit", 30, 3600),
     ("POST", re.compile(r"^/api/student/lessons/\d+/diagnostic$"), "student_diagnostic_submit", 30, 3600),
 )

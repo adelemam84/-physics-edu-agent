@@ -49,6 +49,10 @@ from app import current_corpus_ops  # noqa: F401,E402
 from app import source_asset_admin  # noqa: F401,E402
 from app import advanced_learning  # noqa: F401,E402
 from app import exam_blueprint  # noqa: F401,E402
+from app import exam_engine  # noqa: F401,E402
+from app import exam_diagnostics  # noqa: F401,E402
+from app import exam_advanced_analytics  # noqa: F401,E402
+from app import study_intelligence  # noqa: F401,E402
 from app import corpus_public_status  # noqa: F401,E402
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
@@ -121,3 +125,4 @@ from app import lesson_presentation_approval_ledger  # noqa: F401,E402
 from app import lesson_presentation_approval_ledger_ui  # noqa: F401,E402
 
 from app import content_maintenance_api  # noqa: F401,E402
+from app import feature_status  # noqa: F401,E402

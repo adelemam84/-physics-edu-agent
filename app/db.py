@@ -371,6 +371,8 @@ def init_db():
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_attempt_answers_attempt_question ON attempt_answers(attempt_id,question_id) WHERE attempt_id IS NOT NULL AND question_id IS NOT NULL")
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_answers_attempt_correct ON attempt_answers(attempt_id,is_correct)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_answers_question ON attempt_answers(question_id)")
+        con.execute("ALTER TABLE attempt_answers ADD COLUMN IF NOT EXISTS time_spent_seconds integer NOT NULL DEFAULT 0")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_answers_question_timing ON attempt_answers(question_id,time_spent_seconds)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempts_student_submitted ON attempts(student_id,submitted_at DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_attempts_student_quiz_submitted ON attempts(student_id,quiz_id,submitted_at DESC)")
         con.execute("CREATE INDEX IF NOT EXISTS idx_guardians_student_active_optin ON guardians(student_id,active,whatsapp_opt_in)")
@@ -380,6 +382,42 @@ def init_db():
         con.execute("CREATE INDEX IF NOT EXISTS idx_quiz_questions_quiz_position ON quiz_questions(quiz_id,position)")
         con.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS owner_student_id bigint REFERENCES students(id) ON DELETE CASCADE")
         con.execute("CREATE INDEX IF NOT EXISTS idx_quizzes_owner_student ON quizzes(owner_student_id,created_at DESC)")
+        # Personal exam engine: short access codes, schedule windows and integrity events.
+        # This is operational exam delivery metadata only; it never changes scientific approval.
+        con.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS access_code text")
+        con.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS available_from timestamptz")
+        con.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS available_until timestamptz")
+        con.execute("ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS shuffle_questions boolean NOT NULL DEFAULT false")
+        con.execute("""ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS integrity_policy jsonb NOT NULL DEFAULT
+          '{"mode":"log","max_violations":3,"track_tab_switch":true,"track_fullscreen_exit":true,"track_copy_paste":true,"track_context_menu":false,"track_window_blur":false}'::jsonb""")
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_quizzes_access_code_upper ON quizzes(upper(access_code)) WHERE access_code IS NOT NULL")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_quizzes_availability ON quizzes(available_from,available_until) WHERE published=TRUE")
+        con.execute("""CREATE TABLE IF NOT EXISTS exam_integrity_events(
+          id bigserial PRIMARY KEY,
+          attempt_id bigint NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+          event_type text NOT NULL,
+          detail text,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_exam_integrity_attempt_created ON exam_integrity_events(attempt_id,created_at DESC)")
+        con.execute("""CREATE TABLE IF NOT EXISTS attempt_question_order(
+          attempt_id bigint NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+          question_id bigint NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+          position integer NOT NULL,
+          PRIMARY KEY(attempt_id,question_id),
+          UNIQUE(attempt_id,position)
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_question_order_position ON attempt_question_order(attempt_id,position)")
+        con.execute("""CREATE TABLE IF NOT EXISTS attempt_score_overrides(
+          id bigserial PRIMARY KEY,
+          attempt_id bigint NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+          previous_score numeric NOT NULL,
+          new_score numeric NOT NULL,
+          reason text NOT NULL,
+          actor text NOT NULL DEFAULT 'admin',
+          created_at timestamptz NOT NULL DEFAULT now()
+        )""")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_attempt_score_overrides_attempt ON attempt_score_overrides(attempt_id,created_at DESC)")
         # Legacy adaptive quizzes were globally published before student ownership
         # existed. Archive any still-public legacy rows so they cannot leak across
         # student portals; students can generate a new isolated remedial quiz.

@@ -5,6 +5,7 @@ import os
 from typing import Literal
 
 from .provider_http import retry_snapshot
+from .ai_budget import project_free_only
 
 
 Provider = Literal["gemini", "openai", "mathpix", "deterministic"]
@@ -41,7 +42,7 @@ def _review_effort() -> str:
 
 def model_settings() -> dict:
     """Return secret-free model configuration used across the platform."""
-    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
+    free_only = project_free_only()
     configured_research = _value("GEMINI_RESEARCH_MODEL", "gemini-3.5-flash")
     configured_lesson = _value("LESSON_STUDIO_GEMINI_MODEL", configured_research)
     gemini_research = "gemini-3.5-flash" if free_only else configured_research
@@ -95,7 +96,7 @@ def task_policies() -> tuple[AITaskPolicy, ...]:
     providers = provider_status()
     gemini_ready = bool(providers["gemini"]["configured"])
     openai_ready = bool(providers["openai"]["configured"])
-    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
+    free_only = project_free_only()
     mathpix_ready = bool(providers["mathpix"]["configured"])
     gemini_model = str(models["gemini_research"])
     lesson_model = str(models["gemini_lesson_studio"])
@@ -267,7 +268,7 @@ def get_task_policy(task: str) -> AITaskPolicy:
 
 def governance_snapshot() -> dict:
     """Build the admin-facing AI operations contract."""
-    free_only = os.getenv("PROJECT_FREE_ONLY", "true").strip().lower() in {"1","true","yes","on"}
+    free_only = project_free_only()
     providers = provider_status()
     tasks = [asdict(x) for x in task_policies()]
     recommendations: list[dict] = []

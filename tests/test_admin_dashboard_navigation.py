@@ -24,6 +24,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
             "/admin/operations-readiness",
             "/admin/ai-operations",
             "/admin/ai-budget",
+            "/admin/feature-status",
             "/admin/interventions",
             "/admin/research-engine",
             "/admin/lesson-studio/workspace",
@@ -73,6 +74,23 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertIn("@media(max-width:1100px)", PAGE)
         self.assertIn("@media(max-width:520px)", PAGE)
         self.assertIn(".cards,.status-grid{grid-template-columns:1fr}", PAGE)
+
+
+    def test_dashboard_has_accessible_navigation_and_refresh_controls(self):
+        for token in (
+            'class=skip-link href="#main"',
+            'aria-label="التنقل الإداري"',
+            'id=navSearch',
+            'aria-live=polite',
+            'id=refreshBtn',
+            "fetch('/health/ready')",
+            'رفع المحتوى مؤجل ومغلق',
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_dashboard_does_not_persist_admin_credentials_in_browser_storage(self):
+        self.assertNotIn("localStorage", PAGE)
+        self.assertNotIn("sessionStorage", PAGE)
 
 
 if __name__ == "__main__":

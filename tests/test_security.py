@@ -1,7 +1,9 @@
+import os
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
-from app.security import same_origin_request
+from app.security import same_origin_request, validate_admin_key
 
 
 class DummyHeaders(dict):
@@ -50,6 +52,16 @@ class SecurityOriginTests(unittest.TestCase):
             "host":"example.com",
             "origin":"https://user@example.com",
         })))
+
+    def test_admin_key_comparison_supports_unicode_without_500(self):
+        with patch.dict(os.environ, {"ADMIN_API_KEY": "مفتاح-إدارة-آمن"}, clear=False):
+            self.assertTrue(validate_admin_key("مفتاح-إدارة-آمن"))
+            self.assertFalse(validate_admin_key("مفتاح-آخر"))
+
+    def test_admin_key_comparison_keeps_ascii_behavior(self):
+        with patch.dict(os.environ, {"ADMIN_API_KEY": "admin-secret-123"}, clear=False):
+            self.assertTrue(validate_admin_key("admin-secret-123"))
+            self.assertFalse(validate_admin_key("admin-secret-124"))
 
 
 if __name__=="__main__":

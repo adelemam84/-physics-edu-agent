@@ -62,6 +62,17 @@ PAGE=r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content=
 <section data-widget="student-followup"><div class=section-title><h2>الطلاب والمتابعة</h2><a class=muted href="/admin/progress">متابعة التقدم ←</a></div><div class=grid><div class=box><h2>آخر نتائج الطلاب</h2><div id=recent></div></div><div class="box attention"><h2>يحتاج انتباهك</h2><div id=weak></div></div></div></section>
 <section data-widget="guardian-messages"><div class=box><h2>حالة رسائل أولياء الأمور</h2><div id=notif></div></div></section>
 <script>
+const PREF_COOKIE='edu_dashboard_prefs';
+const DEFAULT_WIDGETS={'platform-status':true,'daily-overview':true,'student-readiness':true,'student-followup':true,'guardian-messages':true};
+let dashboardPrefs={density:'comfortable',widgets:{...DEFAULT_WIDGETS}};
+function readDashboardPrefs(){try{let row=document.cookie.split('; ').find(v=>v.startsWith(PREF_COOKIE+'='));if(!row)return;let parsed=JSON.parse(decodeURIComponent(row.slice(PREF_COOKIE.length+1)));if(parsed&&['comfortable','compact'].includes(parsed.density))dashboardPrefs.density=parsed.density;if(parsed&&parsed.widgets&&typeof parsed.widgets==='object')for(let k of Object.keys(DEFAULT_WIDGETS))if(typeof parsed.widgets[k]==='boolean')dashboardPrefs.widgets[k]=parsed.widgets[k]}catch(_){}}
+function persistDashboardPrefs(){let value=encodeURIComponent(JSON.stringify(dashboardPrefs));document.cookie=PREF_COOKIE+'='+value+'; path=/; max-age=31536000; SameSite=Lax'}
+function applyWidgetPreferences(){document.body.dataset.density=dashboardPrefs.density;document.querySelectorAll('[data-widget]').forEach(el=>{el.hidden=dashboardPrefs.widgets[el.dataset.widget]===false});document.querySelectorAll('[data-widget-toggle]').forEach(el=>{el.checked=dashboardPrefs.widgets[el.dataset.widgetToggle]!==false});document.querySelectorAll('[data-density-option]').forEach(el=>el.setAttribute('aria-pressed',String(el.dataset.densityOption===dashboardPrefs.density)))}
+function setDensity(mode){if(!['comfortable','compact'].includes(mode))return;dashboardPrefs.density=mode;persistDashboardPrefs();applyWidgetPreferences()}
+function toggleWidget(key,visible){if(!(key in DEFAULT_WIDGETS))return;dashboardPrefs.widgets[key]=!!visible;persistDashboardPrefs();applyWidgetPreferences()}
+function showAllWidgets(){dashboardPrefs.widgets={...DEFAULT_WIDGETS};persistDashboardPrefs();applyWidgetPreferences()}
+function toggleCustomizer(){customizer.hidden=!customizer.hidden;if(!customizer.hidden)customizer.querySelector('button')?.focus()}
+readDashboardPrefs();applyWidgetPreferences();
 const H=()=>({});async function logout(){await fetch('/api/admin/logout',{method:'POST'});location.href='/admin/login'}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
 function filterNav(value){let q=String(value||'').trim().toLowerCase();document.querySelectorAll('.nav-group').forEach(g=>{let hits=0;g.querySelectorAll('a').forEach(a=>{let show=!q||a.textContent.toLowerCase().includes(q);a.hidden=!show;if(show)hits++});g.hidden=!!q&&!hits})}

@@ -341,7 +341,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
             self.assertIn(token, PAGE)
 
     def test_remembered_group_state_is_reapplied_during_initialization(self):
-        init = "readDashboardPrefs();applyWidgetPreferences();applyMobileNavPreference();markActiveNav();setupCollapsibleNavGroups();"
+        init = "readDashboardPrefs();applyWidgetPreferences();applyMobileNavPreference();markActiveNav();updateSmartSortControl();setupCollapsibleNavGroups();"
         self.assertIn(init, PAGE)
         self.assertIn("applyRememberedNavGroupStates()", PAGE)
 
@@ -400,6 +400,36 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
         self.assertNotIn("fetch('/api/", PAGE[PAGE.find("function clearFavorites"):PAGE.find("function decorateFavoriteControls")])
+
+
+    def test_mobile_nav_shows_favorites_count(self):
+        for token in (
+            "favoriteCountBadge",
+            "updateFavoriteCount",
+            "المفضلة",
+            "(dashboardPrefs.favorites||[]).length",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_mobile_nav_can_disable_smart_sort_without_losing_usage(self):
+        for token in (
+            "smartSortEnabled:true",
+            "parsed.smartSortEnabled",
+            "dashboardPrefs.smartSortEnabled",
+            "toggleSmartSort",
+            "الترتيب الذكي",
+            "sortNavGroupsByUsage",
+            "dataset.originalIndex",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_smart_sort_off_preserves_usage_history(self):
+        start = PAGE.find("function toggleSmartSort")
+        end = PAGE.find("function resetUsageOrdering")
+        snippet = PAGE[start:end]
+        self.assertIn("dashboardPrefs.smartSortEnabled", snippet)
+        self.assertIn("persistDashboardPrefs()", snippet)
+        self.assertNotIn("dashboardPrefs.navUsage={}", snippet)
 
 if __name__ == "__main__":
     unittest.main()

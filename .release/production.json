@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "3a16653a0cb68115c4dfcc6ee056081791e83e58",
+  "requested_code_sha": "d3f927b241b74d325a5ce062641ec7e18bda8440",
   "requested_at": "2026-09-23",
-  "reason": "Controlled production release for full post-rollback verification hardening",
+  "reason": "Controlled production release after bounded parallel performance warmup passed CI and performance readiness",
   "content_ingestion": "locked",
-  "scope": "post_rollback_full_verification"
+  "scope": "steady_state_performance_probe"
 }

@@ -291,9 +291,30 @@ class AdminDashboardNavigationTests(unittest.TestCase):
     def test_active_group_stays_open_and_search_expands_matches(self):
         for token in (
             "active-nav",
-            "group.classList.remove('group-collapsed')",
+            "active?.closest('.nav-group')",
+            "syncNavGroupState(activeGroup,false)",
             "if(q)g.classList.remove('group-collapsed')",
             "syncNavGroupState",
+        ):
+            self.assertIn(token, PAGE)
+
+
+    def test_mobile_nav_group_state_is_persisted_safely(self):
+        for token in (
+            "navGroups:{}",
+            "parsed.navGroups",
+            "dashboardPrefs.navGroups",
+            "group.dataset.groupKey",
+            "persistDashboardPrefs()",
+            "applyRememberedNavGroupStates",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_search_clear_restores_remembered_group_state(self):
+        for token in (
+            "if(q)g.classList.remove('group-collapsed')",
+            "if(!q)applyRememberedNavGroupStates()",
+            "active?.closest('.nav-group')",
         ):
             self.assertIn(token, PAGE)
 

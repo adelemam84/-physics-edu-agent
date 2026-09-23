@@ -277,13 +277,13 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #84ad
 <div class="box">
   <div class="top"><a href="/student">← بوابة الطالب</a><span id="sessionBadge" class="pill">فحص الجلسة...</span></div>
   <h1 id="title">اختبار الفيزياء</h1>
-  <div class="row" id="loginRow">
+  <form class="row" id="loginRow" onsubmit="startAttempt(event)">
     <label for="code" class="muted">كود الطالب</label>
     <input id="code" autocomplete="one-time-code" placeholder="أدخل كود الطالب">
-    <button class="primary" onclick="startAttempt()">بدء / استكمال الاختبار</button>
-  </div>
-  <div id="timer" class="result"></div>
-  <div class="progress" aria-label="نسبة الإجابات"><span id="progressBar"></span></div>
+    <button id="startBtn" class="primary" type="submit">بدء / استكمال الاختبار</button>
+  </form>
+  <div id="timer" class="result" role="timer" aria-label="الوقت المتبقي"></div>
+  <div id="answerProgress" class="progress" role="progressbar" aria-label="نسبة الإجابات" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progressBar"></span></div>
   <div id="progressText" class="muted"></div>
   <div id="msg" class="status muted" aria-live="polite"></div>
 </div>
@@ -298,7 +298,8 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid #84ad
 
 <script>
 const quizId=Number(location.pathname.split('/').pop());
-let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false,integrityPolicy={mode:'off'};
+const sessionBadge=document.getElementById('sessionBadge'),loginRow=document.getElementById('loginRow'),code=document.getElementById('code'),startBtn=document.getElementById('startBtn'),title=document.getElementById('title'),timer=document.getElementById('timer'),answerProgress=document.getElementById('answerProgress'),progressBar=document.getElementById('progressBar'),progressText=document.getElementById('progressText'),msg=document.getElementById('msg'),items=document.getElementById('items'),submitBtn=document.getElementById('submitBtn'),result=document.getElementById('result');
+let data=null,attemptId=null,expiresAt=null,timerHandle=null,autoSubmitting=false,submitInFlight=false,attemptFinished=false,expiryFlushTriggered=false,integrityPolicy={mode:'off'};
 const questionClock=new Map();
 const saveTimers=new Map();
 
@@ -309,7 +310,7 @@ function updateProgress(){
   const answers=data.questions.filter(q=>(document.getElementById('a_'+q.id)?.value||'').trim()).length;
   const total=data.questions.length||0,pct=total?Math.round(answers*100/total):0;
   progressText.textContent='تمت الإجابة عن '+answers+' من '+total+' أسئلة';
-  progressBar.style.width=pct+'%';
+  progressBar.style.width=pct+'%';answerProgress.setAttribute('aria-valuenow',String(pct));
 }
 async function sessionInfo(){
   return fetch('/api/student/session',{cache:'no-store'}).then(r=>r.json()).catch(()=>({authenticated:false}));
@@ -355,7 +356,7 @@ function applyQuestionOrder(order){
   if(!Array.isArray(order)||!order.length)return;
   order.forEach((qid,i)=>{let el=document.getElementById('q_'+qid);if(el){items.appendChild(el);let b=el.querySelector('.q-head b');if(b)b.textContent='سؤال '+(i+1)}})
 }
-async function startAttempt(){try{await ensureAttempt()}catch(e){msg.textContent=e.message}}
+async function startAttempt(ev){ev?.preventDefault();startBtn.disabled=true;startBtn.textContent='جارٍ البدء...';try{await ensureAttempt()}catch(e){msg.textContent=e.message}finally{startBtn.disabled=false;startBtn.textContent='بدء / استكمال الاختبار'}}
 async function ensureAttempt(){
   if(attemptId)return attemptId;
   await ensureSession();
@@ -393,6 +394,7 @@ function queueSave(qid,immediate=false){
 function integrityEnabled(key){
   return integrityPolicy&&integrityPolicy.mode!=='off'&&integrityPolicy[key]!==false
 }
+async function flushPendingSaves(){let ids=[...saveTimers.keys()];if(!ids.length)return;ids.forEach(qid=>{clearTimeout(saveTimers.get(qid));saveTimers.delete(qid)});await Promise.allSettled(ids.map(qid=>saveAnswer(qid)))}
 async function reportIntegrity(eventType,detail=''){
   if(!attemptId||!integrityPolicy||integrityPolicy.mode==='off')return;
   try{
@@ -415,6 +417,7 @@ function startTimer(){
   if(!expiresAt){timer.textContent='بدون وقت محدد';return}
   function tick(){
     let ms=expiresAt.getTime()-Date.now();
+    if(ms<=5000&&!expiryFlushTriggered){expiryFlushTriggered=true;flushPendingSaves()}
     if(ms<=0){
       timer.textContent='انتهى الوقت';document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;clearInterval(timerHandle);
       if(!autoSubmitting){autoSubmitting=true;submitQuiz(true)}
@@ -438,14 +441,18 @@ async function saveAnswer(qid){
   }finally{saveTimers.delete(qid)}
 }
 async function submitQuiz(fromTimer=false){
-  if(!data)return;
+  if(!data||submitInFlight)return;
   try{await ensureAttempt()}catch(e){msg.textContent=e.message;return}
-  for(const timer of saveTimers.values())clearTimeout(timer);saveTimers.clear();
+  let unanswered=data.questions.filter(q=>!(document.getElementById('a_'+q.id)?.value||'').trim()).length;
+  if(!fromTimer&&unanswered&&!confirm('يوجد '+unanswered+' سؤال بدون إجابة. هل تريد التسليم الآن؟'))return;
+  submitInFlight=true;submitBtn.disabled=true;msg.textContent=fromTimer?'جارٍ التسليم التلقائي...':'جارٍ تسليم الاختبار...';
+  if(!fromTimer)await flushPendingSaves();
+  for(const pendingTimer of saveTimers.values())clearTimeout(pendingTimer);saveTimers.clear();
   let answers=data.questions.map(q=>({question_id:q.id,answer:document.getElementById('a_'+q.id).value}));
   let r=await fetch('/api/student/quizzes/'+quizId+'/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answers,attempt_id:attemptId})});
   let x=await r.json().catch(()=>null);
-  if(!r.ok){msg.textContent=apiError(x,'تعذر تسليم الاختبار');return}
-  clearInterval(timerHandle);document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;
+  if(!r.ok){msg.textContent=apiError(x,'تعذر تسليم الاختبار');submitInFlight=false;if(!expiresAt||Date.now()<expiresAt.getTime())submitBtn.disabled=false;return}
+  clearInterval(timerHandle);attemptFinished=true;submitInFlight=false;document.querySelectorAll('.answer').forEach(el=>el.disabled=true);submitBtn.disabled=true;
   result.style.display='block';
   result.innerHTML=`<div class=result>${esc(x.student_name)} — ${x.percentage}%</div>
     ${x.time_expired?'<p class="muted">تم التسليم بعد انتهاء الوقت باستخدام آخر إجابات محفوظة قبل انتهاء المدة.</p>':''}
@@ -471,6 +478,7 @@ async function startAdaptive(){
   if(!r.ok){msg.textContent=apiError(x,'تعذر إنشاء التدريب');return}
   location.href=x.student_path
 }
+window.addEventListener('beforeunload',ev=>{if(attemptId&&!attemptFinished){ev.preventDefault();ev.returnValue=''}});
 load();
 </script>
 </main></html>'''

@@ -30,7 +30,8 @@
     "health_version": "1.8.27",
     "readiness_version": "1.8.27",
     "readiness_content_ingestion": "locked",
-    "runtime_errors_last_1h": 0
+    "runtime_errors_last_1h": 0,
+    "runtime_errors_last_6h": 0
   },
   "performance_attestation": {
     "request_count": 100,

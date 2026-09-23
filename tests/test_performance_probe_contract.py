@@ -48,5 +48,22 @@ class PerformanceProbeContractTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.conclusion == 'success'", WORKFLOW)
         self.assertIn("github.event.workflow_run.head_sha", WORKFLOW)
 
+
+    def test_probe_separates_cold_start_from_parallel_warmup(self):
+        for token in (
+            'PERF_WARMUP_ROUNDS',
+            'PERF_WARMUP_CONCURRENCY',
+            'warmup_rows',
+            'warmup_summary',
+            'ThreadPoolExecutor(max_workers=WARMUP_CONCURRENCY)',
+        ):
+            self.assertIn(token, PROBE)
+
+    def test_parallel_warmup_is_bounded(self):
+        self.assertIn('min(int(os.getenv("PERF_WARMUP_ROUNDS", "2")), 4)', PROBE)
+        self.assertIn('min(int(os.getenv("PERF_WARMUP_CONCURRENCY", "10")), 16)', PROBE)
+        self.assertIn('PERF_WARMUP_ROUNDS: "2"', WORKFLOW)
+        self.assertIn('PERF_WARMUP_CONCURRENCY: "10"', WORKFLOW)
+
 if __name__ == "__main__":
     unittest.main()

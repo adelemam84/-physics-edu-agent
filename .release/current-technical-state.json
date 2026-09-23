@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
-  "record_name": "current-technical-state-2026-09-18",
-  "captured_at_utc": "2026-09-18T15:04:25Z",
+  "schema_version": 2,
+  "record_name": "current-technical-state-2026-09-23",
+  "captured_at_utc": "2026-09-23T20:17:49Z",
   "application_version": "1.8.27",
   "technical_complete": true,
   "content_complete": false,
@@ -9,21 +9,20 @@
   "content_phase": "deferred",
   "production": {
     "canonical_url": "https://physics-edu-agent.vercel.app",
-    "released_code_sha": "19ec545cea5e1547ed9509fc2c632c0cbb3dcf87",
-    "release_marker_sha": "6feda2501c5b628d2f4b99d084af964e5b0754a1",
-    "deployment_id": "dpl_BaLyHUfPr3Mn1JSu5UA4Ad3UjGLn",
-    "deployment_url": "https://physics-edu-agent-nyoynprh4-farida13.vercel.app",
+    "released_code_sha": "d3f927b241b74d325a5ce062641ec7e18bda8440",
+    "release_marker_sha": "001f2d88d94de04692b4196eb696a7f5a3e5c6bc",
+    "deployment_id": "dpl_EifkTZSprzFwkVGyaXCFqH4G9Du5",
+    "deployment_url": "https://physics-edu-agent-h6ekm7x6k-farida13.vercel.app",
     "region": "iad1",
-    "post_release_hardening_sha": "4e513387ce7c4f07978a0f631a947d117f3d385d"
+    "post_release_hardening_sha": "d3f927b241b74d325a5ce062641ec7e18bda8440"
   },
   "evidence": {
-    "controlled_production_release_run": 35356978659,
-    "release_ci_run": 35356978707,
-    "release_security_audit_run": 35356978748,
-    "post_release_ci_run": 35360118024,
-    "post_release_security_audit_run": 35360117919,
-    "final_technical_readiness_run": 35360117993,
-    "production_smoke_run": 35360117901
+    "controlled_production_release_run": 35914601440,
+    "release_ci_run": 35914579446,
+    "final_technical_readiness_run": 35914946155,
+    "production_performance_readiness_run": 35914946230,
+    "production_smoke_run": 35914946231,
+    "historical_security_audit_run": 35360117919
   },
   "runtime_attestation": {
     "exact_version_required": true,
@@ -31,7 +30,27 @@
     "health_version": "1.8.27",
     "readiness_version": "1.8.27",
     "readiness_content_ingestion": "locked",
-    "runtime_errors_last_6h": 0
+    "runtime_errors_last_1h": 0
+  },
+  "performance_attestation": {
+    "request_count": 100,
+    "concurrency": 10,
+    "warmup_rounds": 2,
+    "warmup_concurrency": 10,
+    "successes": 100,
+    "failures": 0,
+    "p50_ms": 168.44,
+    "p95_ms": 788.61,
+    "p99_ms": 1023.09,
+    "max_ms": 3979.77,
+    "p95_limit_ms": 2500,
+    "max_limit_ms": 8000,
+    "passed": true
+  },
+  "post_release_gates": {
+    "final_technical_readiness": "success",
+    "performance_readiness": "success",
+    "smoke_monitor": "success"
   },
   "historical_baseline": ".release/pre-content-baseline.json",
   "remaining_work": {

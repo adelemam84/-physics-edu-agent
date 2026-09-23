@@ -318,5 +318,32 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_mobile_nav_has_open_all_and_close_all_controls(self):
+        for token in (
+            'id=navGroupControls',
+            "فتح الكل",
+            "إغلاق الكل",
+            "setAllNavGroups(false)",
+            "setAllNavGroups(true)",
+            "function setAllNavGroups",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_open_close_all_persists_group_state_and_keeps_active_group_open(self):
+        for token in (
+            "dashboardPrefs.navGroups[group.dataset.groupKey]=collapsed",
+            "persistDashboardPrefs()",
+            "applyRememberedNavGroupStates()",
+            "let activeGroup=active?.closest('.nav-group')",
+            "syncNavGroupState(activeGroup,false)",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_remembered_group_state_is_reapplied_during_initialization(self):
+        init = "readDashboardPrefs();applyWidgetPreferences();applyMobileNavPreference();markActiveNav();setupCollapsibleNavGroups();"
+        self.assertIn(init, PAGE)
+        self.assertIn("applyRememberedNavGroupStates()", PAGE)
+
 if __name__ == "__main__":
     unittest.main()

@@ -341,7 +341,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
             self.assertIn(token, PAGE)
 
     def test_remembered_group_state_is_reapplied_during_initialization(self):
-        init = "readDashboardPrefs();applyWidgetPreferences();applyMobileNavPreference();markActiveNav();setupCollapsibleNavGroups();"
+        init = "readDashboardPrefs();applyWidgetPreferences();applyMobileNavPreference();markActiveNav();updateSmartSortControl();setupCollapsibleNavGroups();"
         self.assertIn(init, PAGE)
         self.assertIn("applyRememberedNavGroupStates()", PAGE)
 
@@ -407,7 +407,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
             "favoriteCountBadge",
             "updateFavoriteCount",
             "المفضلة",
-            "favorites.length",
+            "(dashboardPrefs.favorites||[]).length",
         ):
             self.assertIn(token, PAGE)
 
@@ -425,9 +425,10 @@ class AdminDashboardNavigationTests(unittest.TestCase):
 
     def test_smart_sort_off_preserves_usage_history(self):
         start = PAGE.find("function toggleSmartSort")
-        end = PAGE.find("function sortNavGroupsByUsage")
+        end = PAGE.find("function resetUsageOrdering")
         snippet = PAGE[start:end]
         self.assertIn("dashboardPrefs.smartSortEnabled", snippet)
+        self.assertIn("persistDashboardPrefs()", snippet)
         self.assertNotIn("dashboardPrefs.navUsage={}", snippet)
 
 if __name__ == "__main__":

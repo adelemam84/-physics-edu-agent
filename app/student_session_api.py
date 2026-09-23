@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .db import connect
 from .main import app
+from .security import same_origin_request
 from .services.rate_limit import enforce_request_policy
 from .student_security import (
     SESSION_MAX_AGE,
@@ -21,6 +22,11 @@ class StudentSessionLogin(BaseModel):
 @app.post("/api/student/session")
 def create_student_session(payload: StudentSessionLogin, response: Response, request: Request):
     response.headers["Cache-Control"] = "no-store"
+    fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    origin = (request.headers.get("origin") or "").strip()
+    referer = (request.headers.get("referer") or "").strip()
+    if fetch_site == "cross-site" or ((origin or referer) and not same_origin_request(request)):
+        raise HTTPException(403, "Cross-origin student login blocked")
     enforce_request_policy(
         request,
         name="student_login",

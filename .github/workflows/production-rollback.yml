@@ -62,6 +62,11 @@ jobs:
             exit 1
           }
 
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -87,7 +92,13 @@ jobs:
               raise SystemExit(f"rollback target /health failed: {health}")
           if ready.get("status") != "ready":
               raise SystemExit(f"rollback target /health/ready failed: {ready}")
-          print("rollback target health contract passed")
+          version=str(health.get("version") or "").strip()
+          if not version:
+              raise SystemExit("rollback target health response did not expose version")
+          import os
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"ROLLBACK_EXPECT_VERSION={version}\n")
+          print(f"rollback target health contract passed · version={version}")
           PY
 
       - name: Roll back production traffic
@@ -118,6 +129,47 @@ jobs:
           print("production rollback smoke checks passed")
           PY
 
+      - name: Run post-rollback production smoke
+        env:
+          SMOKE_BASE_URL: https://physics-edu-agent.vercel.app
+          SMOKE_TIMEOUT_SECONDS: "8"
+          SMOKE_ATTEMPTS: "3"
+          SMOKE_EXPECT_VERSION: ${{ env.ROLLBACK_EXPECT_VERSION }}
+        run: python tools/production_smoke.py
+
+      - name: Run post-rollback technical readiness
+        env:
+          TECH_READY_BASE_URL: https://physics-edu-agent.vercel.app
+          TECH_READY_TIMEOUT_SECONDS: "8"
+          TECH_READY_ATTEMPTS: "2"
+          TECH_READY_MAX_LATENCY_MS: "5000"
+          TECH_READY_EXPECT_VERSION: ${{ env.ROLLBACK_EXPECT_VERSION }}
+          TECH_READY_EXPECT_CONTENT_INGESTION_LOCKED: "true"
+        run: python tools/technical_readiness_probe.py
+
+      - name: Run post-rollback performance readiness
+        env:
+          PERF_BASE_URL: https://physics-edu-agent.vercel.app
+          PERF_REQUESTS: "100"
+          PERF_CONCURRENCY: "10"
+          PERF_TIMEOUT_SECONDS: "10"
+          PERF_MAX_ERROR_RATE: "0.01"
+          PERF_P95_LIMIT_MS: "2500"
+          PERF_MAX_LIMIT_MS: "8000"
+        run: python tools/performance_probe.py
+
+      - name: Upload rollback verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-rollback-verification-${{ github.run_id }}
+          path: |
+            production-smoke-results.json
+            technical-readiness-results.json
+            performance-results.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Recovery summary
         env:
           TARGET_DEPLOYMENT: ${{ inputs.target_deployment }}
@@ -126,6 +178,6 @@ jobs:
             echo "### Controlled production rollback"
             echo "- Target: $TARGET_DEPLOYMENT"
             echo "- Production: $PRODUCTION_URL"
-            echo "- Gates: explicit confirmation + target health/readiness + rollback status + canonical smoke"
+            echo "- Gates: explicit confirmation + target health/readiness + rollback status + canonical smoke + full post-rollback readiness/performance"
             echo "- Database: unchanged; database recovery is a separate operator action"
           } >> "$GITHUB_STEP_SUMMARY"

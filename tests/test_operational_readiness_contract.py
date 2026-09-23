@@ -11,8 +11,8 @@ class OperationalReadinessContractTests(unittest.TestCase):
         self.assertIn('cron: "29 3 * * 1"', text)
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('pip-audit==2.10.1', text)
-        self.assertIn('group: physics-edu-agent-self-hosted', text)
-        self.assertIn('cancel-in-progress: false', text)
+        self.assertIn('runs-on: ubuntu-latest', text)
+        self.assertNotIn('group: physics-edu-agent-self-hosted', text)
 
     def test_runbook_separates_app_rollback_from_database_recovery(self):
         text = Path('OPERATIONS_RUNBOOK.md').read_text(encoding='utf-8')

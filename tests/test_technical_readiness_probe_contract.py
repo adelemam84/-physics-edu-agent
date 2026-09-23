@@ -67,5 +67,13 @@ class TechnicalReadinessProbeContractTests(unittest.TestCase):
         self.assertIn("actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a", WORKFLOW)
 
 
+
+    def test_workflow_runs_after_successful_controlled_production_release(self):
+        self.assertIn("workflow_run:", WORKFLOW)
+        self.assertIn('workflows: ["Controlled Production Release"]', WORKFLOW)
+        self.assertIn("types: [completed]", WORKFLOW)
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", WORKFLOW)
+        self.assertIn("github.event.workflow_run.head_sha", WORKFLOW)
+
 if __name__ == "__main__":
     unittest.main()

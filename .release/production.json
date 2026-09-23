@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "33af7c5818185c6a2dc0edbcc51f28d522221536",
+  "requested_code_sha": "f1ab1f7dba1eef1d9bbc5998ab28793f9476e5f0",
   "requested_at": "2026-09-23",
-  "reason": "Controlled production release after independent admin sidebar scroll fix passed CI, full pytest, and dependency audit",
+  "reason": "Controlled production release after mobile admin sidebar UX fix passed CI, full pytest, and dependency audit",
   "content_ingestion": "locked",
-  "scope": "admin_sidebar_scroll_fix"
+  "scope": "mobile_admin_sidebar_ux"
 }

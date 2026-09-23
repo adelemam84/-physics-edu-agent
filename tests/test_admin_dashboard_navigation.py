@@ -95,5 +95,34 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertNotIn("sessionStorage", PAGE)
 
 
+    def test_dashboard_supports_non_secret_operator_preferences(self):
+        for token in (
+            "تخصيص الواجهة",
+            "كثافة العرض",
+            "مريح",
+            "مدمج",
+            "إظهار كل البطاقات",
+            "document.cookie",
+            "edu_dashboard_prefs",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_dashboard_can_hide_operational_widgets_without_removing_them(self):
+        for token in (
+            'data-widget="platform-status"',
+            'data-widget="daily-overview"',
+            'data-widget="student-readiness"',
+            'data-widget="student-followup"',
+            'data-widget="guardian-messages"',
+            "applyWidgetPreferences",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_dashboard_preserves_content_lock_and_avoids_secret_storage(self):
+        self.assertIn("رفع المحتوى مؤجل ومغلق", PAGE)
+        self.assertIn("content_ingestion==='locked'", PAGE)
+        self.assertNotIn("localStorage", PAGE)
+        self.assertNotIn("sessionStorage", PAGE)
+
 if __name__ == "__main__":
     unittest.main()

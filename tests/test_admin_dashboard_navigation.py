@@ -38,7 +38,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertNotIn("encodeURIComponent(a.external_code)", PAGE)
 
     def test_mobile_navigation_remains_scrollable_not_hidden(self):
-        self.assertIn(".side nav{display:flex;overflow:auto", PAGE)
+        self.assertIn(".side nav{display:flex;overflow-x:auto;overflow-y:visible", PAGE)
         self.assertNotIn(".side{display:none", PAGE)
 
     def test_dashboard_uses_command_center_design_system(self):

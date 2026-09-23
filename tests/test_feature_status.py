@@ -11,6 +11,10 @@ def test_feature_status_exposes_major_platform_capabilities_without_secrets():
         "quiz_lifecycle",
         "adaptive_learning",
         "personal_exam_engine",
+        "exam_diagnostics",
+        "advanced_exam_analytics",
+        "study_intelligence",
+        "score_override_audit",
         "lesson_studio",
         "creative_integrations",
         "canva",
@@ -48,3 +52,21 @@ def test_feature_status_tracks_free_only_external_integrations(monkeypatch):
     assert by_id["gemini_notebook_enterprise"]["state"] == "deferred"
     assert by_id["canva"]["state"] in {"configured", "optional"}
     assert by_id["google_slides"]["state"] in {"configured", "optional"}
+
+
+def test_feature_status_routes_exam_intelligence_to_real_admin_surfaces():
+    snapshot = feature_status_snapshot()
+    by_id = {item["id"]: item for item in snapshot["items"]}
+    assert by_id["personal_exam_engine"]["path"] == "/admin/exam-engine"
+    assert by_id["advanced_exam_analytics"]["path"] == "/admin/exam-analytics"
+    assert by_id["exam_diagnostics"]["path"] == "/admin/progress"
+    assert by_id["study_intelligence"]["path"] == "/admin/students"
+    assert by_id["score_override_audit"]["path"] == "/admin/progress"
+    for feature_id in (
+        "personal_exam_engine",
+        "exam_diagnostics",
+        "advanced_exam_analytics",
+        "study_intelligence",
+        "score_override_audit",
+    ):
+        assert by_id[feature_id]["state"] == "active"

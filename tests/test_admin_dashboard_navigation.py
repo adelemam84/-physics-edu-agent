@@ -379,5 +379,27 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_mobile_nav_has_personalization_reset_controls(self):
+        for token in (
+            "مسح المفضلة",
+            "إعادة ترتيب الاستخدام",
+            "clearFavorites",
+            "resetUsageOrdering",
+            "navPersonalizationControls",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_personalization_resets_only_ui_preferences(self):
+        for token in (
+            "dashboardPrefs.favorites=[]",
+            "dashboardPrefs.navUsage={}",
+            "persistDashboardPrefs()",
+            "renderFavoriteGroup()",
+            "sortNavGroupsByUsage()",
+        ):
+            self.assertIn(token, PAGE)
+        self.assertNotIn("fetch('/api/", PAGE[PAGE.find("function clearFavorites"):PAGE.find("function decorateFavoriteControls")])
+
 if __name__ == "__main__":
     unittest.main()

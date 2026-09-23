@@ -37,7 +37,10 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
             "/api/research-engine/status",
             "/api/next-release/status",
             "/api/student/session",
+            "/api/admin/feature-status",
+            "/api/student/exams/resolve/SMOKE-LEGACY-CODE",
             "/student",
+            "/admin/dashboard",
             "/student/quiz/1",
             "/student/results/1",
             "/student/study-queue",
@@ -53,6 +56,11 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
             "submitInFlight",
             "weakBtn.disabled=true",
             "statusLabels=",
+            '"/api/admin/feature-status"',
+            "status == 401",
+            '"/api/student/exams/resolve/SMOKE-LEGACY-CODE"',
+            "status == 410",
+            "دخول الإدارة",
             "student_shell_contracts",
         ):
             self.assertIn(token, self.script)
@@ -60,7 +68,9 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
     def test_probe_supports_json_and_html_contracts_without_mutations(self):
         self.assertIn('"json"', self.script)
         self.assertIn('"text"', self.script)
-        self.assertIn("json.loads(text) if mode == \"json\" else text", self.script)
+        self.assertIn('"status"', self.script)
+        self.assertIn('mode == "status"', self.script)
+        self.assertIn("except HTTPError as exc:", self.script)
         self.assertNotIn('method="POST"', self.script)
         self.assertNotIn('method="PUT"', self.script)
         self.assertNotIn('method="PATCH"', self.script)
@@ -80,6 +90,22 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
     def test_evidence_is_always_uploaded(self):
         self.assertIn("if: always()", self.workflow)
         self.assertIn("production-smoke-results.json", self.workflow)
+
+
+    def test_probe_attests_negative_security_contracts_without_writes(self):
+        for token in (
+            '"/api/admin/feature-status"',
+            "lambda status: status == 401",
+            '"/api/student/exams/resolve/SMOKE-LEGACY-CODE"',
+            "lambda status: status == 410",
+            '"/admin/dashboard"',
+            '"دخول الإدارة"',
+            '"HttpOnly"',
+        ):
+            self.assertIn(token, self.script)
+        self.assertNotIn('method="POST"', self.script)
+        self.assertNotIn('method="PATCH"', self.script)
+        self.assertNotIn('method="DELETE"', self.script)
 
 
 if __name__ == "__main__":

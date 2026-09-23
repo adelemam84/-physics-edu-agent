@@ -38,7 +38,7 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertNotIn("encodeURIComponent(a.external_code)", PAGE)
 
     def test_mobile_navigation_remains_scrollable_not_hidden(self):
-        self.assertIn(".side nav{display:flex;overflow:auto", PAGE)
+        self.assertIn(".side nav{display:flex;overflow-x:auto;overflow-y:visible", PAGE)
         self.assertNotIn(".side{display:none", PAGE)
 
     def test_dashboard_uses_command_center_design_system(self):
@@ -190,6 +190,24 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         self.assertNotIn("fetch('/api/admin/alert-center',{method:'POST'", PAGE)
         self.assertNotIn("fetch('/api/admin/acceptance-work-queue',{method:'POST'", PAGE)
         self.assertNotIn("fetch('/api/admin/intervention-queue',{method:'POST'", PAGE)
+
+
+    def test_desktop_sidebar_has_independent_vertical_scroll(self):
+        for token in (
+            ".side{background:#111827;color:white;padding:20px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;overflow:hidden}",
+            ".side nav{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable",
+            ".nav-search{position:sticky;top:0;z-index:2",
+            "scrollbar-width:thin",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_mobile_sidebar_returns_to_horizontal_navigation(self):
+        for token in (
+            ".side{height:auto;position:static;overflow:visible}",
+            ".side nav{display:flex;overflow-x:auto;overflow-y:visible",
+            "scrollbar-gutter:auto",
+        ):
+            self.assertIn(token, PAGE)
 
 if __name__ == "__main__":
     unittest.main()

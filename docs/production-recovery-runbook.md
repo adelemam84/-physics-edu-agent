@@ -9,6 +9,12 @@ This runbook covers technical recovery only. Question/content ingestion is inten
 - Prefer a previously verified Vercel production deployment whose `/health` and `/health/ready` contracts both pass.
 - Keep database recovery explicit because an older application may still be compatible with additive schema changes, while destructive database rewinds can lose newer durable data.
 
+## Rollback preflight
+
+Before an actual traffic rollback, run the **Production Rollback Preflight** workflow against the intended Vercel deployment. It performs read-only checks only and does not change production traffic. It verifies `/health`, `/health/ready`, runtime-version consistency, the locked content-ingestion boundary, and captures research/next-release status evidence.
+
+Only proceed to **Controlled Production Rollback** when an incident actually requires a traffic change and the candidate has passed preflight.
+
 ## Application rollback
 
 Use the **Controlled Production Rollback** GitHub Actions workflow.

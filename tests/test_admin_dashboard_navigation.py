@@ -255,5 +255,25 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_sidebar_marks_current_page_accessibly(self):
+        for token in (
+            ".side a.active-nav",
+            "aria-current",
+            "markActiveNav",
+            "location.pathname",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_mobile_sidebar_auto_closes_after_navigation_choice(self):
+        for token in (
+            "setupMobileNavAutoClose",
+            "mobileNav.addEventListener('click'",
+            "window.matchMedia('(max-width:850px)').matches",
+            "dashboardPrefs.mobileNavOpen=false",
+            "applyMobileNavPreference()",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

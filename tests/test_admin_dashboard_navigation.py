@@ -275,5 +275,27 @@ class AdminDashboardNavigationTests(unittest.TestCase):
         ):
             self.assertIn(token, PAGE)
 
+
+    def test_mobile_navigation_groups_are_collapsible_and_accessible(self):
+        for token in (
+            ".nav-group.group-collapsed a{display:none}",
+            ".nav-label{cursor:pointer",
+            "setupCollapsibleNavGroups",
+            "toggleNavGroup",
+            "setAttribute('aria-expanded'",
+            "setAttribute('role','button')",
+            "setAttribute('tabindex','0')",
+        ):
+            self.assertIn(token, PAGE)
+
+    def test_active_group_stays_open_and_search_expands_matches(self):
+        for token in (
+            "active-nav",
+            "group.classList.remove('group-collapsed')",
+            "if(q)g.classList.remove('group-collapsed')",
+            "syncNavGroupState",
+        ):
+            self.assertIn(token, PAGE)
+
 if __name__ == "__main__":
     unittest.main()

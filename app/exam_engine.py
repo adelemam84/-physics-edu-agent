@@ -271,7 +271,13 @@ def resolve_exam_code(payload: ExamCodeIn, request: Request):
 
 @app.get("/api/student/exams/resolve/{access_code}", deprecated=True)
 def resolve_exam_code_legacy(access_code: str, request: Request):
-    return _resolve_exam_code(access_code, request)
+    raise HTTPException(
+        410,
+        {
+            "message": "تم إيقاف تمرير كود الامتحان داخل الرابط؛ استخدم POST /api/student/exams/resolve",
+            "replacement": "POST /api/student/exams/resolve",
+        },
+    )
 
 
 @app.post("/api/student/attempts/{attempt_id}/integrity-event")

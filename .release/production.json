@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "f1ab1f7dba1eef1d9bbc5998ab28793f9476e5f0",
+  "requested_code_sha": "c10d1499224afcd429dc9d469849107a9041b406",
   "requested_at": "2026-09-23",
-  "reason": "Controlled production release after mobile admin sidebar UX fix passed CI, full pytest, and dependency audit",
+  "reason": "Controlled production release after release bootstrap lock retry hardening passed hosted CI, full pytest, and dependency audit",
   "content_ingestion": "locked",
-  "scope": "mobile_admin_sidebar_ux"
+  "scope": "release_bootstrap_lock_retry"
 }

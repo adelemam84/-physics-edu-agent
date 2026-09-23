@@ -57,6 +57,8 @@ class AdminDashboardNavigationTests(unittest.TestCase):
     def test_dashboard_has_high_value_quick_actions(self):
         for path in (
             "/admin/quiz-builder",
+            "/admin/exam-engine",
+            "/admin/exam-analytics",
             "/admin/students",
             "/admin/lesson-studio/workspace",
             "/admin/alerts",

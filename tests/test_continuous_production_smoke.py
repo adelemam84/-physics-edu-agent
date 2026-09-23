@@ -36,8 +36,35 @@ class ContinuousProductionSmokeTests(unittest.TestCase):
             "/health/ready",
             "/api/research-engine/status",
             "/api/next-release/status",
+            "/api/student/session",
+            "/student",
+            "/student/quiz/1",
+            "/student/results/1",
+            "/student/study-queue",
+            "/student/command-center",
         ):
             self.assertIn(path, self.script)
+
+    def test_probe_attests_anonymous_student_session_and_read_only_ui_shells(self):
+        for token in (
+            'data.get("authenticated") is False',
+            "id=studentLoginForm",
+            "flushPendingSaves",
+            "submitInFlight",
+            "weakBtn.disabled=true",
+            "statusLabels=",
+            "student_shell_contracts",
+        ):
+            self.assertIn(token, self.script)
+
+    def test_probe_supports_json_and_html_contracts_without_mutations(self):
+        self.assertIn('"json"', self.script)
+        self.assertIn('"text"', self.script)
+        self.assertIn("json.loads(text) if mode == \"json\" else text", self.script)
+        self.assertNotIn('method="POST"', self.script)
+        self.assertNotIn('method="PUT"', self.script)
+        self.assertNotIn('method="PATCH"', self.script)
+        self.assertNotIn('method="DELETE"', self.script)
 
     def test_probe_has_bounded_retries_and_timeout(self):
         self.assertIn("SMOKE_TIMEOUT_SECONDS", self.script)

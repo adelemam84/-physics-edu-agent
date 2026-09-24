@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
-from .main import app
 from .db import connect
 from .security import require_admin
 from .services.source_asset_runtime import render_asset_bytes
 
+router = APIRouter()
 
-@app.get('/api/admin/questions/{question_id}/source-asset', dependencies=[Depends(require_admin)])
+
+@router.get('/api/admin/questions/{question_id}/source-asset', dependencies=[Depends(require_admin)])
 def admin_source_asset(question_id: int):
     with connect() as con:
         row = con.execute(
@@ -29,7 +30,7 @@ def admin_source_asset(question_id: int):
     return Response(image, media_type='image/jpeg', headers={'Cache-Control':'private,max-age=300'})
 
 
-@app.get('/api/admin/current-corpus/assets/status', dependencies=[Depends(require_admin)])
+@router.get('/api/admin/current-corpus/assets/status', dependencies=[Depends(require_admin)])
 def current_corpus_asset_status():
     with connect() as con:
         row = con.execute(

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
-from .main import app
+router = APIRouter()
+
 
 
 PAGE = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>مركز تدخل المدرس</title><style>
@@ -12,6 +14,6 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 load();</script></main></html>'''
 
 
-@app.get("/admin/interventions", response_class=HTMLResponse)
+@router.get("/admin/interventions", response_class=HTMLResponse)
 def intervention_cases_page():
     return PAGE

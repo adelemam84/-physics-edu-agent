@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
-from .main import app
 from .db import connect
 from .security import require_admin
 
+router = APIRouter()
 
-@app.get("/api/admin/diagnostics", dependencies=[Depends(require_admin)])
+
+@router.get("/api/admin/diagnostics", dependencies=[Depends(require_admin)])
 def diagnostics():
     with connect() as con:
         checks = [
@@ -227,6 +228,6 @@ load()
 </script></main></html>'''
 
 
-@app.get("/admin/diagnostics", response_class=HTMLResponse)
+@router.get("/admin/diagnostics", response_class=HTMLResponse)
 def diagnostics_page():
     return PAGE

@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from fastapi import Depends, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 
-from .main import app
 from .security import require_admin
 from .services.ai_governance import governance_snapshot
 from .services.ai_telemetry import usage_snapshot
 
+router = APIRouter()
 
-@app.get("/api/admin/ai-operations/summary", dependencies=[Depends(require_admin)])
+
+@router.get("/api/admin/ai-operations/summary", dependencies=[Depends(require_admin)])
 def ai_operations_summary():
     """Secret-free model routing, readiness, and safety contract."""
     return governance_snapshot()
 
 
-@app.get("/api/admin/ai-operations/usage", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/ai-operations/usage", dependencies=[Depends(require_admin)])
 def ai_operations_usage(hours: int = Query(default=24, ge=1, le=24 * 31)):
     """Privacy-preserving AI usage, latency, error and optional cost aggregates."""
     return usage_snapshot(hours)
@@ -75,6 +76,6 @@ load();
 </script></main></html>'''
 
 
-@app.get("/admin/ai-operations", response_class=HTMLResponse)
+@router.get("/admin/ai-operations", response_class=HTMLResponse)
 def ai_operations_page():
     return PAGE

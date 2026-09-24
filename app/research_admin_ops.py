@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
-from .main import app
+router = APIRouter()
+
 
 PAGE=r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>تشغيل محركات المصادر</title><style>
 body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-width:1050px;margin:auto;padding:18px}.box{background:#fff;border-radius:16px;padding:16px;margin:12px 0;box-shadow:0 3px 14px #0001}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.card{border:1px solid #e5e7eb;border-radius:12px;padding:12px}.muted{color:#667085}.ok{color:#067647}.warn{color:#b54708}.bad{color:#b42318}button,input{font:inherit;padding:10px;border:1px solid #ccd2dd;border-radius:9px}button{cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f8fafc;padding:12px;border-radius:10px}</style><main>
@@ -23,6 +25,6 @@ load()
 </script></main></html>'''
 
 
-@app.get('/admin/research-ops',response_class=HTMLResponse)
+@router.get('/admin/research-ops',response_class=HTMLResponse)
 def research_ops_page():
     return PAGE

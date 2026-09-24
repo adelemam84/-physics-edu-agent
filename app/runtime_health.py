@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from fastapi import Depends, Response
+from fastapi import APIRouter, Depends, Response
 
-from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
 from .technical_observability import technical_observability_snapshot
+
+router = APIRouter()
 
 
 def _compact_signal(item: dict) -> dict:
@@ -58,7 +59,7 @@ def runtime_health_snapshot() -> dict:
     return {
         "state": state,
         "healthy": state == "healthy",
-        "version": app.version,
+        "version": identity.get("application_version"),
         "ready_for_technical_handoff": ready,
         "ready_for_controlled_launch": bool(
             readiness.get("ready_for_controlled_launch")
@@ -95,7 +96,7 @@ def runtime_health_snapshot() -> dict:
     }
 
 
-@app.get("/api/admin/runtime-health", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/runtime-health", dependencies=[Depends(require_admin)])
 def runtime_health_api(response: Response):
     response.headers["Cache-Control"] = "no-store"
     return runtime_health_snapshot()

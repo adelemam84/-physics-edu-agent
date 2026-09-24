@@ -47,6 +47,7 @@ from app import lesson_sources  # noqa: F401,E402
 from app import source_review  # noqa: F401,E402
 from app import current_corpus_ops  # noqa: F401,E402
 from app.source_asset_admin import router as source_asset_admin_router
+from app.research_admin_ops import router as research_admin_ops_router
 from app import advanced_learning  # noqa: F401,E402
 from app import exam_blueprint  # noqa: F401,E402
 from app import exam_engine  # noqa: F401,E402
@@ -74,7 +75,6 @@ from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402
-from app.research_admin_ops import router as research_admin_ops_router
 from app import science_lesson_studio  # noqa: F401,E402
 from app import science_reference_library  # noqa: F401,E402
 from app import science_reference_ui  # noqa: F401,E402

@@ -21,7 +21,7 @@ from app import analytics  # noqa: F401,E402
 from app import adaptive_practice  # noqa: F401,E402
 from app.student_portal import router as student_portal_router
 from app.student_command_center import router as student_command_center_router
-from app import progress_dashboard  # noqa: F401,E402
+from app.progress_dashboard import router as progress_dashboard_router
 from app import teacher_intervention_queue  # noqa: F401,E402
 from app import teacher_intervention_cases  # noqa: F401,E402
 from app import teacher_intervention_ui  # noqa: F401,E402
@@ -29,7 +29,7 @@ from app import system_readiness  # noqa: F401,E402
 from app import operations_readiness  # noqa: F401,E402
 from app import technical_observability  # noqa: F401,E402
 from app import database_performance  # noqa: F401,E402
-from app import runtime_health  # noqa: F401,E402
+from app.runtime_health import router as runtime_health_router
 from app import runtime_probe  # noqa: F401,E402
 from app import release_bootstrap_api  # noqa: F401,E402
 from app.phase2_admin import router as phase2_admin_router
@@ -70,6 +70,8 @@ app.router.routes.extend(academic_admin_router.routes)
 app.router.routes.extend(phase2_admin_router.routes)
 app.router.routes.extend(source_asset_admin_router.routes)
 app.router.routes.extend(research_admin_ops_router.routes)
+app.router.routes.extend(progress_dashboard_router.routes)
+app.router.routes.extend(runtime_health_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

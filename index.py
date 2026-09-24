@@ -32,7 +32,7 @@ from app import database_performance  # noqa: F401,E402
 from app import runtime_health  # noqa: F401,E402
 from app import runtime_probe  # noqa: F401,E402
 from app import release_bootstrap_api  # noqa: F401,E402
-from app import phase2_admin  # noqa: F401,E402
+from app.phase2_admin import router as phase2_admin_router
 from app.admin_auth import router as admin_auth_router
 from app import system_diagnostics  # noqa: F401,E402
 from app import document_recovery  # noqa: F401,E402
@@ -46,7 +46,7 @@ from app.student_lesson import router as student_lesson_router
 from app import lesson_sources  # noqa: F401,E402
 from app import source_review  # noqa: F401,E402
 from app import current_corpus_ops  # noqa: F401,E402
-from app import source_asset_admin  # noqa: F401,E402
+from app.source_asset_admin import router as source_asset_admin_router
 from app import advanced_learning  # noqa: F401,E402
 from app import exam_blueprint  # noqa: F401,E402
 from app import exam_engine  # noqa: F401,E402
@@ -66,12 +66,15 @@ app.router.routes.extend(student_lesson_router.routes)
 app.router.routes.extend(admin_auth_router.routes)
 app.router.routes.extend(admin_workflow_router.routes)
 app.router.routes.extend(academic_admin_router.routes)
+app.router.routes.extend(phase2_admin_router.routes)
+app.router.routes.extend(source_asset_admin_router.routes)
+app.router.routes.extend(research_admin_ops_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402
-from app import research_admin_ops  # noqa: F401,E402
+from app.research_admin_ops import router as research_admin_ops_router
 from app import science_lesson_studio  # noqa: F401,E402
 from app import science_reference_library  # noqa: F401,E402
 from app import science_reference_ui  # noqa: F401,E402

@@ -1,7 +1,7 @@
 from app.main import app
 from app import question_assets  # noqa: F401,E402
 from app import practice  # noqa: F401,E402
-from app import admin_workflow  # noqa: F401,E402
+from app.admin_workflow import router as admin_workflow_router
 from app import question_bank  # noqa: F401,E402
 from app import question_catalog_api  # noqa: F401,E402
 from app import quiz_builder  # noqa: F401,E402
@@ -15,7 +15,7 @@ from app import admin_dashboard  # noqa: F401,E402
 from app import student_reports  # noqa: F401,E402
 from app import student_review_exports  # noqa: F401,E402
 from app import academic  # noqa: F401,E402
-from app import academic_admin  # noqa: F401,E402
+from app.academic_admin import router as academic_admin_router
 from app import knowledge_map  # noqa: F401,E402
 from app import analytics  # noqa: F401,E402
 from app import adaptive_practice  # noqa: F401,E402
@@ -64,6 +64,8 @@ app.router.routes.extend(student_portal_router.routes)
 app.router.routes.extend(student_command_center_router.routes)
 app.router.routes.extend(student_lesson_router.routes)
 app.router.routes.extend(admin_auth_router.routes)
+app.router.routes.extend(admin_workflow_router.routes)
+app.router.routes.extend(academic_admin_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .db import connect
-from .main import app
 from .security import same_origin_request
 from .services.rate_limit import enforce_request_policy
 from .student_security import (
@@ -15,11 +14,14 @@ from .student_security import (
 )
 
 
+router = APIRouter()
+
+
 class StudentSessionLogin(BaseModel):
     student_code: str = Field(min_length=1, max_length=128)
 
 
-@app.post("/api/student/session")
+@router.post("/api/student/session")
 def create_student_session(payload: StudentSessionLogin, response: Response, request: Request):
     response.headers["Cache-Control"] = "no-store"
     fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
@@ -57,7 +59,7 @@ def create_student_session(payload: StudentSessionLogin, response: Response, req
     }
 
 
-@app.get("/api/student/session")
+@router.get("/api/student/session")
 def read_student_session(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     session = student_session(request)
@@ -77,7 +79,7 @@ def read_student_session(request: Request, response: Response):
     }
 
 
-@app.delete("/api/student/session")
+@router.delete("/api/student/session")
 def delete_student_session(response: Response):
     response.headers["Cache-Control"] = "no-store"
     clear_student_session_cookie(response)

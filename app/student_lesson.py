@@ -1,12 +1,13 @@
 from __future__ import annotations
 from decimal import Decimal
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field
-from .main import app
 from .db import connect
 from .student_quiz import is_correct
 from .student_security import resolve_student_code
+
+router = APIRouter()
 
 class DiagnosticAnswer(BaseModel):
     question_id:int
@@ -16,7 +17,7 @@ class DiagnosticSubmit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     answers:list[DiagnosticAnswer] = Field(max_length=100)
 
-@app.get("/api/student/lessons/{lesson_id}")
+@router.get("/api/student/lessons/{lesson_id}")
 def student_lesson(lesson_id:int, request: Request):
     code=resolve_student_code(request)
     with connect() as con:
@@ -51,7 +52,7 @@ def student_lesson(lesson_id:int, request: Request):
       "prior_mastery":mastery,"source_policy":"approved_lesson_sources_and_approved_source_questions_only",
       "content_note":"محتوى القراءة أدناه من نص صفحات PDF المصدرية المرتبطة بأسئلة هذا الدرس والمعتمدة في النظام؛ لا تتم إضافة معلومات علمية من خارج المصدر."}
 
-@app.post("/api/student/lessons/{lesson_id}/diagnostic")
+@router.post("/api/student/lessons/{lesson_id}/diagnostic")
 def lesson_diagnostic(lesson_id:int,p:DiagnosticSubmit, request: Request):
     code=resolve_student_code(request)
     with connect() as con:
@@ -88,5 +89,5 @@ async function submitDiag(){let answers=data.diagnostic_questions.map(q=>({quest
 load()
 </script></main></html>'''
 
-@app.get("/student/lesson/{lesson_id}",response_class=HTMLResponse)
+@router.get("/student/lesson/{lesson_id}",response_class=HTMLResponse)
 def student_lesson_page(lesson_id:int): return PAGE

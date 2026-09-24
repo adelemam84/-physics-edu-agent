@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from fastapi import APIRouter
+
 from .db import connect
-from .main import app
+
+router = APIRouter()
 
 
-@app.get('/api/current-curriculum/phase2-status')
+@router.get('/api/current-curriculum/phase2-status')
 def current_curriculum_phase2_status():
     with connect() as con:
         cv=con.execute("""SELECT id,academic_year FROM curriculum_versions

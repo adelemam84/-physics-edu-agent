@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from .main import app
 from .security import COOKIE_NAME, SESSION_MAX_AGE, admin_configured, admin_session_valid, make_admin_session_token, validate_admin_key
 from .services.rate_limit import enforce_request_policy
+
+router = APIRouter()
 
 
 class LoginIn(BaseModel):
     key: str = Field(min_length=1, max_length=512)
 
 
-@app.get("/api/admin/session")
+@router.get("/api/admin/session")
 def admin_session_status(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     return {"configured": admin_configured(), "authenticated": admin_session_valid(request)}
 
 
-@app.post("/api/admin/login")
+@router.post("/api/admin/login")
 def admin_login(p: LoginIn, response: Response, request: Request):
     response.headers["Cache-Control"] = "no-store"
     enforce_request_policy(
@@ -44,7 +45,7 @@ def admin_login(p: LoginIn, response: Response, request: Request):
     return {"ok": True, "expires_in_seconds": SESSION_MAX_AGE}
 
 
-@app.post("/api/admin/logout")
+@router.post("/api/admin/logout")
 def admin_logout(response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.delete_cookie(COOKIE_NAME, path="/")
@@ -59,6 +60,6 @@ fetch('/api/admin/session').then(r=>r.json()).then(x=>{if(x.authenticated)locati
 </script></html>'''
 
 
-@app.get("/admin/login", response_class=HTMLResponse)
+@router.get("/admin/login", response_class=HTMLResponse)
 def admin_login_page():
     return LOGIN

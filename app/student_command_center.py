@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from fastapi import HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from .advanced_learning import _readiness, _review_queue
 from .analytics import _learning_recommendations, _student_mastery
 from .db import connect
-from .main import app
 from .student_security import resolve_student_code
+
+router = APIRouter()
 
 
 def _student_activity(con, student_id: int) -> dict:
@@ -177,7 +178,7 @@ def build_student_command_center(student_id: int) -> dict:
     }
 
 
-@app.get("/api/student/command-center")
+@router.get("/api/student/command-center")
 def student_command_center_api(request: Request):
     code = resolve_student_code(request)
     with connect() as con:
@@ -203,6 +204,6 @@ load();
 </script></main></html>'''
 
 
-@app.get("/student/command-center", response_class=HTMLResponse)
+@router.get("/student/command-center", response_class=HTMLResponse)
 def student_command_center_page():
     return PAGE

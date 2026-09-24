@@ -1,13 +1,13 @@
 from app.main import app
 from app import question_assets  # noqa: F401,E402
 from app import practice  # noqa: F401,E402
-from app import admin_workflow  # noqa: F401,E402
+from app.admin_workflow import router as admin_workflow_router
 from app import question_bank  # noqa: F401,E402
 from app import question_catalog_api  # noqa: F401,E402
 from app import quiz_builder  # noqa: F401,E402
 from app import quality_gate_patch  # noqa: F401,E402
 from app import parent_notifications  # noqa: F401,E402
-from app import student_session_api  # noqa: F401,E402
+from app.student_session_api import router as student_session_router
 from app import security_hardening  # noqa: F401,E402
 from app import student_quiz  # noqa: F401,E402
 from app import student_admin  # noqa: F401,E402
@@ -15,12 +15,12 @@ from app import admin_dashboard  # noqa: F401,E402
 from app import student_reports  # noqa: F401,E402
 from app import student_review_exports  # noqa: F401,E402
 from app import academic  # noqa: F401,E402
-from app import academic_admin  # noqa: F401,E402
+from app.academic_admin import router as academic_admin_router
 from app import knowledge_map  # noqa: F401,E402
 from app import analytics  # noqa: F401,E402
 from app import adaptive_practice  # noqa: F401,E402
-from app import student_portal  # noqa: F401,E402
-from app import student_command_center  # noqa: F401,E402
+from app.student_portal import router as student_portal_router
+from app.student_command_center import router as student_command_center_router
 from app import progress_dashboard  # noqa: F401,E402
 from app import teacher_intervention_queue  # noqa: F401,E402
 from app import teacher_intervention_cases  # noqa: F401,E402
@@ -33,7 +33,7 @@ from app import runtime_health  # noqa: F401,E402
 from app import runtime_probe  # noqa: F401,E402
 from app import release_bootstrap_api  # noqa: F401,E402
 from app import phase2_admin  # noqa: F401,E402
-from app import admin_auth  # noqa: F401,E402
+from app.admin_auth import router as admin_auth_router
 from app import system_diagnostics  # noqa: F401,E402
 from app import document_recovery  # noqa: F401,E402
 from app import whatsapp_webhook  # noqa: F401,E402
@@ -42,7 +42,7 @@ from app import alert_center  # noqa: F401,E402
 from app import question_bank_quality  # noqa: F401,E402
 from app import question_bank_balance  # noqa: F401,E402
 from app import quiz_lifecycle  # noqa: F401,E402
-from app import student_lesson  # noqa: F401,E402
+from app.student_lesson import router as student_lesson_router
 from app import lesson_sources  # noqa: F401,E402
 from app import source_review  # noqa: F401,E402
 from app import current_corpus_ops  # noqa: F401,E402
@@ -53,7 +53,19 @@ from app import exam_engine  # noqa: F401,E402
 from app import exam_diagnostics  # noqa: F401,E402
 from app import exam_advanced_analytics  # noqa: F401,E402
 from app import study_intelligence  # noqa: F401,E402
-from app import corpus_public_status  # noqa: F401,E402
+from app.corpus_public_status import router as corpus_public_status_router
+
+# Compatibility-safe explicit registration while legacy modules still share app.routes.
+# Extending with the router's APIRoutes avoids injecting FastAPI's internal
+# _IncludedRouter marker that older route-inventory tests do not expect.
+app.router.routes.extend(corpus_public_status_router.routes)
+app.router.routes.extend(student_session_router.routes)
+app.router.routes.extend(student_portal_router.routes)
+app.router.routes.extend(student_command_center_router.routes)
+app.router.routes.extend(student_lesson_router.routes)
+app.router.routes.extend(admin_auth_router.routes)
+app.router.routes.extend(admin_workflow_router.routes)
+app.router.routes.extend(academic_admin_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from .db import connect
-from .main import app
 from .security import require_admin
 from .student_security import resolve_student_code
+
+router = APIRouter()
 
 
 def _attempt_diagnostic(con, attempt_id: int):
@@ -106,7 +107,7 @@ def _attempt_diagnostic(con, attempt_id: int):
     }
 
 
-@app.get("/api/student/attempts/{attempt_id}/diagnostic")
+@router.get("/api/student/attempts/{attempt_id}/diagnostic")
 def student_attempt_diagnostic(attempt_id: int, request: Request):
     code = resolve_student_code(request)
     with connect() as con:
@@ -120,7 +121,7 @@ def student_attempt_diagnostic(attempt_id: int, request: Request):
         return _attempt_diagnostic(con, attempt_id)
 
 
-@app.get("/api/admin/attempts/{attempt_id}/diagnostic", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/attempts/{attempt_id}/diagnostic", dependencies=[Depends(require_admin)])
 def admin_attempt_diagnostic(attempt_id: int):
     with connect() as con:
         return _attempt_diagnostic(con, attempt_id)
@@ -144,6 +145,6 @@ load()
 </script></main></html>'''
 
 
-@app.get("/student/results/{attempt_id}", response_class=HTMLResponse)
+@router.get("/student/results/{attempt_id}", response_class=HTMLResponse)
 def student_result_diagnostic_page(attempt_id: int):
     return PAGE

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from statistics import median
 
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 
 from .db import connect
-from .main import app
 from .security import require_admin
+
+router = APIRouter()
 
 
 def _ratio(value, baseline):
@@ -154,7 +155,7 @@ def build_exam_analytics(quiz_id: int):
     }
 
 
-@app.get("/api/admin/exams/{quiz_id}/advanced-analytics", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/exams/{quiz_id}/advanced-analytics", dependencies=[Depends(require_admin)])
 def exam_advanced_analytics(quiz_id: int):
     return build_exam_analytics(quiz_id)
 
@@ -165,6 +166,6 @@ body{font-family:system-ui;background:#f5f7fb;color:#172033;margin:0}main{max-wi
 <script>function e(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}function sec(v){v=Number(v||0);return v?Math.round(v)+' ث':'—'}async function load(){let id=Number(qid.value);if(!id)return;let r=await fetch('/api/admin/exams/'+id+'/advanced-analytics'),x=await r.json().catch(()=>null);if(!r.ok){content.innerHTML='<div class=box>تعذر تحميل التحليل</div>';return}let s=x.summary;content.innerHTML='<div class=box><h2>'+e(x.quiz.title)+'</h2><div class=grid>'+[['المحاولات',s.attempts],['الطلاب',s.students],['متوسط النتيجة',(s.average_score??'—')+'%'],['وسيط زمن السؤال',sec(s.median_question_time_seconds)],['أسئلة تحتاج مراجعة',s.flagged_questions],['أحداث نزاهة',s.integrity_events]].map(v=>'<div class=card><div class=muted>'+v[0]+'</div><div class=big>'+v[1]+'</div></div>').join('')+'</div></div>'+table('حسب الدرس',x.lessons)+table('حسب المهارة',x.skills)+'<div class="box scroll"><h2>إشارات مراجعة توازن الأسئلة</h2><p class=muted>هذه إشارات للمراجعة فقط وليست حذفًا أو حكمًا تلقائيًا على السؤال.</p><table><tr><th>السؤال</th><th>النجاح</th><th>الزمن</th><th>الإشارات</th></tr>'+x.flagged_questions.map(q=>'<tr><td>#'+q.id+' '+e(q.text_verbatim)+'</td><td>'+e(q.success_rate??'—')+'%</td><td>'+sec(q.average_time_seconds)+'</td><td>'+q.flags.map(e).join('، ')+'</td></tr>').join('')+'</table></div><div class="box scroll"><h2>التغير بين محاولات الطلاب</h2><table><tr><th>الطالب</th><th>الأولى</th><th>الأخيرة</th><th>التغير</th><th>المحاولات</th></tr>'+x.student_trends.map(v=>'<tr><td>'+e(v.student_name)+'</td><td>'+v.first_percentage+'%</td><td>'+v.latest_percentage+'%</td><td class="'+(v.delta<0?'bad':'ok')+'">'+(v.delta>0?'+':'')+v.delta+'%</td><td>'+v.attempt_count+'</td></tr>').join('')+'</table></div>'}function table(title,a){return '<div class="box scroll"><h2>'+title+'</h2><table><tr><th>البند</th><th>الإجابات</th><th>النجاح</th><th>متوسط الزمن</th></tr>'+a.map(v=>'<tr><td>'+e(v.label||'—')+'</td><td>'+v.responses+'</td><td>'+e(v.success_rate??'—')+'%</td><td>'+sec(v.average_time_seconds)+'</td></tr>').join('')+'</table></div>'}</script></main></html>'''
 
 
-@app.get("/admin/exam-analytics", response_class=HTMLResponse)
+@router.get("/admin/exam-analytics", response_class=HTMLResponse)
 def exam_analytics_page():
     return PAGE

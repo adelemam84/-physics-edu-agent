@@ -42,7 +42,7 @@ from app import alert_center  # noqa: F401,E402
 from app import question_bank_quality  # noqa: F401,E402
 from app import question_bank_balance  # noqa: F401,E402
 from app import quiz_lifecycle  # noqa: F401,E402
-from app import student_lesson  # noqa: F401,E402
+from app.student_lesson import router as student_lesson_router
 from app import lesson_sources  # noqa: F401,E402
 from app import source_review  # noqa: F401,E402
 from app import current_corpus_ops  # noqa: F401,E402
@@ -62,6 +62,7 @@ app.router.routes.extend(corpus_public_status_router.routes)
 app.router.routes.extend(student_session_router.routes)
 app.router.routes.extend(student_portal_router.routes)
 app.router.routes.extend(student_command_center_router.routes)
+app.router.routes.extend(student_lesson_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

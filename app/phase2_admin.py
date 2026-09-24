@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from fastapi import Depends, Request
+from fastapi import APIRouter, Depends, Request
 
-from .main import app
 from .security import require_admin
 from .services.corpus_phase2_runtime import run_phase2_bootstrap
 from .services.rate_limit import enforce_request_policy
 
+router = APIRouter()
 
-@app.post("/api/admin/phase2/bootstrap", dependencies=[Depends(require_admin)])
+
+@router.post("/api/admin/phase2/bootstrap", dependencies=[Depends(require_admin)])
 def admin_phase2_bootstrap(request: Request):
     """Explicit, rate-limited Phase 2 business bootstrap; never runs on cold start."""
     enforce_request_policy(

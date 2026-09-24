@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "5e854e38ba0de07779a9dd12b772081918b38f05",
-  "requested_at": "2026-09-24",
-  "reason": "Controlled production release after architecture simplification phase 1 APIRouter migration passed CI and technical readiness",
+  "requested_code_sha": "c28817c29b06f9f751090193ef1234f151d89d2a",
+  "requested_at": "2026-09-25",
+  "reason": "Controlled production release after architecture simplification phase 2 admin APIRouter migration passed CI",
   "content_ingestion": "locked",
-  "scope": "architecture_simplification_phase1"
+  "scope": "architecture_simplification_phase2"
 }

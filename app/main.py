@@ -143,31 +143,31 @@ class AttemptSubmit(BaseModel):
     quiz_id:int
     answers:list[AttemptAnswer]
 
-@app.get("/health")
+core_router = APIRouter()\n\n@core_router.get("/health")
 def health():
     return {"status":"ok","service":"science-education-platform","version":app.version,"storage_backend":STORAGE_BACKEND}
 
-@app.get("/")
+@core_router.get("/")
 def root():
     return RedirectResponse("/student")
 
-@app.get('/admin')
+@core_router.get('/admin')
 def admin_root():
     return RedirectResponse('/admin/dashboard')
 
-@app.get('/api/admin/config',dependencies=[Depends(require_admin)])
+@core_router.get('/api/admin/config',dependencies=[Depends(require_admin)])
 def admin_config():
     return {'admin_configured':admin_configured(),'storage_configured':storage_configured(),'bucket':BUCKET,'storage_backend':STORAGE_BACKEND,'content_ingestion_enabled':content_ingestion_enabled()}
 
-@app.get('/api/admin/release-readiness',dependencies=[Depends(require_admin)])
+@core_router.get('/api/admin/release-readiness',dependencies=[Depends(require_admin)])
 def admin_release_readiness():
     return release_readiness()
 
-@app.get('/api/admin/source-corpus-benchmark',dependencies=[Depends(require_admin)])
+@core_router.get('/api/admin/source-corpus-benchmark',dependencies=[Depends(require_admin)])
 def admin_source_corpus_benchmark():
     return source_corpus_benchmark()
 
-@app.get('/api/admin/documents',dependencies=[Depends(require_admin)])
+app.include_router(core_router)\n\n@app.get('/api/admin/documents',dependencies=[Depends(require_admin)])
 def list_documents():
     with connect() as con:
         rows=con.execute("SELECT id,filename,sha256,page_count,object_key,created_at FROM documents ORDER BY id DESC").fetchall()

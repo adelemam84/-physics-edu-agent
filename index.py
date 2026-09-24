@@ -33,7 +33,7 @@ from app import runtime_health  # noqa: F401,E402
 from app import runtime_probe  # noqa: F401,E402
 from app import release_bootstrap_api  # noqa: F401,E402
 from app import phase2_admin  # noqa: F401,E402
-from app import admin_auth  # noqa: F401,E402
+from app.admin_auth import router as admin_auth_router
 from app import system_diagnostics  # noqa: F401,E402
 from app import document_recovery  # noqa: F401,E402
 from app import whatsapp_webhook  # noqa: F401,E402
@@ -63,6 +63,7 @@ app.router.routes.extend(student_session_router.routes)
 app.router.routes.extend(student_portal_router.routes)
 app.router.routes.extend(student_command_center_router.routes)
 app.router.routes.extend(student_lesson_router.routes)
+app.router.routes.extend(admin_auth_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

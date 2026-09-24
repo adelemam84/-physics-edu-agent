@@ -70,10 +70,11 @@ app.router.routes.extend(academic_admin_router.routes)
 app.router.routes.extend(phase2_admin_router.routes)
 app.router.routes.extend(source_asset_admin_router.routes)
 app.router.routes.extend(research_admin_ops_router.routes)
+app.router.routes.extend(ai_operations_router.routes)
 app.router.routes.extend(progress_dashboard_router.routes)
 app.router.routes.extend(runtime_health_router.routes)
 from app import research_engine  # noqa: F401,E402
-from app import ai_operations  # noqa: F401,E402
+from app.ai_operations import router as ai_operations_router
 from app import ai_budget_guard  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402

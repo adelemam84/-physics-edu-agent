@@ -50,9 +50,9 @@ from app.source_asset_admin import router as source_asset_admin_router
 from app.research_admin_ops import router as research_admin_ops_router
 from app import advanced_learning  # noqa: F401,E402
 from app import exam_blueprint  # noqa: F401,E402
-from app import exam_engine  # noqa: F401,E402
-from app import exam_diagnostics  # noqa: F401,E402
-from app import exam_advanced_analytics  # noqa: F401,E402
+from app.exam_engine import router as exam_engine_router
+from app.exam_diagnostics import router as exam_diagnostics_router
+from app.exam_advanced_analytics import router as exam_advanced_analytics_router
 from app import study_intelligence  # noqa: F401,E402
 from app.corpus_public_status import router as corpus_public_status_router
 from app.ai_operations import router as ai_operations_router
@@ -78,6 +78,9 @@ app.router.routes.extend(progress_dashboard_router.routes)
 app.router.routes.extend(student_reports_router.routes)
 app.router.routes.extend(teacher_intervention_ui_router.routes)
 app.router.routes.extend(runtime_health_router.routes)
+app.router.routes.extend(exam_engine_router.routes)
+app.router.routes.extend(exam_diagnostics_router.routes)
+app.router.routes.extend(exam_advanced_analytics_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402

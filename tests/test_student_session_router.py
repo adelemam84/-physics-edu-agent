@@ -14,10 +14,10 @@ class StudentSessionRouterTests(unittest.TestCase):
         self.assertNotIn("@app.", source)
 
     def test_session_contract_paths_and_methods_are_preserved(self):
-        by_path = {route.path: set(route.methods or set()) for route in router.routes}
-        self.assertIn("POST", by_path["/api/student/session"])
-        self.assertIn("GET", by_path["/api/student/session"])
-        self.assertIn("DELETE", by_path["/api/student/session"])
+        methods = set().union(*(set(route.methods or set()) for route in router.routes if route.path == "/api/student/session"))
+        self.assertIn("POST", methods)
+        self.assertIn("GET", methods)
+        self.assertIn("DELETE", methods)
 
 
 if __name__ == "__main__":

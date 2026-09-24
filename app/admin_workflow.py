@@ -1,5 +1,7 @@
+from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
-from .main import app
+
+router = APIRouter()
 
 WORKFLOW = r'''<!doctype html><html lang="ar" dir="rtl"><meta name="viewport" content="width=device-width,initial-scale=1"><title>مراجعة واعتماد الأسئلة</title><style>
 body{font-family:system-ui;background:#f5f7fb;margin:0;color:#172033}main{max-width:1400px;margin:auto;padding:16px}.box{background:#fff;border-radius:16px;padding:14px;margin:10px 0;box-shadow:0 3px 14px #0000000a}.grid{display:grid;grid-template-columns:260px minmax(0,1fr) 360px;gap:12px}.top{display:flex;gap:8px;flex-wrap:wrap;align-items:center}input,select,button,textarea{padding:10px;border:1px solid #ccd2dd;border-radius:9px;font:inherit}textarea{width:100%;box-sizing:border-box;min-height:160px}button{cursor:pointer}.doc,.q{padding:9px;border-bottom:1px solid #eee;cursor:pointer}.active{background:#eef4ff}.muted{color:#667085;font-size:13px}.stage{position:relative;display:inline-block;max-width:100%;touch-action:none}.stage img{display:block;max-width:100%;max-height:72vh}.sel{position:absolute;border:3px solid #175cd3;background:#175cd322;display:none;pointer-events:none}.check{padding:8px 10px;border-radius:10px;background:#f7f8fa;margin:6px 0}.ok{background:#ecfdf3}.warn{background:#fff7ed}.asset{max-width:100%;border-radius:10px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}@media(max-width:950px){.grid{grid-template-columns:1fr}.stage img{max-height:none}}
@@ -51,6 +53,6 @@ function moveWork(n){openWorkItem(workIndex+n)}
 (async()=>{await loadAll();await loadWorklist()})();
 </script></html>'''
 
-@app.get('/admin/workflow', response_class=HTMLResponse)
+@router.get('/admin/workflow', response_class=HTMLResponse)
 def admin_workflow():
     return WORKFLOW

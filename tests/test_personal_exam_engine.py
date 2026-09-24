@@ -71,7 +71,7 @@ def test_teacher_score_override_is_audited_and_human_only():
 def test_exam_code_resolution_uses_post_body_and_is_rate_limited():
     engine = Path("app/exam_engine.py").read_text(encoding="utf-8")
     hardening = Path("app/security_hardening.py").read_text(encoding="utf-8")
-    assert '@app.post("/api/student/exams/resolve")' in engine
+    assert '@router.post("/api/student/exams/resolve")' in engine
     assert "body:JSON.stringify({access_code:v})" in engine
     assert "resolve/'+encodeURIComponent(v)" not in engine
     assert '@app.get("/api/student/exams/resolve/{access_code}", deprecated=True)' in engine

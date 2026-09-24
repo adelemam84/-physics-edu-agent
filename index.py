@@ -19,7 +19,7 @@ from app import academic_admin  # noqa: F401,E402
 from app import knowledge_map  # noqa: F401,E402
 from app import analytics  # noqa: F401,E402
 from app import adaptive_practice  # noqa: F401,E402
-from app import student_portal  # noqa: F401,E402
+from app.student_portal import router as student_portal_router
 from app import student_command_center  # noqa: F401,E402
 from app import progress_dashboard  # noqa: F401,E402
 from app import teacher_intervention_queue  # noqa: F401,E402
@@ -60,6 +60,7 @@ from app.corpus_public_status import router as corpus_public_status_router
 # _IncludedRouter marker that older route-inventory tests do not expect.
 app.router.routes.extend(corpus_public_status_router.routes)
 app.router.routes.extend(student_session_router.routes)
+app.router.routes.extend(student_portal_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

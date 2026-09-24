@@ -74,7 +74,7 @@ def test_exam_code_resolution_uses_post_body_and_is_rate_limited():
     assert '@router.post("/api/student/exams/resolve")' in engine
     assert "body:JSON.stringify({access_code:v})" in engine
     assert "resolve/'+encodeURIComponent(v)" not in engine
-    assert '@app.get("/api/student/exams/resolve/{access_code}", deprecated=True)' in engine
+    assert '@router.get("/api/student/exams/resolve/{access_code}", deprecated=True)' in engine
     assert "student_exam_code_resolve" in hardening
     assert r"^/api/student/exams/resolve$" in hardening
 

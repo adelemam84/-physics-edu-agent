@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import os
 
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from .db import connect
-from .main import app
 from .operations_readiness import build_operations_readiness
 from .security import require_admin
 from .services.active_content_integrity import active_content_integrity_snapshot
 from .technical_observability import technical_observability_snapshot
+
+router = APIRouter()
 
 
 def _technical_readiness_alerts(snapshot: dict) -> list[dict]:
@@ -205,17 +206,17 @@ load()
 </script></main></html>'''
 
 
-@app.get("/api/admin/alert-center", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/alert-center", dependencies=[Depends(require_admin)])
 def alert_center():
     return collect_alerts()
 
 
-@app.get("/api/admin/alert-center/summary", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/alert-center/summary", dependencies=[Depends(require_admin)])
 def alert_center_summary():
     x=collect_alerts()
     return {"healthy":x["healthy"],"error_count":x["error_count"],"warning_count":x["warning_count"],"info_count":x["info_count"],"total":len(x["alerts"])}
 
 
-@app.get("/admin/alerts", response_class=HTMLResponse)
+@router.get("/admin/alerts", response_class=HTMLResponse)
 def alerts_page():
     return PAGE

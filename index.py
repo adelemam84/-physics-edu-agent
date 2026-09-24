@@ -55,6 +55,7 @@ from app import exam_diagnostics  # noqa: F401,E402
 from app import exam_advanced_analytics  # noqa: F401,E402
 from app import study_intelligence  # noqa: F401,E402
 from app.corpus_public_status import router as corpus_public_status_router
+from app.ai_operations import router as ai_operations_router
 
 # Compatibility-safe explicit registration while legacy modules still share app.routes.
 # Extending with the router's APIRoutes avoids injecting FastAPI's internal
@@ -78,7 +79,6 @@ app.router.routes.extend(student_reports_router.routes)
 app.router.routes.extend(teacher_intervention_ui_router.routes)
 app.router.routes.extend(runtime_health_router.routes)
 from app import research_engine  # noqa: F401,E402
-from app.ai_operations import router as ai_operations_router
 from app import ai_budget_guard  # noqa: F401,E402
 from app import file_search_store  # noqa: F401,E402
 from app import source_indexing  # noqa: F401,E402

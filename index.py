@@ -55,9 +55,10 @@ from app import exam_advanced_analytics  # noqa: F401,E402
 from app import study_intelligence  # noqa: F401,E402
 from app.corpus_public_status import router as corpus_public_status_router
 
-# Register explicit APIRouters before importing legacy side-effect route modules.
-# FastAPI's include_router() flattens APIRoutes into app.routes when invoked here.
-app.include_router(corpus_public_status_router)
+# Compatibility-safe explicit registration while legacy modules still share app.routes.
+# Extending with the router's APIRoutes avoids injecting FastAPI's internal
+# _IncludedRouter marker that older route-inventory tests do not expect.
+app.router.routes.extend(corpus_public_status_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

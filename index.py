@@ -34,11 +34,11 @@ from app import runtime_probe  # noqa: F401,E402
 from app import release_bootstrap_api  # noqa: F401,E402
 from app.phase2_admin import router as phase2_admin_router
 from app.admin_auth import router as admin_auth_router
-from app import system_diagnostics  # noqa: F401,E402
+from app.system_diagnostics import router as system_diagnostics_router
 from app import document_recovery  # noqa: F401,E402
 from app import whatsapp_webhook  # noqa: F401,E402
 from app import whatsapp_monitor  # noqa: F401,E402
-from app import alert_center  # noqa: F401,E402
+from app.alert_center import router as alert_center_router
 from app import question_bank_quality  # noqa: F401,E402
 from app import question_bank_balance  # noqa: F401,E402
 from app import quiz_lifecycle  # noqa: F401,E402
@@ -70,6 +70,8 @@ app.router.routes.extend(academic_admin_router.routes)
 app.router.routes.extend(phase2_admin_router.routes)
 app.router.routes.extend(source_asset_admin_router.routes)
 app.router.routes.extend(research_admin_ops_router.routes)
+app.router.routes.extend(system_diagnostics_router.routes)
+app.router.routes.extend(alert_center_router.routes)
 app.router.routes.extend(ai_operations_router.routes)
 app.router.routes.extend(progress_dashboard_router.routes)
 app.router.routes.extend(student_reports_router.routes)

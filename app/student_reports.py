@@ -1,11 +1,12 @@
 from __future__ import annotations
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
-from .main import app
 from .db import connect
 from .security import require_admin
 
-@app.get("/api/admin/attempts/{attempt_id}/report",dependencies=[Depends(require_admin)])
+router = APIRouter()
+
+@router.get("/api/admin/attempts/{attempt_id}/report",dependencies=[Depends(require_admin)])
 def attempt_report(attempt_id:int):
     with connect() as con:
         a=con.execute("""SELECT a.id,a.student_id,a.quiz_id,a.score,a.max_score,a.started_at,a.completed_at,a.submitted_at,
@@ -49,5 +50,5 @@ diag.href='/api/admin/attempts/'+id+'/diagnostic';
 head.innerHTML += '<div class=box><h2>تعديل الدرجة يدويًا</h2><div class=muted>التعديل بشري فقط ويُحفظ في سجل تدقيق كامل.</div><input id=newScore type=number min=0 max="'+a.max_score+'" step="0.01" placeholder="الدرجة الجديدة"><input id=reason placeholder="سبب التعديل"><button onclick="overrideScore()">حفظ التعديل</button><div id=overrideMsg class=muted></div><div id=overrideHistory>'+(x.score_overrides.length?x.score_overrides.map(o=>'<div class=q>'+e(o.previous_score)+' ← '+e(o.new_score)+' · '+e(o.reason)+'<div class=muted>'+e(o.created_at)+'</div></div>').join(''):'لا توجد تعديلات سابقة')+'</div></div>';
 let w=x.answers.filter(z=>z.is_correct===false);wrong.innerHTML='<div class=box><h2>الأسئلة التي أخطأ فيها الطالب</h2>'+(w.length?w.map(z=>`<div class=q><b>${e(z.lesson_title||'غير مصنف')} · ${e(z.difficulty)}</b><p>${e(z.text_verbatim)}</p><div class=bad>إجابة الطالب: ${e(z.answer_text||'بدون إجابة')}</div><div class=ok>الإجابة المعتمدة: ${e(z.accepted_answer||'—')}</div>${z.solution_verbatim?'<div class=muted>الحل من المصدر: '+e(z.solution_verbatim)+'</div>':''}</div>`).join(''):'<p class=ok>لم يسجل الطالب إجابات خاطئة.</p>')+'</div>';
 history.innerHTML='<div class=box><h2>سجل محاولات الطالب</h2><table><tr><th>الاختبار</th><th>النسبة</th><th>التاريخ</th></tr>'+x.history.map(z=>`<tr><td><a href="/admin/results/${z.id}">${e(z.quiz_title||'اختبار')}</a></td><td>${z.percentage}%</td><td>${e(z.completed_at)}</td></tr>`).join('')+'</table></div>'}async function overrideScore(){let body={new_score:Number(newScore.value),reason:reason.value.trim()};if(!Number.isFinite(body.new_score)||!body.reason){overrideMsg.textContent='أدخل الدرجة وسبب التعديل';return}let r=await fetch('/api/admin/attempts/'+id+'/score',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),x=await r.json().catch(()=>null);overrideMsg.textContent=r.ok?'تم حفظ التعديل في سجل التدقيق':(typeof x?.detail==='string'?x.detail:'تعذر تعديل الدرجة');if(r.ok)load()}load()</script></main></html>'''
-@app.get("/admin/results/{attempt_id}",response_class=HTMLResponse)
+@router.get("/admin/results/{attempt_id}",response_class=HTMLResponse)
 def result_page(attempt_id:int): return PAGE

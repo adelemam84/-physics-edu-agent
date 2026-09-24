@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from fastapi import Depends
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from .db import connect
-from .main import app
 from .security import require_admin
 from .teacher_intervention_queue import build_intervention_queue
 
+router = APIRouter()
 
-@app.get("/api/admin/progress", dependencies=[Depends(require_admin)])
+
+@router.get("/api/admin/progress", dependencies=[Depends(require_admin)])
 def progress_dashboard():
     with connect() as con:
         summary = con.execute(
@@ -48,6 +49,6 @@ load();
 </script></main></html>'''
 
 
-@app.get("/admin/progress", response_class=HTMLResponse)
+@router.get("/admin/progress", response_class=HTMLResponse)
 def progress_page():
     return PAGE

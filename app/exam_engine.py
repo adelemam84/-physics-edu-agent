@@ -7,14 +7,15 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .db import connect
-from .main import app
 from .security import require_admin
 from .student_security import resolve_student_code
+
+router = APIRouter()
 
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 INTEGRITY_EVENTS = {
@@ -170,7 +171,7 @@ def _quiz_settings(con, quiz_id: int):
     ).fetchone()
 
 
-@app.get("/api/admin/exams/{quiz_id}/settings", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/exams/{quiz_id}/settings", dependencies=[Depends(require_admin)])
 def read_exam_settings(quiz_id: int):
     with connect() as con:
         row = _quiz_settings(con, quiz_id)
@@ -179,7 +180,7 @@ def read_exam_settings(quiz_id: int):
         return {**row, "delivery_state": exam_delivery_state(row)}
 
 
-@app.patch("/api/admin/exams/{quiz_id}/settings", dependencies=[Depends(require_admin)])
+@router.patch("/api/admin/exams/{quiz_id}/settings", dependencies=[Depends(require_admin)])
 def update_exam_settings(quiz_id: int, payload: ExamSettingsIn):
     with connect() as con:
         old = _quiz_settings(con, quiz_id)
@@ -220,7 +221,7 @@ def update_exam_settings(quiz_id: int, payload: ExamSettingsIn):
         return {**row, "delivery_state": exam_delivery_state(state_row)}
 
 
-@app.post("/api/admin/exams/{quiz_id}/rotate-code", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/exams/{quiz_id}/rotate-code", dependencies=[Depends(require_admin)])
 def rotate_exam_code(quiz_id: int):
     with connect() as con:
         old = _quiz_settings(con, quiz_id)
@@ -264,12 +265,12 @@ def _resolve_exam_code(access_code: str, request: Request):
         }
 
 
-@app.post("/api/student/exams/resolve")
+@router.post("/api/student/exams/resolve")
 def resolve_exam_code(payload: ExamCodeIn, request: Request):
     return _resolve_exam_code(payload.access_code, request)
 
 
-@app.get("/api/student/exams/resolve/{access_code}", deprecated=True)
+@router.get("/api/student/exams/resolve/{access_code}", deprecated=True)
 def resolve_exam_code_legacy(access_code: str, request: Request):
     raise HTTPException(
         410,
@@ -280,7 +281,7 @@ def resolve_exam_code_legacy(access_code: str, request: Request):
     )
 
 
-@app.post("/api/student/attempts/{attempt_id}/integrity-event")
+@router.post("/api/student/attempts/{attempt_id}/integrity-event")
 def record_integrity_event(attempt_id: int, payload: IntegrityEventIn, request: Request):
     code = resolve_student_code(request)
     event_type = payload.event_type.strip().lower()
@@ -329,7 +330,7 @@ def record_integrity_event(attempt_id: int, payload: IntegrityEventIn, request: 
 
 
 
-@app.patch("/api/admin/attempts/{attempt_id}/score", dependencies=[Depends(require_admin)])
+@router.patch("/api/admin/attempts/{attempt_id}/score", dependencies=[Depends(require_admin)])
 def override_attempt_score(attempt_id: int, payload: ScoreOverrideIn):
     with connect() as con:
         row = con.execute(
@@ -372,7 +373,7 @@ def override_attempt_score(attempt_id: int, payload: ScoreOverrideIn):
         }
 
 
-@app.get("/api/admin/attempts/{attempt_id}/score-history", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/attempts/{attempt_id}/score-history", dependencies=[Depends(require_admin)])
 def attempt_score_history(attempt_id: int):
     with connect() as con:
         if not con.execute("SELECT 1 FROM attempts WHERE id=%s", (attempt_id,)).fetchone():
@@ -387,7 +388,7 @@ def attempt_score_history(attempt_id: int):
         return {"attempt_id": attempt_id, "history": rows}
 
 
-@app.get("/api/admin/exams/{quiz_id}/integrity", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/exams/{quiz_id}/integrity", dependencies=[Depends(require_admin)])
 def exam_integrity_summary(quiz_id: int):
     with connect() as con:
         if not con.execute("SELECT 1 FROM quizzes WHERE id=%s", (quiz_id,)).fetchone():
@@ -464,7 +465,7 @@ async function loadIntegrity(){let r=await fetch('/api/admin/exams/'+id+'/integr
 </script></main></html>'''
 
 
-@app.get("/admin/exam-engine", response_class=HTMLResponse)
+@router.get("/admin/exam-engine", response_class=HTMLResponse)
 def exam_engine_page():
     return PAGE
 
@@ -489,6 +490,6 @@ code.addEventListener('keydown',e=>{if(e.key==='Enter')go()})
 </script></main></html>'''
 
 
-@app.get("/student/exam-code", response_class=HTMLResponse)
+@router.get("/student/exam-code", response_class=HTMLResponse)
 def student_exam_code_page():
     return STUDENT_CODE_PAGE

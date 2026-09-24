@@ -54,6 +54,10 @@ from app import exam_diagnostics  # noqa: F401,E402
 from app import exam_advanced_analytics  # noqa: F401,E402
 from app import study_intelligence  # noqa: F401,E402
 from app.corpus_public_status import router as corpus_public_status_router
+
+# Register explicit APIRouters before importing legacy side-effect route modules.
+# FastAPI's include_router() flattens APIRoutes into app.routes when invoked here.
+app.include_router(corpus_public_status_router)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402
@@ -126,6 +130,3 @@ from app import lesson_presentation_approval_ledger_ui  # noqa: F401,E402
 
 from app import content_maintenance_api  # noqa: F401,E402
 from app import feature_status  # noqa: F401,E402
-
-# Explicit router registration: first migration away from import-side-effect routing.
-app.include_router(corpus_public_status_router)

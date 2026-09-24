@@ -12,7 +12,7 @@ from app import security_hardening  # noqa: F401,E402
 from app import student_quiz  # noqa: F401,E402
 from app import student_admin  # noqa: F401,E402
 from app import admin_dashboard  # noqa: F401,E402
-from app import student_reports  # noqa: F401,E402
+from app.student_reports import router as student_reports_router
 from app import student_review_exports  # noqa: F401,E402
 from app import academic  # noqa: F401,E402
 from app.academic_admin import router as academic_admin_router
@@ -24,7 +24,7 @@ from app.student_command_center import router as student_command_center_router
 from app.progress_dashboard import router as progress_dashboard_router
 from app import teacher_intervention_queue  # noqa: F401,E402
 from app import teacher_intervention_cases  # noqa: F401,E402
-from app import teacher_intervention_ui  # noqa: F401,E402
+from app.teacher_intervention_ui import router as teacher_intervention_ui_router
 from app import system_readiness  # noqa: F401,E402
 from app import operations_readiness  # noqa: F401,E402
 from app import technical_observability  # noqa: F401,E402
@@ -72,6 +72,8 @@ app.router.routes.extend(source_asset_admin_router.routes)
 app.router.routes.extend(research_admin_ops_router.routes)
 app.router.routes.extend(ai_operations_router.routes)
 app.router.routes.extend(progress_dashboard_router.routes)
+app.router.routes.extend(student_reports_router.routes)
+app.router.routes.extend(teacher_intervention_ui_router.routes)
 app.router.routes.extend(runtime_health_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app.ai_operations import router as ai_operations_router

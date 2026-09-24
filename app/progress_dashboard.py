@@ -9,6 +9,8 @@ from .teacher_intervention_queue import build_intervention_queue
 
 router = APIRouter()
 
+router = APIRouter()
+
 
 @router.get("/api/admin/progress", dependencies=[Depends(require_admin)])
 def progress_dashboard():

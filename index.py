@@ -7,7 +7,7 @@ from app import question_catalog_api  # noqa: F401,E402
 from app import quiz_builder  # noqa: F401,E402
 from app import quality_gate_patch  # noqa: F401,E402
 from app import parent_notifications  # noqa: F401,E402
-from app import student_session_api  # noqa: F401,E402
+from app.student_session_api import router as student_session_router
 from app import security_hardening  # noqa: F401,E402
 from app import student_quiz  # noqa: F401,E402
 from app import student_admin  # noqa: F401,E402
@@ -59,6 +59,7 @@ from app.corpus_public_status import router as corpus_public_status_router
 # Extending with the router's APIRoutes avoids injecting FastAPI's internal
 # _IncludedRouter marker that older route-inventory tests do not expect.
 app.router.routes.extend(corpus_public_status_router.routes)
+app.router.routes.extend(student_session_router.routes)
 from app import research_engine  # noqa: F401,E402
 from app import ai_operations  # noqa: F401,E402
 from app import ai_budget_guard  # noqa: F401,E402

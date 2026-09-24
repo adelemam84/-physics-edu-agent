@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "698a6a0004982e61398dbd79d4bdedc9002faf32",
+  "requested_code_sha": "5e854e38ba0de07779a9dd12b772081918b38f05",
   "requested_at": "2026-09-24",
-  "reason": "Controlled production release after adding read-only rollback preflight and recovery runbook coverage",
+  "reason": "Controlled production release after architecture simplification phase 1 APIRouter migration passed CI and technical readiness",
   "content_ingestion": "locked",
-  "scope": "rollback_preflight_hardening"
+  "scope": "architecture_simplification_phase1"
 }

@@ -59,7 +59,7 @@ def runtime_health_snapshot() -> dict:
     return {
         "state": state,
         "healthy": state == "healthy",
-        "version": app.version,
+        "version": identity.get("application_version"),
         "ready_for_technical_handoff": ready,
         "ready_for_controlled_launch": bool(
             readiness.get("ready_for_controlled_launch")

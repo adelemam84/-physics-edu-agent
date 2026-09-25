@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import threading
 import time
 
@@ -15,6 +16,8 @@ from .security import require_admin
 from .services.active_content_integrity import active_content_integrity_snapshot
 
 NEXT_RELEASE = app.version
+_log = logging.getLogger(__name__)
+SLOW_STATUS_MS = 1000
 PUBLIC_STATUS_TTL_SECONDS = max(
     1.0,
     min(float(os.getenv("NEXT_RELEASE_PUBLIC_CACHE_SECONDS", "5")), 30.0),
@@ -64,13 +67,34 @@ def next_release_status() -> dict:
     intentionally independent from technical runtime handoff. Their absence is therefore reported
     as an optional capability warning rather than as a runtime activation failure.
     """
-    research = research_engine_status()
-    blueprint = blueprint_readiness()
+    timings: dict[str, int] = {}
+
+    def checked(name, call):
+        started = time.perf_counter()
+        try:
+            return call()
+        finally:
+            timings[name] = round((time.perf_counter() - started) * 1000)
+
+    started = time.perf_counter()
+    research = checked("research", research_engine_status)
+    blueprint = checked("blueprint", blueprint_readiness)
     from .source_review import _source_page_coverage_snapshot
 
-    source_coverage = _source_page_coverage_snapshot()["summary"]
-    content_integrity = active_content_integrity_snapshot()
-    sync = _sync_summary()
+    source_coverage = checked(
+        "source_coverage", _source_page_coverage_snapshot
+    )["summary"]
+    content_integrity = checked(
+        "content_integrity", active_content_integrity_snapshot
+    )
+    sync = checked("source_sync", _sync_summary)
+    total_ms = round((time.perf_counter() - started) * 1000)
+    if total_ms >= SLOW_STATUS_MS:
+        _log.warning(
+            "next_release_status slow total_ms=%d stages_ms=%s",
+            total_ms,
+            timings,
+        )
 
     checks = {
         "database_configured": True,

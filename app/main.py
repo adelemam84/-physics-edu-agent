@@ -169,7 +169,7 @@ def admin_release_readiness():
 def admin_source_corpus_benchmark():
     return source_corpus_benchmark()
 
-app.include_router(core_router)
+app.router.routes.extend(core_router.routes)
 
 @app.get('/api/admin/documents',dependencies=[Depends(require_admin)])
 def list_documents():

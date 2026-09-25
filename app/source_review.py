@@ -91,17 +91,22 @@ def _source_page_coverage_snapshot(document_id:int|None=None) -> dict:
         ) physical_page_count
       FROM documents d
       WHERE """+" AND ".join(where)+"""
+    ), question_counts AS (
+      SELECT q.document_id,coalesce(q.source_page,q.page) page_number,count(*) extracted_questions
+      FROM questions q JOIN source_docs d ON d.id=q.document_id
+      GROUP BY q.document_id,coalesce(q.source_page,q.page)
     )
     SELECT d.id document_id,d.filename,cv.academic_year,g.page_number,
       coalesce(r.page_role,'unknown') page_role,
       coalesce(r.review_status,'pending') review_status,
       r.question_count reviewed_question_count,
-      (SELECT count(*) FROM questions q
-       WHERE q.document_id=d.id AND coalesce(q.source_page,q.page)=g.page_number) extracted_questions
+      coalesce(qc.extracted_questions,0) extracted_questions
       FROM source_docs d
       JOIN LATERAL generate_series(1,d.physical_page_count) g(page_number) ON TRUE
       LEFT JOIN document_page_reviews r
         ON r.document_id=d.id AND r.page_number=g.page_number
+      LEFT JOIN question_counts qc
+        ON qc.document_id=d.id AND qc.page_number=g.page_number
       LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
       ORDER BY d.id,g.page_number"""
     with connect() as con:

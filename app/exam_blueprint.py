@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import nullcontext
 
 from fastapi import Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -88,8 +89,8 @@ def _balanced_pick(rows, count:int):
     return picked
 
 
-def blueprint_readiness():
-    with connect() as con:
+def blueprint_readiness(con=None):
+    with (connect() if con is None else nullcontext(con)) as con:
         ctx=_context(con)
         if not ctx:
             return {'active':False,'blueprint':ACTIVE_EXAM_BLUEPRINT,'historical_reference':HISTORICAL_OFFICIAL_REFERENCE}

@@ -1,5 +1,6 @@
 import importlib
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch
 
 
@@ -168,7 +169,8 @@ class VercelEntrypointTests(unittest.TestCase):
 
     def test_content_gap_does_not_masquerade_as_runtime_blocker(self):
         from app import release_hardening, source_review
-        with patch.object(release_hardening, "research_engine_status", return_value={
+        with patch.object(release_hardening, "connect", return_value=nullcontext(object())), \
+             patch.object(release_hardening, "research_engine_status", return_value={
             "configured": True,
             "orchestrator": {"status": "active"},
             "guardrails": {"question_bank_auto_write": False},

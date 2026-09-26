@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from ..db import connect
 
 
-def active_content_integrity_snapshot() -> dict:
+def active_content_integrity_snapshot(con=None) -> dict:
     """Read active-curriculum data integrity without mutating questions or source files."""
-    with connect() as con:
+    with (connect() if con is None else nullcontext(con)) as con:
         ctx=con.execute(
             """SELECT cv.id curriculum_version_id,cv.academic_year,cv.subject_id,cv.grade_level_id
                FROM curriculum_versions cv

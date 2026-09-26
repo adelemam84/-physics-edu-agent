@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 import logging
+import os
 import threading
 import time
+from contextlib import nullcontext
 
 from fastapi import Depends
 
@@ -26,9 +27,9 @@ _public_status_lock = threading.Lock()
 _public_status_cache: tuple[float, dict] | None = None
 
 
-def _sync_summary() -> dict:
+def _sync_summary(con=None) -> dict:
     try:
-        with connect() as con:
+        with (connect() if con is None else nullcontext(con)) as con:
             exists = con.execute(
                 "SELECT to_regclass('public.gemini_source_sync') name"
             ).fetchone()["name"]
@@ -78,16 +79,21 @@ def next_release_status() -> dict:
 
     started = time.perf_counter()
     research = checked("research", research_engine_status)
-    blueprint = checked("blueprint", blueprint_readiness)
     from .source_review import _source_page_coverage_snapshot
 
-    source_coverage = checked(
-        "source_coverage", _source_page_coverage_snapshot
-    )["summary"]
-    content_integrity = checked(
-        "content_integrity", active_content_integrity_snapshot
-    )
-    sync = checked("source_sync", _sync_summary)
+    connection_started = time.perf_counter()
+    with connect() as con:
+        timings["connection"] = round(
+            (time.perf_counter() - connection_started) * 1000
+        )
+        blueprint = checked("blueprint", lambda: blueprint_readiness(con))
+        source_coverage = checked(
+            "source_coverage", lambda: _source_page_coverage_snapshot(con=con)
+        )["summary"]
+        content_integrity = checked(
+            "content_integrity", lambda: active_content_integrity_snapshot(con)
+        )
+        sync = checked("source_sync", lambda: _sync_summary(con))
     total_ms = round((time.perf_counter() - started) * 1000)
     if total_ms >= SLOW_STATUS_MS:
         _log.warning(

@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "d9e40fd465849903c6ba56e626fdba6d8d641cf0",
-  "requested_at": "2026-09-25",
-  "reason": "Controlled production release after architecture simplification phase 4 core APIRouter migration passed hosted CI",
+  "requested_code_sha": "96c5b3cf97350b06cc213b72dd9e9dc8ff59d76c",
+  "requested_at": "2026-09-26",
+  "reason": "Controlled production release of slow release-status diagnostics after CI passed",
   "content_ingestion": "locked",
-  "scope": "architecture_simplification_phase4"
+  "scope": "release_status_timing_observability"
 }

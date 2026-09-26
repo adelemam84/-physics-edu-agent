@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from unittest.mock import patch
 
 from app import release_hardening as release
@@ -60,6 +60,9 @@ class ReleaseHardeningReadinessTests(unittest.TestCase):
         feasible=True,
     ):
         with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(release, "connect", return_value=nullcontext(object()))
+            )
             stack.enter_context(
                 patch.object(
                     release,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from fastapi import Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -70,7 +72,7 @@ def source_review(document_id:int|None=None,review_status:str|None=None):
     with connect() as con:
         return list(con.execute(sql,params).fetchall())
 
-def _source_page_coverage_snapshot(document_id:int|None=None) -> dict:
+def _source_page_coverage_snapshot(document_id:int|None=None, *, con=None) -> dict:
     """Read physical-page coverage without creating, approving, or modifying questions."""
     where=["d.kind='questions'"]
     params=[]
@@ -104,7 +106,7 @@ def _source_page_coverage_snapshot(document_id:int|None=None) -> dict:
         ON r.document_id=d.id AND r.page_number=g.page_number
       LEFT JOIN curriculum_versions cv ON cv.id=d.curriculum_version_id
       ORDER BY d.id,g.page_number"""
-    with connect() as con:
+    with (connect() if con is None else nullcontext(con)) as con:
         rows=[dict(r) for r in con.execute(sql,params).fetchall()]
 
     items=[]

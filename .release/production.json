@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "96c5b3cf97350b06cc213b72dd9e9dc8ff59d76c",
+  "requested_code_sha": "39364351245b6979efde2a51adb57efb95cf9787",
   "requested_at": "2026-09-26",
-  "reason": "Controlled production release of slow release-status diagnostics after CI passed",
+  "reason": "Controlled production release of shared release-status database connection after CI passed",
   "content_ingestion": "locked",
-  "scope": "release_status_timing_observability"
+  "scope": "release_status_single_connection"
 }

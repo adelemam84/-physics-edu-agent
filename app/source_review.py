@@ -93,7 +93,6 @@ def _source_page_coverage_snapshot(document_id:int|None=None, *, con=None) -> di
         ) physical_page_count
       FROM documents d
       WHERE """+" AND ".join(where)+"""
-    )
     ), question_counts AS (
       SELECT q.document_id,coalesce(q.source_page,q.page) page_number,count(*) extracted_questions
       FROM questions q JOIN source_docs d ON d.id=q.document_id

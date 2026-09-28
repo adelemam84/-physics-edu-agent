@@ -1,7 +1,7 @@
 {
-  "requested_code_sha": "39364351245b6979efde2a51adb57efb95cf9787",
-  "requested_at": "2026-09-26",
-  "reason": "Controlled production release of shared release-status database connection after CI passed",
+  "requested_code_sha": "1a684302e292031dc285df5f44fcdb7b6bc0ed82",
+  "requested_at": "2026-09-28",
+  "reason": "Controlled production release of source page coverage query optimization after runtime-affecting main change",
   "content_ingestion": "locked",
-  "scope": "release_status_single_connection"
+  "scope": "release_status_source_page_coverage_optimization"
 }

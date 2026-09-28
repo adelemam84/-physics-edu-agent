@@ -16,7 +16,7 @@ class LessonStudioJobIdContractTests(unittest.TestCase):
     def test_content_review_requires_uuid_job_id(self):
         route = self._route("/api/admin/lesson-studio/jobs/{job_id}/content-review")
         param = next(p for p in route.dependant.path_params if p.name == "job_id")
-        self.assertIs(param.type_, UUID)
+        self.assertIs(param.field_info.annotation, UUID)
 
     def test_visual_summary_routes_require_uuid_job_id(self):
         paths = (

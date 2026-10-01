@@ -29,7 +29,7 @@ class LessonStudioJobIdContractTests(unittest.TestCase):
             with self.subTest(path=path):
                 route = self._route(path)
                 param = next(p for p in route.dependant.path_params if p.name == "job_id")
-                self.assertIs(param.type_, UUID)
+                self.assertIs(param.field_info.annotation, UUID)
 
 
 if __name__ == "__main__":

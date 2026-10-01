@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from fastapi import Depends, Form, HTTPException
 
@@ -67,8 +68,9 @@ def _recount_notation_quality(structured: dict) -> None:
 
 
 @app.get('/api/admin/lesson-studio/jobs/{job_id}/content-review', dependencies=[Depends(require_admin)])
-def content_review(job_id: str):
+def content_review(job_id: UUID):
     """Return the teacher-review workspace plus the exact content hash represented by this payload."""
+    job_id = str(job_id)
     row, structured = _load_structured(job_id)
     diagrams = structured.get('diagram_specs') or []
     uncertain = structured.get('uncertain_items') or []
